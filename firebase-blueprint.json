@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "StreetThreadX product model",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "sku": { "type": "string" },
+        "description": { "type": "string" },
+        "materials": { "type": "string" },
+        "category": { "type": "string", "enum": ["Hoodies", "T-Shirts", "Accessories", "Sweaters"] },
+        "images": { "type": "array", "items": { "type": "string" } },
+        "stock": { "type": "number" },
+        "minStockLevel": { "type": "number" },
+        "sizes": { "type": "array", "items": { "type": "string" } },
+        "variants": { 
+          "type": "array", 
+          "items": { 
+            "type": "object",
+            "properties": {
+              "size": { "type": "string" },
+              "color": { "type": "string" },
+              "stock": { "type": "number" },
+              "sku": { "type": "string" }
+            }
+          }
+        },
+        "isNewArrival": { "type": "boolean" },
+        "isBestSeller": { "type": "boolean" },
+        "colors": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["Draft", "Published"] },
+        "taxCategory": { "type": "string", "enum": ["Standard", "Reduced", "Exempt"] },
+        "seoTitle": { "type": "string" },
+        "seoDescription": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "sales": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "price", "description", "category", "images", "stock", "status"]
+    }
+  },
+  "firestore": {
+    "products/{productId}": {
+      "schema": "Product",
+      "description": "Collection of products available in the store"
+    },
+    "orders/{orderId}": {
+      "schema": "Order",
+      "description": "Customer orders"
+    },
+    "reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Product reviews"
+    }
+  }
+}

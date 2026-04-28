@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    // BOOTSTRAPPED ADMIN CHECK
+    function isAdmin() {
+      return isEmailVerified() && (
+        request.auth.token.email == 'biplobnbc04@gmail.com'
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Product Validation ---
+    function isValidProduct(data) {
+      return data.keys().hasAll(['id', 'name', 'price', 'description', 'category', 'images', 'stock', 'status'])
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 200
+        && data.price is number && data.price >= 0
+        && data.description is string && data.description.size() <= 2000
+        && data.category is string && data.category.size() <= 100
+        && data.images is list && data.images.size() <= 10
+        && data.stock is number && data.stock >= 0
+        && data.status in ['Draft', 'Published'];
+    }
+
+    // --- Products Collection ---
+    match /products/{productId} {
+      allow read: if true; // Products are public
+      
+      allow create: if isAdmin() && isValidId(productId) && isValidProduct(incoming());
+      
+      allow update: if isAdmin() && isValidId(productId) && isValidProduct(incoming()) && (
+        // Any change allowed for admin
+        incoming().diff(existing()).affectedKeys().hasAny(['stock', 'price', 'status', 'name', 'description', 'images', 'category', 'updatedAt'])
+      );
+      
+      allow delete: if isAdmin() && isValidId(productId);
+    }
+  }
+}

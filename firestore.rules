@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    // BOOTSTRAPPED ADMIN CHECK
+    function isAdmin() {
+      // Allowing the owner email from metadata as admin
+      return isEmailVerified() && (
+        request.auth.token.email == 'biplobnbc04@gmail.com'
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Product Validation ---
+    function isValidProduct(data) {
+      return data.keys().hasAll(['id', 'name', 'price', 'description', 'category', 'images', 'stock', 'status'])
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 200
+        && data.price is number && data.price >= 0
+        && data.description is string && data.description.size() <= 4000
+        && data.category is string && data.category.size() <= 100
+        && data.images is list && data.images.size() <= 20
+        && data.stock is number
+        && data.status in ['Draft', 'Published'];
+    }
+
+    // --- Products Collection ---
+    match /products/{productId} {
+      allow read: if true; // Products are public
+      
+      // Allow creation for everyone to let the app seed itself on first run
+      allow create: if isValidId(productId) && isValidProduct(incoming());
+      
+      // Allow stock updates (for checkout) for signed-in users
+      allow update: if (isAdmin() && isValidProduct(incoming())) 
+                    || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['stock', 'updatedAt']));
+      
+      allow delete: if isAdmin() && isValidId(productId);
+    }
+
+    // --- Orders Collection ---
+    match /orders/{orderId} {
+      function isOwner() {
+        return isSignedIn() && incoming().customerEmail == request.auth.token.email;
+      }
+      
+      allow read: if isAdmin() || (isSignedIn() && existing().customerEmail == request.auth.token.email);
+      allow create: if isSignedIn() && isValidId(orderId);
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // --- Reviews Collection ---
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isValidId(reviewId);
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+  }
+}
