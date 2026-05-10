@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
+import { Facebook, Instagram, Twitter, HelpCircle, Package, Truck } from 'lucide-react';
 import { ChatMessage, ChatSession } from '../types';
 
 interface ChatWidgetProps {
@@ -16,6 +17,12 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSend
   const [inputValue, setInputValue] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const quickReplies = [
+    { text: 'Check Order Status', icon: <Truck className="w-3 h-3" /> },
+    { text: 'Latest Products', icon: <Package className="w-3 h-3" /> },
+    { text: 'Return Policy', icon: <HelpCircle className="w-3 h-3" /> },
+  ];
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -29,6 +36,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSend
     setInputValue('');
   };
 
+  const handleQuickReply = (text: string) => {
+    onSendMessage(text);
+  };
+
   return (
     <div className="fixed bottom-6 right-6 z-[200] font-mono">
       <AnimatePresence>
@@ -40,29 +51,22 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSend
             className="absolute bottom-16 right-0 w-[400px] h-[600px] bg-black border border-zinc-800 shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden"
           >
             {/* Header */}
-            <div className="p-4 border-b border-zinc-800 bg-zinc-900/50 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-[#0055ff]/10 border border-[#0055ff]/30 flex items-center justify-center">
-                  <svg className="w-4 h-4 text-[#0055ff]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-[#0055ff]">Live_Relay_System</h3>
-                  <p className="text-[8px] text-zinc-500 font-bold uppercase mt-1 flex items-center gap-2">
-                    <span className="w-1 h-1 bg-emerald-500 animate-pulse"></span>
-                    CORE_AI Operational
-                  </p>
-                </div>
-              </div>
+            <div className="p-4 border-b border-zinc-800 bg-zinc-900/50 flex flex-col items-center justify-center relative">
               <button 
                 onClick={onToggle}
-                className="p-2 text-zinc-500 hover:text-white transition-colors"
+                className="absolute right-4 top-4 p-2 text-zinc-500 hover:text-white transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
+              <div className="flex flex-col items-center gap-1 text-center">
+                <h3 className="text-[12px] font-black uppercase tracking-[0.3em] text-[#0055ff]">STREET THREADX.</h3>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(16,185,129,0.5)]"></span>
+                  <p className="text-[8px] text-emerald-500 font-black uppercase tracking-tighter">Support_Online</p>
+                </div>
+              </div>
             </div>
 
             {/* Messages */}
@@ -70,6 +74,17 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSend
               ref={scrollRef}
               className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide"
             >
+              {/* Welcome Message */}
+              <div className="flex flex-col items-start fade-in animate-in">
+                <div className="max-w-[90%] p-4 text-[11px] leading-relaxed bg-zinc-900 border border-zinc-800 text-zinc-300 font-mono relative group">
+                  <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-[#0055ff]/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                  <div className="flex flex-col space-y-2">
+                      <span className="text-[#0055ff] font-bold text-[9px] uppercase tracking-widest border-b border-[#0055ff]/30 pb-1 mb-1 block">Live Connect</span>
+                      <p>Welcome to STREET THREADX, {customerName === 'Guest' ? 'traveler' : customerName}. How can we upgrade your look today?</p>
+                  </div>
+                </div>
+              </div>
+              
               {session?.messages.map((msg) => (
                 <div 
                   key={msg.id}
@@ -86,6 +101,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSend
                           img: ({ node, ...props }) => (
                             <img 
                               {...props} 
+                              loading="lazy"
                               className="w-full h-auto mt-2 border border-zinc-800 bg-black/50" 
                               referrerPolicy="no-referrer"
                             />
@@ -127,29 +143,56 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSend
               )}
             </div>
 
-            {/* Input */}
-            <form 
-              onSubmit={handleSubmit}
-              className="p-4 border-t border-zinc-800 bg-zinc-900/30"
-            >
-              <div className="relative">
-                <input 
-                  type="text" 
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  placeholder="SEND_SIGNAL..."
-                  className="w-full bg-black border border-zinc-800 px-4 py-3 text-[10px] font-bold uppercase text-white placeholder:text-zinc-700 outline-none focus:border-[#0055ff] transition-all"
-                />
-                <button 
-                  type="submit"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-[#0055ff] hover:text-white transition-colors"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                  </svg>
-                </button>
+            {/* Quick Actions & Input area */}
+            <div className="border-t border-zinc-800 bg-zinc-900/40">
+              {/* Quick Replies Options */}
+              <div className="flex gap-2 p-3 overflow-x-auto scrollbar-hide border-b border-zinc-800/50">
+                {quickReplies.map((reply, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleQuickReply(reply.text)}
+                    className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 bg-black border border-zinc-800 text-zinc-300 text-[9px] uppercase font-bold tracking-widest hover:border-[#0055ff] hover:text-[#0055ff] transition-all whitespace-nowrap"
+                  >
+                    {reply.icon}
+                    {reply.text}
+                  </button>
+                ))}
               </div>
-            </form>
+
+              {/* Input */}
+              <form 
+                onSubmit={handleSubmit}
+                className="p-3"
+              >
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    placeholder="SEND_SIGNAL..."
+                    className="w-full bg-black border border-zinc-700 px-4 py-3 text-[10px] font-bold uppercase text-white placeholder:text-zinc-600 outline-none focus:border-[#0055ff] transition-all"
+                  />
+                  <button 
+                    type="submit"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-[#0055ff] hover:text-white transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                  </button>
+                </div>
+              </form>
+
+              {/* Social Navigation & Connect */}
+              <div className="p-2 border-t border-zinc-800/50 flex justify-between items-center bg-black/50">
+                <span className="text-[8px] text-zinc-600 font-bold tracking-widest uppercase ml-2">Connect_With_Us</span>
+                <div className="flex items-center gap-3 mr-2">
+                  <a href="#" className="text-zinc-500 hover:text-[#0055ff] transition-colors"><Facebook className="w-3.5 h-3.5" /></a>
+                  <a href="#" className="text-zinc-500 hover:text-[#0055ff] transition-colors"><Instagram className="w-3.5 h-3.5" /></a>
+                  <a href="#" className="text-zinc-500 hover:text-white transition-colors"><Twitter className="w-3.5 h-3.5" /></a>
+                </div>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -5,12 +5,18 @@ import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   BarChart, Bar, Cell, PieChart, Pie 
 } from 'recharts';
-import { generateSEOContent, generateSupportReply, generateAnalyticsReport, generateProductDescription } from '../services/geminiService';
+import { Sun, Moon, Monitor, Shield, Zap, Database, Globe, Share2, MessageSquare, Trash2, Edit3, Plus, Copy, Check, ChevronRight, ChevronLeft, Search, Filter, Download, ArrowUpRight, ArrowDownRight, Layout, List as ListIcon, Maximize2, Trash, ExternalLink } from 'lucide-react';
+import { generateSEOContent, generateSupportReply, generateAnalyticsReport, generateProductDescription, generateResponseSuggestions } from '../services/geminiService';
+import { chatService } from '../services/chatService';
 import { updateProductStock, updateProductPrice, saveProductToFirestore, updateProductsBulk } from '../services/productService';
+import { saveOrderToFirestore, updateOrder, deleteOrderFromFirestore, updateOrderStatus } from '../services/orderService';
+import { updateCustomer } from '../services/customerService';
 import PosSystem from './PosSystem';
 import Markdown from 'react-markdown';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from '../firebase';
 import { MOCK_PRODUCTS } from '../constants';
-import { AdminRole, AdminUser, LogEntry, Order, Customer, Product, ProductVariant, SocialSettings, SocialReferral, DiscountCode, Review, ChatSession } from '../types';
+import { AdminRole, AdminUser, LogEntry, Order, Customer, Product, ProductVariant, SocialSettings, SocialReferral, DiscountCode, Review, ChatSession, ChatMessage } from '../types';
 
 interface SupportRelay {
   id: string;
@@ -36,7 +42,7 @@ interface Props {
   socialReferrals: SocialReferral[];
   onLogout: () => void;
   logs: LogEntry[];
-  addLog: (action: string) => void;
+  addLog: (action: string, details?: { field?: string, previousValue?: string | number, newValue?: string | number, entityId?: string }) => void;
   discountCodes: DiscountCode[];
   setDiscountCodes: React.Dispatch<React.SetStateAction<DiscountCode[]>>;
   reviews: Review[];
@@ -64,7 +70,8 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
       subject: 'Where is my order? #ORD-8802',
       message: "Hey, I ordered the Oversized Hoodie 5 days ago and it still shows pending. What's up with that? I need it for a party this weekend.",
       status: 'OPEN',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      draftReply: "Hi Alex, thank you for reaching out! We apologize for the delay. Your order #ORD-8802 has experienced a slight shipping delay due to high volume, but it has been processed and is shipping out today via priority delivery. You should receive it just in time for your weekend party. As a token of our appreciation for your patience, we've applied a 10% discount to your next purchase with code: PARTY10. Let us know if you need anything else!"
     },
     {
       id: 'SR-1002',
@@ -101,6 +108,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState<boolean>(false);
   const [ordersViewMode, setOrdersViewMode] = useState<'list' | 'kanban'>('list');
   const [previewOrderId, setPreviewOrderId] = useState<string | null>(null);
+  const [voucherOrder, setVoucherOrder] = useState<Order | null>(null);
   const [previewCustomer, setPreviewCustomer] = useState<Customer | null>(null);
   const [managedProduct, setManagedProduct] = useState<Partial<Product> | null>(null);
   const [variantStockProduct, setVariantStockProduct] = useState<Product | null>(null);
@@ -122,6 +130,40 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   // Chat Management State
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [adminChatInput, setAdminChatInput] = useState('');
+  const [activeSessionMessages, setActiveSessionMessages] = useState<ChatMessage[]>([]);
+  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
+  const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
+
+  useEffect(() => {
+    if (selectedChatId) {
+      const unsubscribe = chatService.subscribeToMessages(selectedChatId, (messages) => {
+        setActiveSessionMessages(messages);
+      });
+      return () => unsubscribe();
+    } else {
+      setActiveSessionMessages([]);
+      setAiSuggestions([]);
+    }
+  }, [selectedChatId]);
+
+  useEffect(() => {
+    if (activeSessionMessages.length > 0 && activeSessionMessages[activeSessionMessages.length - 1].isAdmin === false) {
+      handleGenerateSuggestions();
+    }
+  }, [activeSessionMessages]);
+
+  const handleGenerateSuggestions = async () => {
+    if (!selectedChatId || activeSessionMessages.length === 0) return;
+    setIsGeneratingSuggestions(true);
+    try {
+      const suggestions = await generateResponseSuggestions(activeSessionMessages);
+      setAiSuggestions(suggestions);
+    } catch (error) {
+      console.error("Failed to generate suggestions:", error);
+    } finally {
+      setIsGeneratingSuggestions(false);
+    }
+  };
 
   // Variation Wizard State
   const [variationWizardProduct, setVariationWizardProduct] = useState<Product | null>(null);
@@ -170,22 +212,28 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   }, [products, productSearch, productCategoryFilter, productTagFilter, productStockFilter]);
 
   const filteredOrders = useMemo(() => {
-    return orders.filter(o => {
-      const matchSearch = o.id.toLowerCase().includes(orderSearch.toLowerCase()) || 
-                          o.customerName.toLowerCase().includes(orderSearch.toLowerCase()) ||
-                          o.customerEmail.toLowerCase().includes(orderSearch.toLowerCase());
-      const matchStatus = statusFilter === 'ALL' || o.status === statusFilter;
-      let matchPrice = true;
-      if (priceFilter === 'LOW') matchPrice = o.total < 10000;
-      if (priceFilter === 'MID') matchPrice = o.total >= 10000 && o.total <= 20000;
-      if (priceFilter === 'HIGH') matchPrice = o.total > 20000;
-      
-      let matchDate = true;
-      if (dateRange.start) matchDate = matchDate && o.date >= dateRange.start;
-      if (dateRange.end) matchDate = matchDate && o.date <= dateRange.end;
+    return orders
+      .filter(o => {
+        const matchSearch = o.id.toLowerCase().includes(orderSearch.toLowerCase()) || 
+                            o.customerName.toLowerCase().includes(orderSearch.toLowerCase()) ||
+                            o.customerEmail.toLowerCase().includes(orderSearch.toLowerCase());
+        const matchStatus = statusFilter === 'ALL' || o.status === statusFilter;
+        let matchPrice = true;
+        if (priceFilter === 'LOW') matchPrice = o.total < 10000;
+        if (priceFilter === 'MID') matchPrice = o.total >= 10000 && o.total <= 20000;
+        if (priceFilter === 'HIGH') matchPrice = o.total > 20000;
+        
+        let matchDate = true;
+        if (dateRange.start) matchDate = matchDate && o.date >= dateRange.start;
+        if (dateRange.end) matchDate = matchDate && o.date <= dateRange.end;
 
-      return matchSearch && matchStatus && matchPrice && matchDate;
-    });
+        return matchSearch && matchStatus && matchPrice && matchDate;
+      })
+      .sort((a, b) => {
+        const dateA = new Date(`${a.date} ${a.time || '00:00'}`).getTime();
+        const dateB = new Date(`${b.date} ${b.time || '00:00'}`).getTime();
+        return dateB - dateA;
+      });
   }, [orders, orderSearch, statusFilter, priceFilter, dateRange]);
 
   const filteredLogs = useMemo(() => {
@@ -220,14 +268,27 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     const product = products.find(p => p.id === productId);
     if (!product) return;
     
+    const prevStock = product.stock;
+    const newStock = product.stock + 50;
+    
     try {
-      await updateProductStock(productId, product.stock + 50);
-      addLog(`STOCK_BOOST: ID_${productId} +50_UNITS (FIRE_SYNC)`);
+      await updateProductStock(productId, newStock);
+      addLog(`STOCK_BOOST: ID_${productId}`, {
+        field: 'stock',
+        previousValue: prevStock,
+        newValue: newStock,
+        entityId: productId
+      });
     } catch (err) {
       console.error(err);
       // Fallback local update if firestore fails
       setProducts(prev => prev.map(p => p.id === productId ? { ...p, stock: p.stock + 50 } : p));
-      addLog(`STOCK_BOOST_LOCAL_ONLY: ID_${productId}`);
+      addLog(`STOCK_BOOST_LOCAL_ONLY: ID_${productId}`, {
+        field: 'stock',
+        previousValue: prevStock,
+        newValue: newStock,
+        entityId: productId
+      });
     }
   };
 
@@ -273,10 +334,10 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     } as Order;
 
     if (managedOrder.id && orders.some(o => o.id === managedOrder.id)) {
-      setOrders(prev => prev.map(o => o.id === managedOrder.id ? finalOrder : o));
+      updateOrder(managedOrder.id, finalOrder).catch(console.error);
       addLog(`ORDER_UPDATE: ${finalOrder.id}`);
     } else {
-      setOrders(prev => [finalOrder, ...prev]);
+      saveOrderToFirestore(finalOrder).catch(console.error);
       addLog(`ORDER_CREATE: ${finalOrder.id}`);
     }
     
@@ -285,28 +346,44 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   };
 
   const handleUpdateOrderStatus = (id: string, newStatus: string) => {
-    setOrders(prev => prev.map(o => o.id === id ? { ...o, status: newStatus as Order['status'] } : o));
-    addLog(`ORDER_STATUS_UPDATE: ${id} -> ${newStatus}`);
+    const order = orders.find(o => o.id === id);
+    const prevStatus = order?.status;
+    updateOrderStatus(id, newStatus).catch(console.error);
+    addLog(`ORDER_STATUS_UPDATE: ${id}`, {
+      field: 'status',
+      previousValue: prevStatus,
+      newValue: newStatus,
+      entityId: id
+    });
   };
 
   const handleTogglePaid = (id: string) => {
-    setOrders(prev => prev.map(o => o.id === id ? { ...o, isPaid: !o.isPaid } : o));
-    addLog(`ORDER_PAYMENT_UPDATE: ${id}`);
+    const order = orders.find(o => o.id === id);
+    if (!order) return;
+    const prevPaid = order?.isPaid ? 'PAID' : 'UNPAID';
+    const nextPaid = !order?.isPaid ? 'PAID' : 'UNPAID';
+    updateOrder(id, { isPaid: !order.isPaid }).catch(console.error);
+    addLog(`ORDER_PAYMENT_UPDATE: ${id}`, {
+      field: 'isPaid',
+      previousValue: prevPaid,
+      newValue: nextPaid,
+      entityId: id
+    });
   };
 
   const handleVerifyAdvance = (id: string) => {
-    setOrders(prev => prev.map(o => o.id === id ? { ...o, paymentStatus: 'ADVANCE_VERIFIED' } : o));
+    updateOrder(id, { paymentStatus: 'ADVANCE_VERIFIED' }).catch(console.error);
     // Simulate automated SMS/Email trigger
     addLog(`ADVANCE_VERIFIED: ${id} - SMS Triggered`);
   };
 
   const handleRejectAdvance = (id: string) => {
-    setOrders(prev => prev.map(o => o.id === id ? { ...o, paymentStatus: 'UNPAID', status: 'CANCELLED' } : o));
+    updateOrder(id, { paymentStatus: 'UNPAID', status: 'CANCELLED' }).catch(console.error);
     addLog(`ADVANCE_REJECTED: ${id}`);
   };
 
   const handleDeleteOrder = (id: string) => {
-    setOrders(prev => prev.filter(o => o.id !== id));
+    deleteOrderFromFirestore(id).catch(console.error);
     addLog(`ORDER_DELETE: ${id}`);
     setOrderDeleteConfirm(null);
   };
@@ -354,16 +431,29 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
 
   const handleSaveVariantStock = async () => {
     if (!variantStockProduct) return;
+    const originalProduct = products.find(p => p.id === variantStockProduct.id);
+    const prevStock = originalProduct?.stock;
     const totalStock = variantStockProduct.variants?.reduce((acc, v) => acc + v.stock, 0) || 0;
     const updatedProduct = { ...variantStockProduct, stock: totalStock } as Product;
     
     try {
       await saveProductToFirestore(updatedProduct);
-      addLog(`VARIANT_STOCK_UPDATE: ${updatedProduct.name} (FIRE_SYNC)`);
+      addLog(`VARIANT_STOCK_UPDATE: ${updatedProduct.name}`, {
+        field: 'stock',
+        previousValue: prevStock,
+        newValue: totalStock,
+        entityId: updatedProduct.id
+      });
       setVariantStockProduct(null);
     } catch (err) {
       console.error(err);
       setProducts(prev => prev.map(p => p.id === updatedProduct.id ? updatedProduct : p));
+      addLog(`VARIANT_STOCK_UPDATE_LOCAL: ${updatedProduct.name}`, {
+        field: 'stock',
+        previousValue: prevStock,
+        newValue: totalStock,
+        entityId: updatedProduct.id
+      });
       setVariantStockProduct(null);
     }
   };
@@ -603,9 +693,16 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   };
 
   const handleQuickStockUpdate = async (productId: string, newStock: number) => {
+    const product = products.find(p => p.id === productId);
+    const prevStock = product?.stock;
     try {
       await updateProductStock(productId, newStock);
-      addLog(`QUICK_STOCK_UPDATE: ID_${productId} -> ${newStock} (FIRE_SYNC)`);
+      addLog(`QUICK_STOCK_UPDATE: ID_${productId}`, {
+        field: 'stock',
+        previousValue: prevStock,
+        newValue: newStock,
+        entityId: productId
+      });
     } catch (err) {
       console.error(err);
       setProducts(prev => prev.map(p => p.id === productId ? { ...p, stock: newStock } : p));
@@ -613,9 +710,16 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   };
 
   const handleQuickPriceUpdate = async (productId: string, newPrice: number) => {
+    const product = products.find(p => p.id === productId);
+    const prevPrice = product?.price;
     try {
       await updateProductPrice(productId, newPrice);
-      addLog(`QUICK_PRICE_UPDATE: ID_${productId} -> ৳${newPrice} (FIRE_SYNC)`);
+      addLog(`QUICK_PRICE_UPDATE: ID_${productId}`, {
+        field: 'price',
+        previousValue: prevPrice,
+        newValue: newPrice,
+        entityId: productId
+      });
     } catch (err) {
       console.error(err);
       setProducts(prev => prev.map(p => p.id === productId ? { ...p, price: newPrice } : p));
@@ -866,25 +970,30 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     setNewImageUrl('');
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || !managedProduct) return;
 
-    Array.from(files).forEach((file: File) => {
-      if (file.type === 'image/png' || file.type === 'image/jpeg') {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const result = event.target?.result as string;
+    for (const file of Array.from(files)) {
+      if (file.type === 'image/png' || file.type === 'image/jpeg' || file.type === 'image/webp') {
+        try {
+          const fileName = `products/${Date.now()}-${file.name}`;
+          const storageRef = ref(storage, fileName);
+          await uploadBytes(storageRef, file);
+          const downloadUrl = await getDownloadURL(storageRef);
+          
           setManagedProduct(prev => ({
             ...prev,
-            images: [...(prev?.images || []), result]
+            images: [...(prev?.images || []), downloadUrl]
           }));
-        };
-        reader.readAsDataURL(file);
+        } catch (error) {
+          console.error("Error uploading image:", error);
+          alert('Failed to upload image. Please try again.');
+        }
       } else {
-        alert('Only PNG and JPG files are supported.');
+        alert('Only PNG, JPG, and WEBP files are supported.');
       }
-    });
+    }
   };
 
   const removeImageFromManagedProduct = (index: number) => {
@@ -916,8 +1025,8 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     );
   };
 
-  const themeClasses = isDarkMode ? "bg-[#020202] text-white border-zinc-800" : "bg-zinc-50 text-zinc-900 border-zinc-200";
-  const cardClasses = isDarkMode ? "bg-black/40 border-zinc-800" : "bg-white border-zinc-200 shadow-sm";
+  const themeClasses = isDarkMode ? "bg-[#020202] text-white border-zinc-800" : "bg-white text-zinc-900 border-black";
+  const cardClasses = isDarkMode ? "bg-black/40 border-zinc-800" : "bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]";
 
   const canManageProducts = user.role === AdminRole.SUPER_ADMIN || user.role === AdminRole.EDITOR;
   const canManageOrders = user.role === AdminRole.SUPER_ADMIN || user.role === AdminRole.SUPPORT;
@@ -943,7 +1052,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   return (
     <div className={`min-h-screen flex flex-col font-mono selection:bg-[#0055ff] selection:text-white transition-colors duration-300 ${themeClasses}`}>
       <div className="flex flex-1">
-        <aside className={`w-72 border-r flex flex-col p-8 space-y-10 relative z-20 transition-colors duration-300 ${isDarkMode ? 'bg-black border-zinc-800' : 'bg-white border-zinc-200'}`}>
+        <aside className={`w-72 border-r flex flex-col p-8 space-y-10 relative z-20 transition-colors duration-300 ${isDarkMode ? 'bg-black border-zinc-800' : 'bg-white border-r-2 border-black'}`}>
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 bg-[#0055ff]"></div>
@@ -967,13 +1076,30 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
               </button>
             ))}
           </nav>
-          <button onClick={onLogout} className="w-full py-4 border text-[9px] font-black uppercase tracking-[0.4em]">DISCONNECT</button>
+          <button onClick={onLogout} className={`w-full py-4 border-2 text-[9px] font-black uppercase tracking-[0.4em] transition-all ${isDarkMode ? 'border-zinc-800 hover:bg-zinc-900' : 'border-black hover:bg-black hover:text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none'}`}>DISCONNECT</button>
         </aside>
 
         <main className="flex-1 flex flex-col relative overflow-y-auto no-scrollbar">
-          <header className={`h-20 border-b flex items-center justify-between px-10 transition-colors duration-300 ${isDarkMode ? 'bg-black/50 border-zinc-800' : 'bg-white/80 border-zinc-200'}`}>
+          <header className={`h-20 border-b-2 flex items-center justify-between px-10 transition-colors duration-300 ${isDarkMode ? 'bg-black/50 border-zinc-800' : 'bg-white/80 border-black'}`}>
             <h1 className="text-lg font-black uppercase tracking-[0.4em]">{activeTab.replace('_', ' ')}</h1>
-            <button onClick={() => setIsDarkMode(!isDarkMode)} className="text-[9px] font-black uppercase border border-zinc-500/30 px-3 py-1">{isDarkMode ? 'LIGHT_MODE' : 'DARK_MODE'}</button>
+            <div className="flex items-center gap-4">
+              <div className={`flex items-center border-2 ${isDarkMode ? 'border-zinc-800 p-1 bg-black' : 'border-black p-1 bg-zinc-100'}`}>
+                <button 
+                  onClick={() => setIsDarkMode(true)} 
+                  className={`p-1.5 transition-all ${isDarkMode ? 'bg-[#0055ff] text-white' : 'text-zinc-400 hover:text-black'}`}
+                  title="Dark Mode"
+                >
+                  <Moon className="w-3.5 h-3.5" />
+                </button>
+                <button 
+                  onClick={() => setIsDarkMode(false)} 
+                  className={`p-1.5 transition-all ${!isDarkMode ? 'bg-[#0055ff] text-white' : 'text-zinc-600 hover:text-white'}`}
+                  title="Light Mode"
+                >
+                  <Sun className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
           </header>
 
           <div className="p-10 space-y-10 animate-in fade-in duration-500">
@@ -1054,7 +1180,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         <div key={p.id} className="flex items-center justify-between group">
                           <div className="flex items-center gap-4">
                             <span className="text-zinc-500 text-[10px] font-black">0{i+1}</span>
-                            <img src={p.images[0]} className="w-10 h-10 object-cover border border-zinc-800" alt="" />
+                            <img loading="lazy" src={p.images[0]} className="w-10 h-10 object-cover border border-zinc-800" alt="" />
                             <span className="text-xs font-black uppercase group-hover:text-[#0055ff] transition-colors">{p.name}</span>
                           </div>
                           <div className="text-right">
@@ -1206,7 +1332,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                             </td>
                             <td className="px-6 py-3">
                               <div className="flex items-center gap-4">
-                                <img src={p.images[0] || DEFAULT_IMAGE} className="w-10 h-12 object-cover border border-zinc-800" alt="" />
+                                <img loading="lazy" src={p.images[0] || DEFAULT_IMAGE} className="w-10 h-12 object-cover border border-zinc-800" alt="" />
                                 <div>
                                   <div className="font-black truncate max-w-[200px]">{p.name}</div>
                                   <div className="text-[9px] opacity-40">{p.category}</div>
@@ -1409,11 +1535,43 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                               <td className="px-6 py-3 text-[#0055ff] font-bold">{o.id}</td>
                               <td className="px-6 py-3">
                                 <div className="font-bold">{o.customerName}</div>
-                                <div className="text-[9px] opacity-40">{o.customerEmail}</div>
+                                <div className="text-[9px] text-[#0055ff]">{o.customerEmail}</div>
+                                {o.shippingAddress && (
+                                  <div className="text-[9px] opacity-50 mt-1 max-w-[200px] leading-tight">
+                                    {o.shippingAddress}
+                                  </div>
+                                )}
                               </td>
                               <td className="px-6 py-3">
-                                <div>{o.items} items</div>
-                                <div className="font-bold">৳{o.total.toLocaleString()}</div>
+                                <div className="font-black text-white mb-2">৳{o.total.toLocaleString()}</div>
+                                <div className="space-y-1.5 min-w-[160px]">
+                                  {o.orderItems && o.orderItems.length > 0 ? (
+                                    o.orderItems.map((item, iIndex) => (
+                                      <div key={iIndex} className={`p-1.5 border text-[9px] ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-black/5 border-zinc-200'}`}>
+                                        <div className="font-bold truncate max-w-[140px]">{item.name} <span className="text-[#0055ff] text-[8px]">x{item.quantity}</span></div>
+                                        {products.find(p => p.id === item.productId)?.description && (
+                                          <div className="text-[7px] opacity-40 line-clamp-1 mt-0.5 lowercase italic">
+                                            {products.find(p => p.id === item.productId)?.description}
+                                          </div>
+                                        )}
+                                        {item.variant && (
+                                          <div className="flex gap-2 mt-0.5 opacity-60 italic text-[8px]">
+                                            <span>Clr: {item.variant.color}</span>
+                                            <span>Sz: {item.variant.size}</span>
+                                          </div>
+                                        )}
+                                        {item.customDesign && (
+                                          <div className="flex flex-col gap-1 mt-0.5 opacity-60 italic text-[8px]">
+                                            <span>Type: {item.customDesign.type}</span>
+                                            <div className="flex items-center gap-1">Body: <div className="w-1.5 h-1.5 rounded-full" style={{backgroundColor: item.customDesign.color}}/> Slv: <div className="w-1.5 h-1.5 rounded-full" style={{backgroundColor: item.customDesign.sleeveColor}}/></div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <div className="text-[9px] opacity-40">{o.items} items</div>
+                                  )}
+                                </div>
                               </td>
                               <td className="px-6 py-3">
                                 <span className={`px-2 py-1 text-[8px] font-black uppercase border tracking-widest ${
@@ -1448,6 +1606,13 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                     title={o.isPaid || o.paymentStatus === 'FULLY_PAID' ? 'Mark Unpaid' : 'Customer Money Received'}
                                   >
                                     {o.isPaid || o.paymentStatus === 'FULLY_PAID' ? 'Paid' : 'Receive $$'}
+                                  </button>
+                                  <button 
+                                    onClick={() => setVoucherOrder(o)} 
+                                    className="px-3 py-2 border border-emerald-500/50 hover:bg-emerald-500/10 hover:border-emerald-500 text-emerald-500 uppercase text-[9px] font-black transition-all"
+                                    title="Generate Receipts Voucher"
+                                  >
+                                    Voucher
                                   </button>
                                   <button 
                                     onClick={() => setPreviewOrderId(previewOrderId === o.id ? null : o.id)} 
@@ -1504,8 +1669,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                               onChange={(e) => {
                                                 const customer = customers.find(c => c.email === o.customerEmail);
                                                 if (customer) {
-                                                  const updatedCustomer = { ...customer, notes: e.target.value };
-                                                  setCustomers(prev => prev.map(c => c.email === o.customerEmail ? updatedCustomer : c));
+                                                  updateCustomer(customer.id, { notes: e.target.value }).catch(console.error);
                                                 }
                                               }}
                                             />
@@ -1681,17 +1845,36 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                   <div className="space-y-1 mb-5">
                                     <div className="font-black text-xs uppercase truncate group-hover:text-[#0055ff] transition-colors">{o.customerName}</div>
                                     <div className="text-[9px] opacity-50 font-black truncate uppercase tracking-tighter">{o.customerEmail}</div>
+                                    {o.shippingAddress && (
+                                      <div className="text-[8px] opacity-40 uppercase leading-tight line-clamp-2 mt-1" title={o.shippingAddress}>
+                                        {o.shippingAddress}
+                                      </div>
+                                    )}
                                   </div>
   
-                                  <div className="space-y-3 mb-5">
+                                  <div className="space-y-3 mb-5 bg-zinc-900/30 p-2">
                                     {o.orderItems.slice(0, 2).map((item, idx) => (
-                                      <div key={idx} className="flex justify-between items-center text-[9px] font-black uppercase tracking-tight opacity-70">
-                                        <span>{item.quantity}x {item.name}</span>
-                                        <span>৳{(item.price * item.quantity).toLocaleString()}</span>
+                                      <div key={idx} className="flex flex-col gap-1">
+                                        <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-tight opacity-90">
+                                          <span className="truncate max-w-[150px]" title={item.name}>{item.quantity}x {item.name}</span>
+                                          <span className="text-emerald-500">৳{(item.price * item.quantity).toLocaleString()}</span>
+                                        </div>
+                                        {item.variant && (
+                                          <div className="flex gap-2 text-[8px] font-bold opacity-50 tracking-widest uppercase">
+                                            <span>COL: {item.variant.color}</span>
+                                            <span>SIZ: {item.variant.size}</span>
+                                          </div>
+                                        )}
+                                        {item.customDesign && (
+                                          <div className="flex flex-col gap-1 text-[8px] font-bold opacity-50 tracking-widest uppercase mt-0.5">
+                                            <span>TYPE: {item.customDesign.type}</span>
+                                            <div className="flex items-center gap-1">BODY: <div className="w-1.5 h-1.5 rounded-full" style={{backgroundColor: item.customDesign.color}}/> SLV: <div className="w-1.5 h-1.5 rounded-full" style={{backgroundColor: item.customDesign.sleeveColor}}/></div>
+                                          </div>
+                                        )}
                                       </div>
                                     ))}
                                     {o.orderItems.length > 2 && (
-                                      <div className="text-[8px] font-black uppercase opacity-60 tracking-widest">+{o.orderItems.length - 2} More Items...</div>
+                                      <div className="text-[8px] opacity-40 font-black uppercase">+ {o.orderItems.length - 2} MORE ITEMS</div>
                                     )}
                                   </div>
                                   
@@ -2029,7 +2212,12 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         className={`w-full text-left p-4 border-b border-zinc-800/50 flex flex-col gap-1 transition-all ${selectedChatId === session.id ? 'bg-[#0055ff]/5 border-l-4 border-l-[#0055ff]' : 'hover:bg-white/5'}`}
                       >
                         <div className="flex items-center justify-between w-full">
-                          <span className={`text-[10px] font-black uppercase truncate ${selectedChatId === session.id ? 'text-[#0055ff]' : 'text-white'}`}>{session.customerName}</span>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] font-black uppercase truncate ${selectedChatId === session.id ? 'text-[#0055ff]' : 'text-white'}`}>{session.customerName}</span>
+                            {session.isPresenceActive && (
+                              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(16,185,129,0.5)]"></span>
+                            )}
+                          </div>
                           <span className="text-[8px] text-zinc-500 font-bold uppercase">{new Date(session.lastTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         </div>
                         <p className="text-[9px] text-zinc-500 truncate">{session.lastMessage}</p>
@@ -2047,27 +2235,39 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                     <>
                       <div className="p-4 border-b border-zinc-800 bg-zinc-900/30 flex items-center justify-between">
                         <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 bg-[#0055ff]/10 border border-[#0055ff]/30 flex items-center justify-center text-[#0055ff] font-black text-xs uppercase">
-                            {chatSessions.find(s => s.id === selectedChatId)?.customerName.charAt(0) || '?'}
+                          <div className="relative">
+                            <div className="w-10 h-10 bg-[#0055ff]/10 border border-[#0055ff]/30 flex items-center justify-center text-[#0055ff] font-black text-xs uppercase">
+                              {chatSessions.find(s => s.id === selectedChatId)?.customerName.charAt(0) || '?'}
+                            </div>
+                            {chatSessions.find(s => s.id === selectedChatId)?.isPresenceActive && (
+                              <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-emerald-500 border-2 border-black rounded-full"></div>
+                            )}
                           </div>
                           <div>
-                            <h4 className="text-[11px] font-black uppercase tracking-widest">
-                              {chatSessions.find(s => s.id === selectedChatId)?.customerName}
-                            </h4>
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-[11px] font-black uppercase tracking-widest">
+                                {chatSessions.find(s => s.id === selectedChatId)?.customerName}
+                              </h4>
+                              {chatSessions.find(s => s.id === selectedChatId)?.isPresenceActive ? (
+                                <span className="text-[7px] bg-emerald-500/10 text-emerald-500 px-1.5 py-0.5 font-black uppercase tracking-tighter">Active_Link_Established</span>
+                              ) : (
+                                <span className="text-[7px] bg-zinc-800 text-zinc-500 px-1.5 py-0.5 font-black uppercase tracking-tighter">Signal_Lost</span>
+                              )}
+                            </div>
                             <p className="text-[9px] text-zinc-500 font-bold uppercase">{chatSessions.find(s => s.id === selectedChatId)?.customerEmail}</p>
                           </div>
                         </div>
                       </div>
 
                       <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide">
-                        {chatSessions.find(s => s.id === selectedChatId)?.messages.map((msg) => (
+                        {activeSessionMessages.map((msg) => (
                           <div key={msg.id} className={`flex flex-col ${msg.isAdmin ? 'items-end' : 'items-start'}`}>
                             <div className={`max-w-[70%] p-4 text-xs leading-relaxed ${msg.isAdmin ? 'bg-[#0055ff] text-white font-bold' : 'bg-zinc-800 text-zinc-300 border border-zinc-700'}`}>
                               <div className="markdown-body prose prose-invert prose-xs max-w-none">
                                 <Markdown
                                   components={{
                                     img: ({ node, ...props }) => (
-                                      <img 
+                                      <img loading="lazy" 
                                         {...props} 
                                         className="w-full h-auto mt-2 border border-zinc-800 bg-black/50" 
                                         referrerPolicy="no-referrer"
@@ -2086,6 +2286,24 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                           </div>
                         ))}
                       </div>
+
+                      {aiSuggestions.length > 0 && !isGeneratingSuggestions && (
+                        <div className="px-6 py-3 bg-black/50 border-t border-zinc-800/50 flex flex-wrap gap-2">
+                          <span className="w-full text-[8px] font-black uppercase text-[#0055ff] mb-1 opacity-50 flex items-center gap-2">
+                            <Zap className="w-2 h-2" />
+                            CORE_AI_SUGGESTIONS:
+                          </span>
+                          {aiSuggestions.map((suggestion, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => setAdminChatInput(suggestion)}
+                              className="text-[9px] px-3 py-1.5 border border-zinc-800 hover:border-[#0055ff] text-zinc-400 hover:text-white transition-all bg-zinc-900/50 font-bold uppercase tracking-tighter"
+                            >
+                              {suggestion}
+                            </button>
+                          ))}
+                        </div>
+                      )}
 
                       <form 
                         onSubmit={(e) => {
@@ -2159,6 +2377,10 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                 <PosSystem 
                   products={products} 
                   onTransactionSuccess={addLog} 
+                  onOrderComplete={(order) => {
+                    saveOrderToFirestore(order);
+                    setOrders(prev => [order, ...prev]);
+                  }}
                   isDarkMode={isDarkMode} 
                 />
               </div>
@@ -2398,6 +2620,39 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                       <div className="space-y-3">
                         <label className="text-[10px] font-black uppercase opacity-40">Default_Tax_Rate_%</label>
                         <input className={`w-full px-4 py-3 text-xs font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`} defaultValue="5" />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className={`border p-8 rounded-none space-y-8 ${cardClasses}`}>
+                    <h3 className="text-zinc-500 text-[9px] font-black uppercase tracking-widest">Aesthetic_Aura</h3>
+                    <div className="space-y-6">
+                      <p className="text-[10px] font-black uppercase opacity-60 leading-relaxed max-w-md">Synchronize the command center with your preferred luminance profile. High contrast brutalist geometry scales across all modes.</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <button 
+                          onClick={() => setIsDarkMode(true)}
+                          className={`flex flex-col gap-4 p-6 border-2 transition-all text-left ${isDarkMode ? 'border-[#0055ff] bg-[#0055ff]/5 shadow-[4px_4px_0px_0px_#0055ff]' : 'border-zinc-200 hover:border-black opacity-60'}`}
+                        >
+                          <div className={`w-full aspect-video bg-black border-2 ${isDarkMode ? 'border-[#0055ff]' : 'border-zinc-800'} flex items-center justify-center`}>
+                            <Moon className={`w-8 h-8 ${isDarkMode ? 'text-[#0055ff]' : 'text-zinc-700'}`} />
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-black uppercase tracking-widest mb-1">Night_Protocol</div>
+                            <div className="text-[8px] opacity-40 font-bold uppercase">Deep black palette for low light operations.</div>
+                          </div>
+                        </button>
+                        <button 
+                          onClick={() => setIsDarkMode(false)}
+                          className={`flex flex-col gap-4 p-6 border-2 transition-all text-left ${!isDarkMode ? 'border-black bg-zinc-50 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]' : 'border-zinc-800 opacity-60 hover:opacity-100 hover:border-zinc-600'}`}
+                        >
+                          <div className={`w-full aspect-video bg-white border-2 ${!isDarkMode ? 'border-black' : 'border-zinc-200'} flex items-center justify-center`}>
+                            <Sun className={`w-8 h-8 ${!isDarkMode ? 'text-black' : 'text-zinc-400'}`} />
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-black uppercase tracking-widest mb-1">Day_Luminance</div>
+                            <div className="text-[8px] opacity-40 font-bold uppercase">High-contrast white for peak visibility.</div>
+                          </div>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -2768,7 +3023,25 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                           <div className="w-2 h-2 rounded-none bg-[#0055ff]"></div>
                           <div>
                             <div className="text-[11px] font-black uppercase tracking-wider">{log.action}</div>
-                            <div className="text-[9px] opacity-40 uppercase mt-1">{log.timestamp}</div>
+                            <div className="text-[9px] opacity-40 uppercase mt-1">
+                              {new Date(log.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'medium' })}
+                            </div>
+                            {log.details && (
+                              <div className={`mt-3 p-3 border text-[9px] font-black uppercase space-y-1 ${isDarkMode ? 'bg-black border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                                <div className="flex justify-between items-center gap-4">
+                                  <span className="opacity-40">FIELD:</span>
+                                  <span className="text-[#0055ff]">{log.details.field}</span>
+                                </div>
+                                <div className="flex justify-between items-center gap-4">
+                                  <span className="opacity-40">PREV:</span>
+                                  <span className="text-zinc-600 line-through">{String(log.details.previousValue ?? 'NULL')}</span>
+                                </div>
+                                <div className="flex justify-between items-center gap-4">
+                                  <span className="opacity-40">NEW:</span>
+                                  <span className="text-emerald-500 font-bold">{String(log.details.newValue ?? 'NULL')}</span>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
@@ -2926,7 +3199,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                           const customer = customers.find(c => c.email === managedOrder.customerEmail);
                           if (customer) {
                             const updatedCustomer = { ...customer, notes: e.target.value };
-                            setCustomers(prev => prev.map(c => c.email === managedOrder.customerEmail ? updatedCustomer : c));
+                            updateCustomer(customer.id, { notes: e.target.value }).catch(console.error);
                           } else {
                             // If it's a new customer (not in customers list), we might want to create a shadow customer
                             // but for now let's just ignore if not found or suggest creating one.
@@ -2952,7 +3225,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         return (
                           <div key={p.id} className={`p-4 border flex items-center justify-between ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
                             <div className="flex items-center gap-4">
-                              <img src={p.images[0]} className="w-12 h-12 object-cover border border-zinc-800" alt="" />
+                              <img loading="lazy" src={p.images[0]} className="w-12 h-12 object-cover border border-zinc-800" alt="" />
                               <div>
                                 <div className="text-xs font-black uppercase">{p.name}</div>
                                 <div className="text-[10px] opacity-40">৳{p.price.toLocaleString()}</div>
@@ -3041,6 +3314,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                             <div className="flex flex-col">
                               <span>{item.name} x {item.quantity}</span>
                               {item.variant && <span className="text-[9px] opacity-40">Size: {item.variant.size} | Color: {item.variant.color}</span>}
+                              {item.customDesign && <span className="text-[9px] opacity-40">Body: {item.customDesign.color} | Slv: {item.customDesign.sleeveColor}</span>}
                             </div>
                             <span>৳{(item.price * item.quantity).toLocaleString()}</span>
                           </div>
@@ -3280,6 +3554,28 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                     </div>
                     <textarea value={managedProduct.description || ''} onChange={e => setManagedProduct({...managedProduct, description: e.target.value})} className={`w-full px-5 py-4 text-sm font-bold border focus:border-[#0055ff] outline-none transition-all h-32 resize-none ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`} placeholder="PRODUCT_DESCRIPTION" />
                   </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase opacity-40">Material_Composition</label>
+                      <input 
+                        type="text" 
+                        value={managedProduct.materialComposition || ''} 
+                        onChange={e => setManagedProduct({...managedProduct, materialComposition: e.target.value})} 
+                        className={`w-full px-5 py-4 text-sm font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`} 
+                        placeholder="E.G. 100% ORGANIC COTTON" 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase opacity-40">Care_Instructions</label>
+                      <input 
+                        type="text" 
+                        value={managedProduct.careInstructions || ''} 
+                        onChange={e => setManagedProduct({...managedProduct, careInstructions: e.target.value})} 
+                        className={`w-full px-5 py-4 text-sm font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`} 
+                        placeholder="E.G. MACHINE WASH COLD, DRY FLAT" 
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -3472,7 +3768,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                           onDrop={(e) => handleImageDrop(e, idx)}
                           className={`relative group aspect-[3/4] border overflow-hidden transition-all cursor-move ${idx === 0 ? 'border-[#0055ff] ring-2 ring-[#0055ff]/20' : 'border-zinc-800'} ${draggedImageIndex === idx ? 'opacity-50 border-dashed' : ''}`}
                         >
-                          <img src={img} className="w-full h-full object-cover pointer-events-none" alt="" referrerPolicy="no-referrer" />
+                          <img loading="lazy" src={img} className="w-full h-full object-cover pointer-events-none" alt="" referrerPolicy="no-referrer" />
                           <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
                              <div className="flex gap-1">
                                 <button 
@@ -3814,7 +4110,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                       onChange={(e) => {
                         const updatedCustomer = { ...previewCustomer, notes: e.target.value };
                         setPreviewCustomer(updatedCustomer);
-                        setCustomers(prev => prev.map(c => c.id === previewCustomer.id ? updatedCustomer : c));
+                        updateCustomer(previewCustomer.id, { notes: e.target.value }).catch(console.error);
                       }}
                     />
                   </div>
@@ -3877,6 +4173,263 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
           </div>
         </div>
       )}
+
+      {/* Money Received Voucher Modal */}
+      {voucherOrder && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 print:p-0 print:absolute print:inset-0 print:bg-white">
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-xl print:hidden" onClick={() => setVoucherOrder(null)} />
+          <div id="voucher-content" className={`relative w-full max-w-2xl max-h-[90vh] overflow-y-auto border shadow-2xl print:shadow-none print:border-none print:max-w-full print:w-full print:h-screen ${isDarkMode ? 'bg-[#0a0a0a] border-zinc-800 shadow-black' : 'bg-white border-zinc-200'} print:bg-white sprint:text-black`}>
+            {/* Header */}
+            <div className="sticky top-0 z-10 p-6 flex items-center justify-between border-b backdrop-blur-md bg-opacity-90 border-zinc-800 print:hidden">
+              <h3 className="text-xl font-black uppercase tracking-widest text-[#0055ff]">
+                Money_Receipt_Voucher
+              </h3>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => {
+                    const printWindow = window.open('', '_blank');
+                    if (printWindow) {
+                        const content = document.getElementById('voucher-content')?.innerHTML;
+                        printWindow.document.write(`
+                            <html>
+                            <head>
+                                <title>Money Receipt Voucher - ${voucherOrder.id}</title>
+                                <script src="https://cdn.tailwindcss.com"></script>
+                                <style>
+                                  @media print {
+                                    .print\\:hidden { display: none !important; }
+                                    body { background: white !important; color: black !important; }
+                                    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                                  }
+                                  body { padding: 40px; font-family: monospace; }
+                                </style>
+                            </head>
+                            <body class="bg-white text-black">
+                                ${content}
+                                <script>
+                                    setTimeout(() => {
+                                        window.print();
+                                        window.close();
+                                    }, 1000);
+                                </script>
+                            </body>
+                            </html>
+                        `);
+                        printWindow.document.close();
+                    } else {
+                        // Fallback if popups are blocked completely
+                        window.print();
+                    }
+                  }}
+                  className="px-4 py-2 bg-[#0055ff] hover:bg-[#0044cc] text-white text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-2"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                  Print
+                </button>
+                <button onClick={() => setVoucherOrder(null)} className="p-2 hover:bg-rose-500/10 text-rose-500 transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Voucher Content for Printing */}
+            <div className="p-8 bg-white text-black min-h-[600px] w-full max-w-[800px] mx-auto font-sans" id="print-voucher">
+              {/* Header */}
+              <div className="flex justify-between items-start mb-8">
+                <div>
+                  <h1 className="text-4xl font-normal text-[#2A4373] mb-2 tracking-wide text-nowrap">STREET THREADX</h1>
+                  <div className="text-xs space-y-0.5 mt-2 text-gray-800">
+                    <div className="font-bold">Mawna, Sreepur</div>
+                    <div>Gazipur, Bangladesh</div>
+                    <div>Phone: +880 1700-000000</div>
+                    <div>Website: streetthreadx.com</div>
+                  </div>
+                </div>
+                <div className="flex flex-col items-end">
+                  <h2 className="text-5xl font-bold text-[#8FA5D6] tracking-widest mb-4">INVOICE</h2>
+                  <table className="text-xs border-collapse w-64 text-right">
+                    <tbody>
+                      <tr>
+                        <td className="pr-4 py-1 text-gray-600 font-semibold w-1/2">DATE</td>
+                        <td className="border border-gray-300 px-2 py-1 bg-white">{new Date(voucherOrder.date).toLocaleDateString() === 'Invalid Date' ? voucherOrder.date : new Date(voucherOrder.date).toLocaleDateString()}</td>
+                      </tr>
+                      <tr>
+                        <td className="pr-4 py-1 text-gray-600 font-semibold">INVOICE #</td>
+                        <td className="border border-gray-300 px-2 py-1 bg-white">{voucherOrder.id.replace('ORD-', '')}</td>
+                      </tr>
+                      <tr>
+                        <td className="pr-4 py-1 text-gray-600 font-semibold">CUSTOMER ID</td>
+                        <td className="border border-gray-300 px-2 py-1 bg-white">{voucherOrder.customerEmail.split('@')[0].toUpperCase()}</td>
+                      </tr>
+                      <tr>
+                        <td className="pr-4 py-1 text-gray-600 font-semibold">DUE DATE</td>
+                        <td className="border border-gray-300 px-2 py-1 bg-[#DEE6F2]">{new Date(voucherOrder.date).toLocaleDateString() === 'Invalid Date' ? voucherOrder.date : new Date(voucherOrder.date).toLocaleDateString()}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Bill To */}
+              <div className="mb-8 w-[45%]">
+                <div className="bg-[#2A4373] text-white text-xs font-bold px-3 py-1 uppercase tracking-wide">
+                  Bill To
+                </div>
+                <div className="mt-2 text-xs space-y-0.5 text-gray-800 px-1 border-l-2 border-transparent">
+                  <div className="font-semibold text-sm">{voucherOrder.customerName}</div>
+                  <div>{voucherOrder.customerEmail}</div>
+                  <div className="whitespace-pre-line leading-relaxed">{voucherOrder.shippingAddress || '[No Address Provided]'}</div>
+                  {customers.find(c => c.email === voucherOrder.customerEmail)?.phone && (
+                    <div className="pt-0.5">{customers.find(c => c.email === voucherOrder.customerEmail)?.phone}</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Table */}
+              <table className="w-full text-xs border-collapse mb-6">
+                <thead>
+                  <tr className="bg-[#2A4373] text-white">
+                    <th className="text-left px-3 py-1 font-bold">DESCRIPTION</th>
+                    <th className="text-center px-3 py-1 font-bold w-24 border-l border-white/20">TAXED</th>
+                    <th className="text-right px-3 py-1 font-bold w-32 border-l border-white/20">AMOUNT</th>
+                  </tr>
+                </thead>
+                <tbody className="border border-gray-300 text-gray-800">
+                  {/* Items */}
+                  {voucherOrder.orderItems?.map((item, index) => {
+                    const productDetails = products.find(p => p.id === item.productId);
+                    return (
+                      <tr key={index} className="even:bg-[#F2F2F2] odd:bg-white min-h-16 border-b border-gray-200">
+                        <td className="px-3 py-3 border-r border-gray-300">
+                          <div className="flex flex-col gap-1">
+                            <div className="flex justify-between items-start">
+                              <span className="font-black text-[#2A4373] uppercase tracking-tight">{item.name}</span>
+                              <span className="text-[9px] font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-none">{productDetails?.category || 'General'}</span>
+                            </div>
+                            <div className="text-[10px] text-gray-800 font-medium">
+                              {item.variant ? `Variant: ${item.variant.size} / ${item.variant.color}` : 'Standard Edition'} | Qty: {item.quantity}
+                            </div>
+                            {productDetails?.description && (
+                              <div className="text-[9px] text-gray-500 italic leading-relaxed border-t border-gray-100 pt-1 mt-1">
+                                {productDetails.description.length > 150 ? productDetails.description.substring(0, 150) + '...' : productDetails.description}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 text-center border-r border-gray-300 font-bold">5%</td>
+                        <td className="px-3 text-right font-bold text-[#2A4373]">
+                          {(item.price * item.quantity).toLocaleString()}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {/* Shipping / Discount / Advance if applicable */}
+                  {voucherOrder.discount > 0 && (
+                    <tr className="even:bg-[#F2F2F2] odd:bg-white h-7">
+                      <td className="px-3 border-r border-gray-300 text-rose-600">Discount Applied</td>
+                      <td className="px-3 text-center border-r border-gray-300"></td>
+                      <td className="px-3 text-right text-rose-600">
+                        -{voucherOrder.discount.toLocaleString()}
+                      </td>
+                    </tr>
+                  )}
+                  {/* Fill empty space */}
+                  {[...Array(Math.max(1, 12 - (voucherOrder.orderItems?.length || 0)))].map((_, i) => (
+                    <tr key={`empty-${i}`} className="even:bg-[#F2F2F2] odd:bg-white h-7">
+                      <td className="border-r border-gray-300"></td>
+                      <td className="border-r border-gray-300"></td>
+                      <td></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Footer Section */}
+              <div className="flex justify-between items-start gap-8">
+                {/* Comments */}
+                <div className="w-[55%]">
+                  <div className="bg-[#2A4373] text-white text-xs font-bold px-3 py-1">
+                    OTHER COMMENTS
+                  </div>
+                  <div className="border border-gray-300 p-3 text-xs text-gray-800 h-28">
+                    <ol className="list-decimal list-inside space-y-1.5">
+                      { voucherOrder.isPaid || voucherOrder.paymentStatus === 'FULLY_PAID' 
+                        ? <li>Total payment received in full.</li>
+                        : <li>Total payment due upon delivery or as agreed.</li> }
+                      <li>Please include the invoice number on your check or reference it.</li>
+                      {voucherOrder.transactionId && <li>Digital TrxID: {voucherOrder.transactionId}</li>}
+                      <li>Payment Method: {voucherOrder.paymentMethod || 'CASH / DIGITAL'}</li>
+                    </ol>
+                  </div>
+                </div>
+
+                {/* Totals */}
+                <div className="w-[40%] flex flex-col items-end">
+                  <table className="w-full text-xs text-right border-collapse">
+                    <tbody>
+                      <tr>
+                        <td className="pr-4 py-1 text-gray-600 font-semibold uppercase tracking-widest text-[9px]">Subtotal</td>
+                        <td className="py-1 w-24 text-gray-800">
+                          { (voucherOrder.subtotal || voucherOrder.total || 0).toLocaleString() }
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="pr-4 py-1 text-gray-600 font-semibold uppercase tracking-widest text-[9px]">Discount</td>
+                        <td className="py-1 w-24 text-rose-600">
+                          -{ (voucherOrder.discount || 0).toLocaleString() }
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="pr-4 py-1 text-gray-600 font-semibold uppercase tracking-widest text-[9px]">Taxable Amt</td>
+                        <td className="py-1 w-24 text-gray-800">
+                          { ((voucherOrder.subtotal || voucherOrder.total || 0) - (voucherOrder.discount || 0)).toLocaleString() }
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="pr-4 py-1 text-gray-600 font-semibold uppercase tracking-widest text-[9px]">Tax rate (VAT)</td>
+                        <td className="py-1 w-24 text-gray-800 border-x border-t border-gray-300 bg-white font-bold">5.000%</td>
+                      </tr>
+                      <tr>
+                        <td className="pr-4 py-1 text-gray-600 font-semibold uppercase tracking-widest text-[9px]">Tax due</td>
+                        <td className="py-1 w-24 text-gray-800 bg-[#F2F2F2] border-x border-b border-gray-300 font-bold">
+                          { (((voucherOrder.subtotal || voucherOrder.total || 0) - (voucherOrder.discount || 0)) * 0.05).toLocaleString() }
+                        </td>
+                      </tr>
+                      <tr className="font-bold relative">
+                        <td className="pr-4 py-2 text-[#2A4373] text-sm font-black italic">GRAND TOTAL</td>
+                        <td className="py-2 px-2 flex justify-between items-center bg-[#DEE6F2] text-sm text-[#2A4373] border-y-2 border-double border-gray-600 font-black italic">
+                          <span className="font-normal pr-2">৳</span>
+                          <span>{ (((voucherOrder.subtotal || voucherOrder.total || 0) - (voucherOrder.discount || 0)) * 1.05).toLocaleString() }</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div className="text-center text-xs mt-6 text-gray-800 italic space-y-0.5">
+                    <div>Make all payments payable to</div>
+                    <div className="font-bold text-[#2A4373]">STREET THREADX</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Message */}
+              <div className="text-center mt-12 pt-8 text-xs text-gray-800 space-y-1.5">
+                <div>If you have any questions about this invoice, please contact</div>
+                <div className="font-semibold">[Name, Phone #, E-mail]</div>
+                <div className="font-bold italic mt-4 text-base tracking-wide">Thank You For Your Business!</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          #root { visibility: hidden !important; }
+          #print-voucher, #print-voucher * { visibility: visible !important; color: black !important; }
+          #print-voucher { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; margin: 0 !important; padding: 20px !important; background: white !important; }
+        }
+      `}</style>
     </div>
   );
 };

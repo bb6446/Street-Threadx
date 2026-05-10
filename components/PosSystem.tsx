@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { deductStockFirebase } from '../services/inventoryService';
-import { Product } from '../types';
+import { Product, Order } from '../types';
 
 interface PosSystemProps {
   products: Product[];
   onTransactionSuccess: (logMsg: string) => void;
+  onOrderComplete: (order: Order) => void;
   isDarkMode: boolean;
 }
 
@@ -15,8 +16,9 @@ interface PosSystemProps {
  * 1. Real-time inventory subscription via Supabase (if enabled)
  * 2. Atomic stock deduction for multi-item transactions
  * 3. Modular event callbacks for logging and state management
+ * 4. Automatic generation of Order records for the central ledger
  */
-const PosSystem: React.FC<PosSystemProps> = ({ products, onTransactionSuccess, isDarkMode }) => {
+const PosSystem: React.FC<PosSystemProps> = ({ products, onTransactionSuccess, onOrderComplete, isDarkMode }) => {
   const [cart, setCart] = useState<{product: Product, quantity: number}[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,9 +52,39 @@ const PosSystem: React.FC<PosSystemProps> = ({ products, onTransactionSuccess, i
       // Execute atomic transaction
       await deductStockFirebase(transactionItems);
       
+      const subtotal = cart.reduce((acc, item) => acc + (item.product.price * item.quantity), 0);
+      const tax = subtotal * 0.05;
+      const totalWithTax = subtotal + tax;
+
+      // Create Order for the system
+      const newOrder: Order = {
+        id: `POS-${Math.floor(1000 + Math.random() * 9000)}`,
+        customerName: 'POS_GUEST',
+        customerEmail: 'pos@internal.nexus',
+        date: new Date().toISOString().split('T')[0],
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        total: Math.round(totalWithTax),
+        subtotal: subtotal,
+        discount: 0,
+        status: 'DELIVERED',
+        paymentStatus: 'FULLY_PAID',
+        paymentMethod: 'CASH',
+        items: cart.reduce((acc, item) => acc + item.quantity, 0),
+        orderItems: cart.map(item => ({
+          productId: item.product.id,
+          name: item.product.name,
+          quantity: item.quantity,
+          price: item.product.price,
+          variant: { size: 'OS', color: 'Default' }
+        })),
+        shippingAddress: 'POS_TERMINAL_01',
+        billingAddress: 'POS_TERMINAL_01'
+      };
+
+      await onOrderComplete(newOrder);
+      
       const summary = cart.map(i => `${i.quantity}x ${i.product.name}`).join(', ');
-      const totalAmount = cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-      onTransactionSuccess(`POS_SALE_COMPLETE: ${summary} | Total: ৳${totalAmount.toLocaleString()}`);
+      onTransactionSuccess(`POS_SALE_COMPLETE: ${summary} | Total: ৳${Math.round(totalWithTax).toLocaleString()} (incl. 5% VAT)`);
       setCart([]);
     } catch (err: any) {
       setError(err.message || 'Transaction failed');
@@ -61,7 +93,9 @@ const PosSystem: React.FC<PosSystemProps> = ({ products, onTransactionSuccess, i
     }
   };
 
-  const totalPrice = cart.reduce((acc, item) => acc + (item.product.price * item.quantity), 0);
+  const subtotal = cart.reduce((acc, item) => acc + (item.product.price * item.quantity), 0);
+  const tax = subtotal * 0.05;
+  const totalPrice = subtotal + tax;
 
   return (
     <div className={`grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500`}>
@@ -131,10 +165,18 @@ const PosSystem: React.FC<PosSystemProps> = ({ products, onTransactionSuccess, i
           </div>
         )}
 
-        <div className="space-y-4">
-          <div className="flex justify-between items-center border-t border-zinc-800 pt-4">
-            <span className="text-[10px] font-black uppercase tracking-tighter">Subtotal_Amount</span>
-            <span className="text-xl font-black italic">৳{totalPrice}</span>
+        <div className="space-y-2 pt-4 border-t border-zinc-800">
+          <div className="flex justify-between items-center text-[10px] font-black uppercase text-zinc-500">
+            <span>Subtotal</span>
+            <span>৳{subtotal.toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between items-center text-[10px] font-black uppercase text-zinc-500">
+            <span>VAT (5%)</span>
+            <span>৳{Math.round(tax).toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between items-center pt-2">
+            <span className="text-[10px] font-black uppercase tracking-tighter">Total_Payable</span>
+            <span className="text-xl font-black italic text-[#0055ff]">৳{totalPrice.toLocaleString()}</span>
           </div>
           
           <button

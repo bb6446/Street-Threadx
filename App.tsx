@@ -1,16 +1,22 @@
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+
 import ReactGA from 'react-ga4';
 import { Facebook, Instagram, Linkedin, Twitter } from 'lucide-react';
 import { ViewState, Product, CartItem, Review, AdminRole, AdminUser, LogEntry, SocialSettings, SocialReferral, Order, DiscountCode, Customer, ChatSession, ChatMessage } from './types';
 import { MOCK_PRODUCTS, ACCENT_COLOR } from './constants';
-import AdminDashboard from './components/AdminDashboard';
-import CustomerPortal from './components/CustomerPortal';
-import CustomerProfile from './components/CustomerProfile';
+import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
+const CustomerPortal = lazy(() => import('./components/CustomerPortal'));
+const CustomerProfile = lazy(() => import('./components/CustomerProfile'));
 import { ChatWidget } from './components/ChatWidget';
 import { generateChatAgentResponse } from './services/geminiService';
+import { chatService } from './services/chatService';
+import { auth, db } from './firebase';
+import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { deductStockFirebase } from './services/inventoryService';
 import { subscribeToProducts, seedProductsIfEmpty } from './services/productService';
+import { subscribeToOrders, saveOrderToFirestore } from './services/orderService';
+import { subscribeToCustomers, saveCustomerToFirestore, updateCustomer } from './services/customerService';
 
 // --- Color Mapping Helper ---
 const COLOR_MAP: Record<string, string> = {
@@ -94,8 +100,14 @@ const Navbar: React.FC<{
                   <li><button onClick={() => onNavigate('ESSENTIALS', true)} className="text-zinc-400 hover:text-white transition-colors">Essentials</button></li>
                 </ul>
               </div>
-              <div className="col-span-2 relative aspect-video bg-zinc-900 border border-zinc-800 flex flex-col justify-end p-6 cursor-pointer group/promo overflow-hidden" onClick={() => onNavigate('NEW_ARRIVALS', true)}>
-                <img src="https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800" className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover/promo:scale-105 transition-transform duration-700" alt="Promo" />
+              <div className="space-y-4">
+                <h4 className="text-[#0055ff] font-black text-[10px] tracking-widest border-b border-zinc-800 pb-2">EXPERIENCE</h4>
+                <ul className="space-y-3">
+                  <li><button onClick={() => onNavigate('LOOKBOOK', true)} className="text-zinc-400 hover:text-white transition-colors">Digital Lookbook</button></li>
+                </ul>
+              </div>
+              <div className="col-span-1 relative aspect-video bg-zinc-900 border border-zinc-800 flex flex-col justify-end p-6 cursor-pointer group/promo overflow-hidden" onClick={() => onNavigate('NEW_ARRIVALS', true)}>
+                <img loading="lazy" src="https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fm=webp&fit=crop&q=80&w=800" className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover/promo:scale-105 transition-transform duration-700" alt="Promo" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
                 <div className="relative z-10">
                   <span className="text-[10px] bg-[#0055ff] text-white px-2 py-1 font-black mb-2 inline-block">SS/26 DROPS</span>
@@ -285,46 +297,8 @@ const Footer: React.FC<{
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.STORE);
   const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS);
-  const [customers, setCustomers] = useState<Customer[]>([
-    { id: '1', name: 'Jordan D.', email: 'jordan@example.com', totalSpent: 45000, orders: 4, lastSeen: new Date().toISOString() },
-    { id: '2', name: 'Sarah K.', email: 'sarah@example.com', totalSpent: 12000, orders: 2, lastSeen: new Date().toISOString() },
-    { id: '3', name: 'Mike R.', email: 'mike@example.com', totalSpent: 8500, orders: 1, lastSeen: new Date().toISOString() },
-  ]);
-  const [orders, setOrders] = useState<Order[]>([
-    { 
-      id: 'ORD-7721', 
-      customerName: 'Jordan D.', 
-      customerEmail: 'jordan@example.com',
-      date: '2024-03-20', 
-      time: '14:30',
-      total: 12500, 
-      subtotal: 12500,
-      discount: 0,
-      status: 'SHIPPED', 
-      items: 2,
-      orderItems: [
-        { productId: '1', name: 'CORE_FLEECE_HOODIE', quantity: 1, price: 8500, variant: { size: 'L', color: 'Black' } },
-        { productId: '2', name: 'SIGNATURE_TEE', quantity: 1, price: 4000, variant: { size: 'M', color: 'White' } }
-      ],
-      shippingAddress: '123 Street, Dhaka, Bangladesh'
-    },
-    { 
-      id: 'ORD-7722', 
-      customerName: 'Sarah K.', 
-      customerEmail: 'sarah@example.com',
-      date: '2024-03-20', 
-      time: '11:15',
-      total: 4500, 
-      subtotal: 4500,
-      discount: 0,
-      status: 'PENDING', 
-      items: 1,
-      orderItems: [
-        { productId: '2', name: 'SIGNATURE_TEE', quantity: 1, price: 4500, variant: { size: 'S', color: 'Black' } }
-      ],
-      shippingAddress: '456 Avenue, Chittagong, Bangladesh'
-    },
-  ]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [socialSettings, setSocialSettings] = useState<SocialSettings>({
     facebook: 'https://facebook.com/streetthreadx',
     instagram: 'https://instagram.com/streetthreadx',
@@ -413,78 +387,152 @@ export default function App() {
   });
 
   // Chat State
-  const [chatSessions, setChatSessions] = useState<ChatSession[]>([
-    {
-      id: 'chat-1',
-      customerName: 'ID_ENTITY_01',
-      customerEmail: 'biplobnbc04@gmail.com',
-      lastMessage: 'Vulnerability_Report: Payment Gate unverified.',
-      lastTimestamp: new Date().toISOString(),
-      status: 'ACTIVE',
-      messages: [
-        {
-          id: 'm1',
-          senderId: 'user-1',
-          senderName: 'ID_ENTITY_01',
-          text: 'Vulnerability_Report: Payment Gate unverified.',
-          timestamp: new Date().toISOString(),
-          isAdmin: false
-        }
-      ]
-    }
-  ]);
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [activeChatEmail, setActiveChatEmail] = useState<string>('');
   const [isAiTyping, setIsAiTyping] = useState(false);
 
-  const handleSendMessage = (text: string, isAdmin: boolean = false, targetEmail?: string) => {
-    const emailToUse = isAdmin ? targetEmail : (customerInfo.email || 'guest_session');
+  // Admin & Security States
+  const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
+  const [adminUsername, setAdminUsername] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [isTwoFactorStep, setIsTwoFactorStep] = useState(false);
+  const [adminLogs, setAdminLogs] = useState<LogEntry[]>([]);
+  const [loginError, setLoginError] = useState('');
+
+  // Sync Chat Sessions from Firestore (Admin)
+  useEffect(() => {
+    // ONLY admins should subscribe to the full list of sessions
+    if (!adminUser) return;
+    
+    const unsubscribe = chatService.subscribeToSessions((sessions) => {
+      setChatSessions(sessions);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [adminUser]);
+
+  // Initialize Firebase Auth
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      // If we're not signed in, we try anonymous sign-in here to ensure
+      // guest interactions (like chat) have a valid UID for security rules.
+      // However, we catch the error if the developer hasn't enabled Anonymous Auth in the console.
+      if (!user) {
+        signInAnonymously(auth).catch(err => {
+          if (err.code === 'auth/admin-restricted-operation') {
+            console.warn("Firebase Anonymous Auth is disabled. To enable guest chat, please enable 'Anonymous' in the Firebase Console (Build > Authentication > Sign-in method).");
+          } else {
+            console.error("Anonymous sign-in failed", err);
+          }
+        });
+      } else {
+        console.log("Firebase Auth established:", user.isAnonymous ? "Guest" : user.email);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Sync messages and presence for the active session (Customer Side)
+  useEffect(() => {
+    // If not an admin, we only care about our own session
+    if (adminUser) return;
+    
+    // Determine session ID
+    // We prioritize PROVIDED info, then logged in info
+    const emailToUse = customerInfo.email || auth.currentUser?.email;
+    const guestId = auth.currentUser?.uid ? `guest_${auth.currentUser.uid}` : null;
+    
+    const sessionId = emailToUse 
+      ? emailToUse.replace(/[.@]/g, '_') 
+      : (guestId || 'pending_auth');
+    
+    if (isChatOpen && sessionId !== 'pending_auth' && guestId) {
+      // Early initialization of the session to avoid permission errors on messages subscription
+      const initSession = async () => {
+        try {
+          const finalEmail = emailToUse || `${guestId}@internal`;
+          const finalName = customerInfo.name || 'GUEST_CONTACT';
+          
+          await chatService.getOrCreateSession(finalEmail, finalName);
+        } catch (err) {
+          console.error("Failed to initialize guest session", err);
+        }
+      };
+      
+      initSession();
+
+      // Update presence
+      chatService.updatePresence(sessionId, true);
+      
+      const unsubscribeSession = chatService.subscribeToSession(sessionId, (session) => {
+        if (session) {
+          setChatSessions(prev => {
+            const index = prev.findIndex(s => s.id === sessionId);
+            if (index > -1) {
+              const next = [...prev];
+              next[index] = { ...next[index], ...session };
+              return next;
+            }
+            return [...prev, session];
+          });
+        }
+      });
+
+      const unsubscribeMessages = chatService.subscribeToMessages(sessionId, (messages) => {
+        setChatSessions(prev => 
+          prev.map(s => s.id === sessionId ? { ...s, messages } : s)
+        );
+      });
+
+      const presenceInterval = setInterval(() => {
+        chatService.updatePresence(sessionId, true);
+      }, 30000);
+
+      return () => {
+        unsubscribeSession();
+        unsubscribeMessages();
+        clearInterval(presenceInterval);
+        chatService.updatePresence(sessionId, false);
+      };
+    }
+  }, [isChatOpen, customerInfo.email, adminUser, auth.currentUser]);
+
+  const handleSendMessage = async (text: string, isAdmin: boolean = false, targetEmail?: string) => {
+    let emailToUse = isAdmin ? targetEmail : (customerInfo.email || auth.currentUser?.email);
+    const guestId = auth.currentUser?.uid ? `guest_${auth.currentUser.uid}` : null;
+
+    if (!emailToUse && !isAdmin && guestId) {
+      emailToUse = `${guestId}@internal`;
+    }
+    
     if (!emailToUse && !isAdmin) return;
 
-    const newMessage: ChatMessage = {
-      id: `m-${Math.random().toString(36).substr(2, 9)}`,
-      senderId: isAdmin ? 'admin-1' : 'customer-1',
-      senderName: isAdmin ? 'ADMIN' : (customerInfo.name || 'GUEST'),
+    const sessionId = emailToUse!.replace(/[.@]/g, '_');
+    
+    // Ensure session exists
+    await chatService.getOrCreateSession(emailToUse!, isAdmin ? 'ADMIN' : (customerInfo.name || 'GUEST'));
+
+    const newMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+      senderId: isAdmin ? 'admin-1' : (auth.currentUser?.uid || 'customer-1'),
+      senderName: isAdmin ? 'ADMIN' : (customerInfo.name || auth.currentUser?.displayName || 'GUEST'),
       text,
-      timestamp: new Date().toISOString(),
       isAdmin
     };
 
-    setChatSessions(prev => {
-      const existingSessionIndex = prev.findIndex(s => s.customerEmail === emailToUse);
-      if (existingSessionIndex >= 0) {
-        const updatedSessions = [...prev];
-        updatedSessions[existingSessionIndex] = {
-          ...updatedSessions[existingSessionIndex],
-          messages: [...updatedSessions[existingSessionIndex].messages, newMessage],
-          lastMessage: text,
-          lastTimestamp: newMessage.timestamp
-        };
-        return updatedSessions;
-      } else {
-        return [
-          ...prev,
-          {
-            id: `chat-${Math.random().toString(36).substr(2, 9)}`,
-            customerName: customerInfo.name || 'Anonymous',
-            customerEmail: emailToUse || '',
-            lastMessage: text,
-            lastTimestamp: newMessage.timestamp,
-            messages: [newMessage],
-            status: 'ACTIVE'
-          }
-        ];
-      }
-    });
+    await chatService.sendMessage(sessionId, newMessage);
 
     if (!isAdmin) {
       setActiveChatEmail(emailToUse || '');
       setIsAiTyping(true);
-      // Trigger AI Agent (StreetThreadX CORE_AI)
+      // Trigger AI Agent
       setTimeout(async () => {
         try {
           const aiResponse = await generateChatAgentResponse(text, products, customerInfo, cart);
-          handleSendMessage(aiResponse, true, emailToUse);
+          await handleSendMessage(aiResponse, true, emailToUse);
         } catch (error) {
           console.error("AI Agent failed:", error);
         } finally {
@@ -530,13 +578,7 @@ export default function App() {
   };
 
   // Admin & Security States
-  const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
-  const [adminUsername, setAdminUsername] = useState('');
-  const [adminPassword, setAdminPassword] = useState('');
-  const [twoFactorCode, setTwoFactorCode] = useState('');
-  const [isTwoFactorStep, setIsTwoFactorStep] = useState(false);
-  const [adminLogs, setAdminLogs] = useState<LogEntry[]>([]);
-  const [loginError, setLoginError] = useState('');
+  // currentView is defined at top
 
   // Deep linking logic for shared products
   useEffect(() => {
@@ -565,11 +607,24 @@ export default function App() {
   // Real-time Inventory Sync
   useEffect(() => {
     seedProductsIfEmpty();
-    const unsubscribe = subscribeToProducts((updatedProducts) => {
+    const unsubscribeProducts = subscribeToProducts((updatedProducts) => {
       setProducts(updatedProducts);
+    }, !!adminUser);
+    
+    const unsubscribeOrders = subscribeToOrders((updatedOrders) => {
+      setOrders(updatedOrders);
     });
-    return () => unsubscribe();
-  }, []);
+
+    const unsubscribeCustomers = subscribeToCustomers((updatedCustomers) => {
+      setCustomers(updatedCustomers);
+    });
+
+    return () => {
+      unsubscribeProducts();
+      unsubscribeOrders();
+      unsubscribeCustomers();
+    };
+  }, [adminUser]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const { left, top, width, height } = e.currentTarget.getBoundingClientRect();
@@ -656,7 +711,8 @@ export default function App() {
     }
   }, [customerInfo.city, cartSubtotal]);
 
-  const cartTotal = Math.max(0, cartSubtotal - discountAmount + shippingCost);
+  const cartTax = (cartSubtotal - discountAmount) * 0.05;
+  const cartTotal = Math.max(0, cartSubtotal - discountAmount + shippingCost + cartTax);
 
   const showToast = (message: string) => {
     const id = Math.random().toString(36).substr(2, 9);
@@ -853,27 +909,26 @@ export default function App() {
     try {
       const response = await fetch('/api/create-checkout-session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           items: cart,
           customerEmail: customerInfo.email,
-          shippingCost: shippingCost
-        })
+          shippingCost
+        }),
       });
-      
+
       const data = await response.json();
       if (data.url) {
         window.location.href = data.url;
-      } else if (data.message) {
-        // Fallback for demo if no key provided
-        showToast(data.message);
-        // Complete order mock-ly if stripe isn't configured for real but we want to show the flow
-        executeOrderLogic();
+      } else {
+        alert(data.message || "Stripe session creation failed.");
+        setIsProcessingPayment(false);
       }
-    } catch (err) {
-      console.error("Payment Error:", err);
-      showToast("Payment initialization failed.");
-    } finally {
+    } catch (error) {
+      console.error("Payment error:", error);
+      alert("An error occurred during payment processing.");
       setIsProcessingPayment(false);
     }
   };
@@ -922,7 +977,8 @@ export default function App() {
       billingAddress: customerInfo.isBillingSame ? `${customerInfo.address}, ${customerInfo.city}` : `${customerInfo.billingAddress}, ${customerInfo.city}`
     };
 
-    setOrders(prev => [newOrder, ...prev]);
+    // Save order to Firestore
+    saveOrderToFirestore(newOrder).catch(err => console.error("Order save failed", err));
     
     // Atomic stock deduction in Firestore
     const itemsToDeduct = cart.map(item => ({
@@ -934,26 +990,24 @@ export default function App() {
     });
 
     // Track customer data internally for Admin Dashboard tracking
-    setCustomers(prev => {
-      const existing = prev.find(c => c.email.toLowerCase() === customerInfo.email.toLowerCase());
-      if (existing) {
-        return prev.map(c => c.id === existing.id ? { 
-          ...c, 
-          totalSpent: c.totalSpent + cartTotal,
-          orders: c.orders + 1,
-          lastSeen: new Date().toISOString()
-        } : c);
-      } else {
-        return [...prev, {
-          id: Math.random().toString(36).substr(2, 9),
-          name: customerInfo.name,
-          email: customerInfo.email,
-          totalSpent: cartTotal,
-          orders: 1,
-          lastSeen: new Date().toISOString()
-        }];
-      }
-    });
+    const existing = customers.find(c => c.email.toLowerCase() === customerInfo.email.toLowerCase());
+    if (existing) {
+      updateCustomer(existing.id, {
+        totalSpent: existing.totalSpent + cartTotal,
+        orders: existing.orders + 1,
+        lastSeen: new Date().toISOString()
+      }).catch(err => console.error("Customer update failed", err));
+    } else {
+      const newCustomer: Customer = {
+        id: Math.random().toString(36).substr(2, 9),
+        name: customerInfo.name,
+        email: customerInfo.email,
+        totalSpent: cartTotal,
+        orders: 1,
+        lastSeen: new Date().toISOString()
+      };
+      saveCustomerToFirestore(newCustomer).catch(err => console.error("Customer save failed", err));
+    }
 
     if (appliedDiscount) {
       setDiscountCodes(prev => prev.map(c => c.id === appliedDiscount.id ? { ...c, usageCount: c.usageCount + 1 } : c));
@@ -1056,7 +1110,9 @@ export default function App() {
 
   const filteredReviews = useMemo(() => {
     if (!selectedProduct) return [];
-    return reviews.filter(r => r.productId === selectedProduct.id && r.status === 'APPROVED');
+    return reviews
+      .filter(r => r.productId === selectedProduct.id && r.status === 'APPROVED')
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [reviews, selectedProduct]);
 
   const averageRating = useMemo(() => {
@@ -1104,8 +1160,13 @@ export default function App() {
         break;
       case 'Newest':
       default:
-        // Basic sort placing new arrivals first
-        result.sort((a, b) => (b.isNewArrival ? 1 : 0) - (a.isNewArrival ? 1 : 0));
+        // Sort by date if available, otherwise by new arrival status
+        result.sort((a, b) => {
+          if (a.createdAt && b.createdAt) {
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          }
+          return (b.isNewArrival ? 1 : 0) - (a.isNewArrival ? 1 : 0);
+        });
         break;
     }
     
@@ -1123,13 +1184,23 @@ export default function App() {
                 <div className="p-6 border border-zinc-800 bg-zinc-900/30">
                   <p className="text-[10px] text-zinc-500 font-bold uppercase mb-2">Zone_01 (Dhaka)</p>
                   <p className="text-lg font-black uppercase">1 - 2 Business Days</p>
-                  <p className="text-xs text-zinc-400 mt-4 leading-relaxed">Local delivery network active across Dhaka metropolis.</p>
+                  <p className="text-xs text-zinc-400 mt-4 leading-relaxed">Local delivery network active across Dhaka metropolis. ৳80 delivery charge.</p>
                 </div>
                 <div className="p-6 border border-zinc-800 bg-zinc-900/30">
                   <p className="text-[10px] text-zinc-500 font-bold uppercase mb-2">Zone_02 (Nationwide)</p>
                   <p className="text-lg font-black uppercase">3 - 5 Business Days</p>
-                  <p className="text-xs text-zinc-400 mt-4 leading-relaxed">Secured courier relay to all major districts in Bangladesh.</p>
+                  <p className="text-xs text-zinc-400 mt-4 leading-relaxed">Secured courier relay to all major districts in Bangladesh. ৳150 delivery charge.</p>
                 </div>
+              </div>
+            </section>
+            
+            <section className="space-y-4">
+              <h4 className="text-xl font-black uppercase text-[#0055ff] tracking-widest">Shipping Policy</h4>
+              <div className="p-6 border border-zinc-800 bg-zinc-900/30 font-mono text-sm text-zinc-300 space-y-4">
+                <p>• Orders are processed within <strong className="text-white">24 hours</strong> of placement during business days.</p>
+                <p>• <strong className="text-white">Free Shipping</strong> is automatically applied to all cart subtotals exceeding ৳5,000.</p>
+                <p>• All shipments are tracked and require a signature upon delivery to ensure maximum security.</p>
+                <p>• In the event of an unavoidable delay, customers will be notified immediately via their registered terminal email or phone.</p>
               </div>
             </section>
           </div>
@@ -1186,6 +1257,25 @@ export default function App() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
                   </svg>
                   Initialize_Chat
+                </button>
+              </div>
+            </section>
+          </div>
+        );
+      case 'Track Order':
+        return (
+          <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700 font-mono">
+            <section className="space-y-6">
+              <h4 className="text-xl font-black uppercase text-[#0055ff] tracking-widest">Order_Tracker</h4>
+              <p className="text-xs text-zinc-500 uppercase tracking-widest">Enter your ORDER_ID to track mission status.</p>
+              <div className="flex flex-col md:flex-row gap-4">
+                <input 
+                  type="text" 
+                  placeholder="ORD-XXXX" 
+                  className="bg-black border border-zinc-800 px-6 py-4 text-xs font-bold uppercase tracking-widest text-[#0055ff] outline-none focus:border-[#0055ff] flex-1 placeholder:text-zinc-800"
+                />
+                <button className="px-10 py-4 bg-white text-black font-black uppercase text-[10px] tracking-widest hover:bg-[#0055ff] hover:text-white transition-all">
+                  Sync Status
                 </button>
               </div>
             </section>
@@ -1277,7 +1367,7 @@ export default function App() {
                   </div>
                 </div>
               )}
-              <img src="https://images.unsplash.com/photo-1552374196-1ab2a1c593e8?auto=format&fit=crop&q=80&w=1920" className="absolute inset-0 w-full h-full object-cover brightness-50 contrast-125 hover:scale-105 transition-transform duration-[10s] drag-none" alt="Streetwear Hero" referrerPolicy="no-referrer" />
+              <img fetchPriority="high" src="https://images.unsplash.com/photo-1552374196-1ab2a1c593e8?auto=format&fm=webp&fit=crop&q=80&w=1920" className="absolute inset-0 w-full h-full object-cover brightness-50 contrast-125 hover:scale-105 transition-transform duration-[10s] drag-none" alt="Streetwear Hero" referrerPolicy="no-referrer" />
               <div className="relative z-10 max-w-2xl space-y-8">
                 <div className="space-y-2">
                   <span className="text-[#0055ff] font-bold text-xs uppercase tracking-[0.3em]">Drop 02 // 2024</span>
@@ -1305,7 +1395,7 @@ export default function App() {
                      {products.filter(p => p.isNewArrival).slice(0, 4).map(product => (
                        <div key={`latest-${product.id}`} className="group relative flex flex-col cursor-pointer" onClick={() => setSelectedProduct(product)}>
                          <div className="relative aspect-[4/5] overflow-hidden bg-zinc-900 border border-zinc-800 transition-all duration-500 group-hover:border-[#0055ff]/50">
-                           <img src={product.images[0]} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt={product.name} referrerPolicy="no-referrer" />
+                           <img loading="lazy" src={product.images?.[0] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800'} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt={product.name} referrerPolicy="no-referrer" />
                            <div className="absolute top-4 left-4 bg-[#0055ff] text-white text-[8px] font-black px-2 py-1 uppercase tracking-widest">New</div>
                          </div>
                          <div className="mt-4 space-y-1">
@@ -1318,10 +1408,39 @@ export default function App() {
                  </div>
                )}
 
+               <div id="lookbook" className="py-20 mb-12">
+                 <div className="flex flex-col md:flex-row justify-between items-end gap-6 mb-12 border-b border-zinc-800 pb-8">
+                    <div className="space-y-1">
+                      <h2 className="text-xs font-black uppercase tracking-[0.4em] text-[#0055ff]">Visual_Narrative</h2>
+                      <h3 className="text-4xl font-black heading-font uppercase">Lookbook SS/24</h3>
+                    </div>
+                 </div>
+                 <div className="grid grid-cols-1 md:grid-cols-12 gap-4 h-[800px]">
+                    <div className="md:col-span-8 relative overflow-hidden group">
+                      <img src="https://images.unsplash.com/photo-1523381210434-271e8be1f52b?auto=format&fm=webp&fit=crop&q=80&w=1200" className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-1000 scale-105 group-hover:scale-100" alt="Lookbook 1" />
+                      <div className="absolute bottom-10 left-10 text-white z-10 transition-transform group-hover:-translate-y-2">
+                        <span className="text-[10px] font-black uppercase tracking-[0.3em] bg-[#0055ff] px-4 py-2">Shadows & Structure</span>
+                      </div>
+                    </div>
+                    <div className="md:col-span-4 grid grid-rows-2 gap-4">
+                      <div className="relative overflow-hidden group">
+                        <img src="https://images.unsplash.com/photo-1483393458019-411bc3f77c94?auto=format&fm=webp&fit=crop&q=80&w=600" className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-1000 scale-105 group-hover:scale-100" alt="Lookbook 2" />
+                      </div>
+                      <div className="relative overflow-hidden group bg-[#0055ff] flex items-center justify-center p-12 text-center text-white">
+                         <div className="space-y-4">
+                            <h4 className="text-2xl font-black heading-font uppercase italic tracking-tighter">Explore the <br/>Craft</h4>
+                            <p className="text-[10px] uppercase tracking-widest opacity-80 leading-relaxed font-bold">Every stitch tells a story of urban resilience and technical precision.</p>
+                         </div>
+                      </div>
+                    </div>
+                 </div>
+               </div>
+
                <div className="flex flex-col md:flex-row justify-between items-end gap-6 border-b border-zinc-800 pb-8">
                   <div className="space-y-1">
                     <h2 className="text-xs font-black uppercase tracking-[0.4em] text-[#0055ff]">Collection_Matrix</h2>
                     <h3 className="text-4xl font-black heading-font uppercase">{shopFilter.replace('_', ' ')}</h3>
+                    <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">{filteredProducts.length} Assets_Identified</p>
                   </div>
                   <div className="flex flex-wrap gap-4 items-center text-xs font-bold uppercase tracking-widest">
                     <select 
@@ -1387,7 +1506,7 @@ export default function App() {
                         value: product.price
                       });
                     }}>
-                      <img src={product.images[0]} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt={product.name} referrerPolicy="no-referrer" />
+                      <img loading="lazy" src={product.images?.[0] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800'} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt={product.name} referrerPolicy="no-referrer" />
                       {product.isNewArrival && (
                         <div className="absolute top-4 left-4 bg-[#0055ff] text-white text-[8px] font-black px-2 py-1 uppercase tracking-widest z-10">New</div>
                       )}
@@ -1434,7 +1553,7 @@ export default function App() {
                 {wishlist.map(product => (
                   <div key={`wishlist-${product.id}`} className="group relative flex flex-col bg-zinc-900/50 border border-zinc-800 p-4">
                     <div className="relative aspect-[4/5] overflow-hidden mb-4 bg-black cursor-pointer" onClick={() => setSelectedProduct(product)}>
-                      <img src={product.images[0]} alt={product.name} className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-110 transition-all duration-700" referrerPolicy="no-referrer" />
+                      <img loading="lazy" src={product.images?.[0] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800'} alt={product.name} className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-110 transition-all duration-700" referrerPolicy="no-referrer" />
                     </div>
                     <div className="flex flex-col gap-2 flex-1">
                       <div className="flex items-center justify-between">
@@ -1458,7 +1577,7 @@ export default function App() {
             <div className="flex flex-col md:flex-row gap-16">
               <aside className="w-full md:w-64 space-y-12">
                 <nav className="flex flex-col gap-4">
-                  {['Shipping', 'Returns', 'Sizing', 'Contact'].map(topic => (
+                  {['Shipping', 'Returns', 'Sizing', 'Track Order', 'Contact'].map(topic => (
                     <button key={topic} onClick={() => setSupportTopic(topic)} className={`text-left text-[10px] font-black uppercase tracking-[0.2em] px-5 py-4 border transition-all duration-300 ${supportTopic === topic ? 'bg-[#0055ff] border-[#0055ff] text-white' : 'border-zinc-800 text-zinc-500 hover:text-white'}`}>{topic}</button>
                   ))}
                 </nav>
@@ -1475,42 +1594,47 @@ export default function App() {
 
         {currentView === ViewState.CUSTOMER_LOGIN && (
           <div className="pt-20">
-            <CustomerPortal onLoginSuccess={(user) => {
-              const existing = customers.find(c => c.email.toLowerCase() === user.email.toLowerCase());
-              const resolvedName = existing ? existing.name : user.name;
-              
-              setCustomerInfo(prev => ({ ...prev, name: resolvedName, email: user.email }));
-              
-              // Ensure user is added to customers state if new
-              setCustomers(prev => {
-                if (existing) {
-                  return prev.map(c => c.id === existing.id ? { ...c, lastSeen: new Date().toISOString() } : c);
-                } else {
-                  return [...prev, {
-                    id: Math.random().toString(36).substr(2, 9),
-                    name: resolvedName,
-                    email: user.email,
-                    totalSpent: 0,
-                    orders: 0,
-                    lastSeen: new Date().toISOString()
-                  }];
-                }
-              });
+            <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-white font-black uppercase text-xs tracking-widest">Initialising Terminal...</div>}>
+              <CustomerPortal onLoginSuccess={(user) => {
+                const existing = customers.find(c => c.email.toLowerCase() === user.email.toLowerCase());
+                const resolvedName = existing ? existing.name : user.name;
+                
+                setCustomerInfo(prev => ({ ...prev, name: resolvedName, email: user.email }));
+                
+                // Ensure user is added to customers state if new
+                setCustomers(prev => {
+                  if (existing) {
+                    return prev.map(c => c.id === existing.id ? { ...c, lastSeen: new Date().toISOString() } : c);
+                  } else {
+                    return [...prev, {
+                      id: Math.random().toString(36).substr(2, 9),
+                      name: resolvedName,
+                      email: user.email,
+                      totalSpent: 0,
+                      orders: 0,
+                      lastSeen: new Date().toISOString()
+                    }];
+                  }
+                });
 
-              setCurrentView(ViewState.STORE);
-              window.scrollTo(0, 0);
-            }} />
+                setCurrentView(ViewState.STORE);
+                window.scrollTo(0, 0);
+              }} />
+            </Suspense>
           </div>
         )}
 
         {currentView === ViewState.CUSTOMER_PROFILE && customerInfo?.email && (
           <div className="pt-20">
-            <CustomerProfile 
-              customerInfo={customerInfo}
-              orders={orders}
-              onNavigateBack={() => { setCurrentView(ViewState.STORE); window.scrollTo(0, 0); }}
-              isDarkMode={true}
-            />
+            <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-white font-black uppercase text-xs tracking-widest">Accessing Profile...</div>}>
+              <CustomerProfile 
+                customerInfo={customerInfo}
+                orders={orders}
+                products={products}
+                onNavigateBack={() => { setCurrentView(ViewState.STORE); window.scrollTo(0, 0); }}
+                isDarkMode={true}
+              />
+            </Suspense>
           </div>
         )}
 
@@ -1535,27 +1659,29 @@ export default function App() {
         )}
 
         {currentView === ViewState.ADMIN_DASHBOARD && adminUser && (
-          <AdminDashboard 
-            user={adminUser} 
-            products={products}
-            setProducts={setProducts}
-            orders={orders}
-            setOrders={setOrders}
-            customers={customers}
-            setCustomers={setCustomers}
-            socialSettings={socialSettings}
-            setSocialSettings={setSocialSettings}
-            socialReferrals={socialReferrals}
-            onLogout={() => { setAdminUser(null); setCurrentView(ViewState.STORE); }} 
-            logs={adminLogs} 
-            addLog={(a) => setAdminLogs(p => [{ id: Math.random().toString(36).substr(2, 9), timestamp: new Date().toLocaleTimeString(), user: adminUser.username, action: a, role: adminUser.role }, ...p])} 
-            discountCodes={discountCodes}
-            setDiscountCodes={setDiscountCodes}
-            reviews={reviews}
-            setReviews={setReviews}
-            chatSessions={chatSessions}
-            onSendMessage={handleSendMessage}
-          />
+          <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-black text-[#0055ff] font-black uppercase text-xs tracking-[0.5em] animate-pulse">Synchronizing Terminal Matrix...</div>}>
+            <AdminDashboard 
+              user={adminUser} 
+              products={products}
+              setProducts={setProducts}
+              orders={orders}
+              setOrders={setOrders}
+              customers={customers}
+              setCustomers={setCustomers}
+              socialSettings={socialSettings}
+              setSocialSettings={setSocialSettings}
+              socialReferrals={socialReferrals}
+              onLogout={() => { setAdminUser(null); setCurrentView(ViewState.STORE); }} 
+              logs={adminLogs} 
+              addLog={(a) => setAdminLogs(p => [{ id: Math.random().toString(36).substr(2, 9), timestamp: new Date().toLocaleTimeString(), user: adminUser.username, action: a, role: adminUser.role }, ...p])} 
+              discountCodes={discountCodes}
+              setDiscountCodes={setDiscountCodes}
+              reviews={reviews}
+              setReviews={setReviews}
+              chatSessions={chatSessions}
+              onSendMessage={handleSendMessage}
+            />
+          </Suspense>
         )}
       </main>
 
@@ -1590,7 +1716,7 @@ export default function App() {
                         setIsSearchOpen(false);
                       }}
                     >
-                      <img src={product.images[0]} alt={product.name} className="w-16 h-16 object-cover bg-zinc-900" />
+                      <img loading="lazy" src={product.images?.[0] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800'} alt={product.name} className="w-16 h-16 object-cover bg-zinc-900" />
                       <div>
                         <h4 className="text-sm font-bold uppercase">{product.name}</h4>
                         <p className="text-xs text-[#0055ff] font-black mt-1">৳{product.price.toLocaleString()}</p>
@@ -1620,7 +1746,7 @@ export default function App() {
             <div className="flex-1 overflow-y-auto space-y-6">
               {cart.map(item => (
                 <div key={`${item.id}-${item.selectedSize}-${item.selectedColor}`} className="flex gap-4 p-4 border border-zinc-800 bg-zinc-900/50">
-                  <div className="w-20 h-24 bg-black border border-zinc-800"><img src={item.images[0]} className="w-full h-full object-cover grayscale" alt="" referrerPolicy="no-referrer" /></div>
+                  <div className="w-20 h-24 bg-black border border-zinc-800"><img loading="lazy" src={item.images[0]} className="w-full h-full object-cover grayscale" alt="" referrerPolicy="no-referrer" /></div>
                   <div className="flex-1 flex flex-col justify-between">
                     <div>
                       <h4 className="text-xs font-black uppercase">{item.name}</h4>
@@ -1633,7 +1759,26 @@ export default function App() {
                   </div>
                 </div>
               ))}
-              {cart.length === 0 && <p className="text-zinc-600 uppercase text-xs text-center py-20">Vault is empty.</p>}
+              {cart.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-screen space-y-6">
+                  <div className="w-24 h-24 bg-zinc-900 border border-zinc-800 flex items-center justify-center relative">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 text-zinc-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                    </svg>
+                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#0055ff] rounded-none animate-ping"></div>
+                  </div>
+                  <div className="text-center space-y-2">
+                    <h3 className="text-sm font-black uppercase tracking-widest text-[#0055ff]">Your vault is empty</h3>
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-tighter max-w-[200px] mx-auto leading-relaxed">It looks like you haven't added anything to your collection yet.</p>
+                  </div>
+                  <button 
+                    onClick={() => setIsCartOpen(false)}
+                    className="bg-white text-black text-[10px] font-black uppercase px-8 py-4 tracking-[0.3em] hover:bg-[#0055ff] hover:text-white transition-all transform hover:scale-105 active:scale-95"
+                  >
+                    Start Exploring
+                  </button>
+                </div>
+              )}
             </div>
             <div className="border-t border-zinc-800 pt-8 space-y-6">
               <div className="flex justify-between items-end"><span className="text-[10px] text-zinc-500 uppercase">Subtotal</span><span className="text-3xl font-black">৳{cartTotal.toLocaleString()}</span></div>
@@ -1665,12 +1810,27 @@ export default function App() {
           }}></div>
           <div className="relative w-full max-w-2xl bg-[#0d0d0d] border border-zinc-800 p-8 md:p-12 shadow-2xl animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
             {orderComplete ? (
-              <div className="text-center py-20 space-y-6">
-                <div className="w-20 h-20 bg-green-500 rounded-none flex items-center justify-center mx-auto shadow-[0_0_30px_rgba(34,197,94,0.4)]">
+              <div className="text-center py-20 space-y-6 animate-in fade-in zoom-in duration-700">
+                <div className="w-20 h-20 bg-[#0055ff] rounded-none flex items-center justify-center mx-auto shadow-[0_0_30px_rgba(0,85,255,0.4)]">
                   <svg className="w-10 h-10 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7"/></svg>
                 </div>
-                <h2 className="text-3xl font-black uppercase italic">Order_Synchronized</h2>
-                <p className="text-zinc-500 uppercase text-xs tracking-widest">A verification relay has been sent to {customerInfo.email}</p>
+                <div className="space-y-2">
+                  <h2 className="text-3xl font-black uppercase italic animate-pulse">Order_Synchronized</h2>
+                  <p className="text-zinc-500 uppercase text-[9px] tracking-[0.2em] font-black">A verification relay has been sent to {customerInfo.email}</p>
+                </div>
+                <div className="bg-zinc-900 border border-zinc-800 p-4 flex items-center justify-between w-full max-w-sm mx-auto group cursor-pointer" onClick={() => { navigator.clipboard.writeText(orders[0]?.id || ''); showToast('Order ID Copied'); }}>
+                  <div className="text-left">
+                    <div className="text-[8px] text-zinc-500 font-black uppercase mb-1">Trace_ID</div>
+                    <div className="text-xs font-mono font-bold tracking-widest">{orders[0]?.id || 'ORD-X34B9'}</div>
+                  </div>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-zinc-600 group-hover:text-[#0055ff]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
+                </div>
+                <button 
+                  onClick={() => setIsCheckoutOpen(false)}
+                  className="bg-white text-black text-[10px] font-black uppercase px-12 py-4 tracking-[0.4em] hover:bg-[#0055ff] hover:text-white transition-all transform hover:scale-105 active:scale-95"
+                >
+                  Confirm_Exit
+                </button>
               </div>
             ) : (
               <div className="space-y-10">
@@ -1790,12 +1950,12 @@ export default function App() {
                         {(['bKash', 'Nagad', 'Rocket', 'Cash On Delivery', 'Credit Card'] as const).map((method) => (
                           <div 
                             key={method}
-                            onClick={() => handleCustomerInfoChange('paymentMethod', method)}
-                            className={`p-4 border cursor-pointer flex flex-col justify-between transition-all ${customerInfo.paymentMethod === method ? 'border-[#0055ff] bg-[#0055ff]/10' : 'border-zinc-800 bg-zinc-900/50 opacity-60 hover:opacity-100'}`}
+                            onClick={() => handleCustomerInfoChange('paymentMethod', method === 'Cash On Delivery' ? 'COD' : method as any)}
+                            className={`p-4 border cursor-pointer flex flex-col justify-between transition-all ${customerInfo.paymentMethod === (method === 'Cash On Delivery' ? 'COD' : method) ? 'border-[#0055ff] bg-[#0055ff]/10' : 'border-zinc-800 bg-zinc-900/50 opacity-60 hover:opacity-100'}`}
                           >
                             <div className="flex items-center gap-3">
-                              <div className={`w-4 h-4 rounded-none border-2 flex items-center justify-center ${customerInfo.paymentMethod === method ? 'border-[#0055ff]' : 'border-zinc-700'}`}>
-                                {customerInfo.paymentMethod === method && <div className="w-2 h-2 rounded-none bg-[#0055ff]"></div>}
+                              <div className={`w-4 h-4 rounded-none border-2 flex items-center justify-center ${customerInfo.paymentMethod === (method === 'Cash On Delivery' ? 'COD' : method) ? 'border-[#0055ff]' : 'border-zinc-700'}`}>
+                                {customerInfo.paymentMethod === (method === 'Cash On Delivery' ? 'COD' : method) && <div className="w-2 h-2 rounded-none bg-[#0055ff]"></div>}
                               </div>
                               <span className="text-sm font-bold uppercase">{method}</span>
                             </div>
@@ -1841,48 +2001,7 @@ export default function App() {
                             )}
                           </div>
                         ))}
-
-                        {/* Credit Card Form */}
-                        {customerInfo.paymentMethod === 'Credit Card' && (
-                          <div className="pt-4 space-y-4 border-t border-zinc-800 animate-in fade-in duration-300">
-                             <div className="space-y-1">
-                              <label className="text-[9px] font-black uppercase text-zinc-500">Card Number</label>
-                              <input 
-                                type="text" 
-                                placeholder="0000 0000 0000 0000" 
-                                onChange={(e) => {
-                                  const val = e.target.value.replace(/\D/g, '').substring(0, 16);
-                                  e.target.value = val.replace(/(\d{4})(?=\d)/g, '$1 ');
-                                }}
-                                className="w-full bg-zinc-900/50 border border-zinc-800 px-4 py-3 text-xs font-bold text-white outline-none focus:border-[#0055ff]"
-                              />
-                             </div>
-                             <div className="grid grid-cols-2 gap-4">
-                              <div className="space-y-1">
-                                <label className="text-[9px] font-black uppercase text-zinc-500">Expiry</label>
-                                <input 
-                                  type="text" 
-                                  placeholder="MM/YY" 
-                                  onChange={(e) => {
-                                    const val = e.target.value.replace(/\D/g, '').substring(0, 4);
-                                    e.target.value = val.length >= 2 ? `${val.substring(0, 2)}/${val.substring(2, 4)}` : val;
-                                  }}
-                                  className="w-full bg-zinc-900/50 border border-zinc-800 px-4 py-3 text-xs font-bold text-white outline-none focus:border-[#0055ff]"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-[9px] font-black uppercase text-zinc-500">CVC</label>
-                                <input 
-                                  type="text" 
-                                  placeholder="123" 
-                                  maxLength={4}
-                                  onChange={(e) => { e.target.value = e.target.value.replace(/\D/g, ''); }}
-                                  className="w-full bg-zinc-900/50 border border-zinc-800 px-4 py-3 text-xs font-bold text-white outline-none focus:border-[#0055ff]"
-                                />
-                              </div>
-                             </div>
-                          </div>
-                        )}
+                        
                       </div>
                     </div>
                   )}
@@ -1901,16 +2020,21 @@ export default function App() {
                           
                           <div className="border-t border-zinc-800 pt-4 space-y-2">
                             <div className="flex justify-between items-center text-xs text-zinc-500 uppercase font-black">
-                              <span>Subtotal</span>
-                              <span>৳{cartSubtotal.toLocaleString()}</span>
+                                <span>Subtotal</span>
+                                <span>৳{cartSubtotal.toLocaleString()}</span>
                             </div>
 
                             <div className="flex justify-between items-center text-xs text-zinc-500 uppercase font-black">
-                              <div className="flex items-center gap-2">
-                                <span>Shipping</span>
-                                <span className="text-[8px] opacity-60">({customerInfo.city || 'Calculated at checkout'})</span>
-                              </div>
-                              <span>{shippingCost === 0 ? 'FREE' : `৳${shippingCost.toLocaleString()}`}</span>
+                                <div className="flex items-center gap-2">
+                                  <span>Shipping</span>
+                                  <span className="text-[8px] opacity-60">({customerInfo.city || 'Calculated at checkout'})</span>
+                                </div>
+                                <span>{shippingCost === 0 ? 'FREE' : `৳${shippingCost.toLocaleString()}`}</span>
+                            </div>
+
+                            <div className="flex justify-between items-center text-xs text-zinc-500 uppercase font-black">
+                                <span>Tax/VAT (5%)</span>
+                                <span>৳{Math.round(cartTax).toLocaleString()}</span>
                             </div>
                             
                             {appliedDiscount && (
@@ -1926,6 +2050,11 @@ export default function App() {
                             <div className="flex justify-between items-center pt-2">
                               <span className="text-[10px] text-zinc-500 uppercase font-black">Total_Payable</span>
                               <span className="text-xl font-black text-[#0055ff]">৳{cartTotal.toLocaleString()}</span>
+                            </div>
+
+                            <div className="mt-4 p-3 bg-zinc-950 border border-zinc-800 flex items-center gap-3">
+                              <div className="w-2 h-2 rounded-none bg-emerald-500 animate-pulse"></div>
+                              <span className="text-[8px] font-black uppercase text-zinc-400 tracking-widest">Est. Logistics Completion: 2-3 Solar Days</span>
                             </div>
 
                             {['bKash', 'Nagad', 'Rocket'].includes(customerInfo.paymentMethod) && (
@@ -2013,14 +2142,14 @@ export default function App() {
               <div className="w-full lg:w-[40%] flex gap-4">
                 {/* Thumbnails */}
                 <div className="flex flex-col gap-2 w-16 shrink-0">
-                  {selectedProduct.images.map((img, idx) => (
+                  {(selectedProduct.images || []).map((img, idx) => (
                     <button 
                       key={idx} 
                       onMouseEnter={() => setSelectedImageIndex(idx)}
                       onClick={() => setSelectedImageIndex(idx)}
                       className={`border-2 rounded-none overflow-hidden transition-all ${selectedImageIndex === idx ? 'border-[#0055ff] shadow-[0_0_5px_rgba(0,113,133,0.5)]' : 'border-gray-200 hover:border-gray-300'}`}
                     >
-                      <img src={img} className="w-full aspect-[3/4] object-cover" alt="" referrerPolicy="no-referrer" />
+                      <img loading="lazy" src={img} className="w-full aspect-[3/4] object-cover" alt="" referrerPolicy="no-referrer" />
                     </button>
                   ))}
                 </div>
@@ -2030,8 +2159,8 @@ export default function App() {
                   onMouseMove={handleMouseMove}
                   onMouseLeave={handleMouseLeaveZoom}
                 >
-                  <img 
-                    src={selectedProduct.images[selectedImageIndex] || selectedProduct.images[0]} 
+                  <img loading="lazy" 
+                    src={selectedProduct.images?.[selectedImageIndex] || selectedProduct.images?.[0] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800'} 
                     className="w-full max-w-[500px] object-contain transition-transform duration-200 ease-out" 
                     style={zoomStyle}
                     alt="" 
@@ -2109,6 +2238,12 @@ export default function App() {
                   <h3 className="font-bold text-base mb-2">About this item</h3>
                   <ul className="list-disc pl-5 space-y-1 text-sm text-gray-900">
                     <li>{selectedProduct.description}</li>
+                    {selectedProduct.materialComposition && (
+                      <li><span className="font-bold">Composition:</span> {selectedProduct.materialComposition}</li>
+                    )}
+                    {selectedProduct.careInstructions && (
+                      <li><span className="font-bold">Care:</span> {selectedProduct.careInstructions}</li>
+                    )}
                     <li>Premium quality materials for maximum comfort and durability.</li>
                     <li>Signature STREET THREADX brutalist aesthetic.</li>
                     <li>Category: {selectedProduct.category}</li>
@@ -2225,6 +2360,35 @@ export default function App() {
                       <span className="text-[#0055ff] hover:text-[#C7511F] hover:underline cursor-pointer">30-day refund/replacement</span>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* Related Products Section */}
+              <div className="w-full border-t border-gray-200 pt-10 mt-10">
+                <h3 className="text-xl font-bold mb-6">Customers also viewed</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {products
+                    .filter(p => p.category === selectedProduct.category && p.id !== selectedProduct.id)
+                    .slice(0, 4)
+                    .map(relProduct => (
+                      <div 
+                        key={relProduct.id} 
+                        className="group cursor-pointer"
+                        onClick={() => {
+                          setSelectedProduct(relProduct);
+                          setSelectedImageIndex(0);
+                          const modalEl = document.querySelector('.overflow-y-auto.no-scrollbar');
+                          if (modalEl) modalEl.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                      >
+                        <div className="aspect-[3/4] overflow-hidden bg-gray-100 mb-3 border border-gray-100 group-hover:border-gray-200 transition-all">
+                          <img loading="lazy" src={relProduct.images[0]} alt={relProduct.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                        </div>
+                        <h4 className="text-sm font-bold text-gray-900 group-hover:text-[#0055ff] transition-colors line-clamp-1">{relProduct.name}</h4>
+                        <p className="text-sm font-bold text-gray-900 mt-1">৳{relProduct.price.toLocaleString()}</p>
+                      </div>
+                    ))
+                  }
                 </div>
               </div>
 

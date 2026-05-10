@@ -1,17 +1,24 @@
-import React from 'react';
-import { Customer, Order, ViewState } from '../types';
+import React, { useMemo } from 'react';
+import { Customer, Order, Product, ViewState } from '../types';
 
 interface Props {
   customerInfo: { name: string; email: string; phone?: string; address?: string };
   orders: Order[];
+  products: Product[];
   onNavigateBack: () => void;
   isDarkMode: boolean;
 }
 
-const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, onNavigateBack, isDarkMode }) => {
-  const customerOrders = orders.filter(
-    o => o.customerEmail.toLowerCase() === customerInfo.email.toLowerCase()
-  );
+const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNavigateBack, isDarkMode }) => {
+  const customerOrders = useMemo(() => {
+    return [...orders]
+      .filter(o => o.customerEmail.toLowerCase() === customerInfo.email.toLowerCase())
+      .sort((a, b) => {
+        const dateA = new Date(`${a.date} ${a.time || '00:00'}`).getTime();
+        const dateB = new Date(`${b.date} ${b.time || '00:00'}`).getTime();
+        return dateB - dateA;
+      });
+  }, [orders, customerInfo.email]);
 
   return (
     <div className={`min-h-screen ${isDarkMode ? 'bg-[#020202] text-white' : 'bg-white text-black'}`}>
@@ -106,17 +113,27 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, onNavigateBack
                     </div>
                     
                     <div className="p-4 space-y-4">
-                      {order.orderItems.map((item, idx) => (
-                        <div key={idx} className="flex justify-between items-center text-xs">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold">{item.quantity}x</span>
-                            <span>{item.name} {item.variant && <span className="opacity-50">({item.variant.size})</span>}</span>
+                      {order.orderItems.map((item, idx) => {
+                        const product = products.find(p => p.id === item.productId);
+                        return (
+                          <div key={idx} className="flex flex-col gap-2">
+                            <div className="flex justify-between items-center text-xs">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold">{item.quantity}x</span>
+                                <span className="font-black uppercase tracking-tight">{item.name} {item.variant && <span className="text-[10px] opacity-60 font-medium">({item.variant.size} / {item.variant.color})</span>}</span>
+                              </div>
+                              <div className="font-bold opacity-70">
+                                ৳{(item.price * item.quantity).toLocaleString()}
+                              </div>
+                            </div>
+                            {product?.description && (
+                              <p className="text-[10px] text-zinc-500 italic leading-relaxed border-l border-zinc-800 pl-3 ml-1">
+                                {product.description.length > 120 ? product.description.substring(0, 120) + '...' : product.description}
+                              </p>
+                            )}
                           </div>
-                          <div className="font-bold opacity-70">
-                            ৳{(item.price * item.quantity).toLocaleString()}
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
 
                       {/* Addresses */}
                       {order.shippingAddress && (

@@ -13,6 +13,8 @@ export interface Product {
   sku?: string;
   description: string;
   materials?: string;
+  materialComposition?: string;
+  careInstructions?: string;
   category: 'Hoodies' | 'T-Shirts' | 'Accessories' | 'Sweaters';
   images: string[];
   stock: number;
@@ -28,6 +30,8 @@ export interface Product {
   seoDescription?: string;
   tags?: string[];
   sales?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Review {
@@ -53,6 +57,12 @@ export interface LogEntry {
   user: string;
   action: string;
   role: AdminRole;
+  details?: {
+    field?: string;
+    previousValue?: string | number;
+    newValue?: string | number;
+    entityId?: string;
+  };
 }
 
 export enum AdminRole {
@@ -77,6 +87,12 @@ export interface OrderItem {
     size: string;
     color: string;
   };
+  customDesign?: {
+    color: string;
+    sleeveColor: string;
+    logoUrl?: string;
+    type: string;
+  };
 }
 
 export interface Order {
@@ -98,7 +114,7 @@ export interface Order {
   trackingProvider?: string;
   isPaid?: boolean;
   paymentStatus?: 'PENDING_ADVANCE' | 'ADVANCE_VERIFIED' | 'FULLY_PAID' | 'UNPAID';
-  paymentMethod?: 'bKash' | 'Nagad' | 'Rocket' | 'COD' | 'Credit Card';
+  paymentMethod?: 'bKash' | 'Nagad' | 'Rocket' | 'COD' | 'Credit Card' | 'CASH';
   transactionId?: string;
   senderNumber?: string;
   advancePaid?: number;
@@ -181,8 +197,11 @@ export interface ChatSession {
   id: string;
   customerName: string;
   customerEmail: string;
+  userId?: string;
   lastMessage: string;
   lastTimestamp: string;
   messages: ChatMessage[];
   status: 'ACTIVE' | 'CLOSED';
+  isPresenceActive?: boolean;
+  lastPresenceUpdate?: string;
 }

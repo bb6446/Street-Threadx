@@ -1,5 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
+import { ChatMessage } from "../types";
 
 const getAi = () => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -154,5 +155,36 @@ Task:
   } catch (error) {
     console.error("Error in AI Agent response:", error);
     return "RELAY_ERROR: Neural feedback detected. Re-initializing...";
+  }
+};
+
+export const generateResponseSuggestions = async (messages: ChatMessage[]) => {
+  if (!ai) return ["How can I help you today?", "What is your order number?", "Our shipping takes 2-4 days."];
+  
+  const chatContext = messages.slice(-5).map(m => `${m.isAdmin ? 'ADMIN' : 'CUSTOMER'}: ${m.text}`).join('\n');
+  
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `Based on the following chat conversation, generate 3 short, professional, and helpful response suggestions for the support agent.
+Brand: StreetThreadX (Elite Streetwear).
+Tone: Efficient, minimalist, confident.
+
+Chat:
+${chatContext}
+
+Format as a JSON array of 3 strings.`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING }
+        }
+      }
+    });
+    return JSON.parse(response.text);
+  } catch (error) {
+    console.error("Error generating response suggestions:", error);
+    return ["How can I help you?", "Please provide your order ID.", "I'll check that for you."];
   }
 };

@@ -40,6 +40,36 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "name", "price", "description", "category", "images", "stock", "status"]
+    },
+    "ChatSession": {
+      "title": "ChatSession",
+      "description": "Customer support live chat session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerEmail": { "type": "string" },
+        "lastMessage": { "type": "string" },
+        "lastTimestamp": { "type": "string" },
+        "status": { "type": "string", "enum": ["ACTIVE", "CLOSED"] },
+        "isPresenceActive": { "type": "boolean" },
+        "lastPresenceUpdate": { "type": "string" }
+      },
+      "required": ["id", "customerName", "customerEmail", "status"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Individual message in a chat session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "isAdmin": { "type": "boolean" }
+      },
+      "required": ["id", "senderId", "text", "timestamp", "isAdmin"]
     }
   },
   "firestore": {
@@ -54,6 +84,14 @@
     "reviews/{reviewId}": {
       "schema": "Review",
       "description": "Product reviews"
+    },
+    "chatSessions/{sessionId}": {
+      "schema": "ChatSession",
+      "description": "Active and archived chat sessions"
+    },
+    "chatSessions/{sessionId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Messages within a chat session"
     }
   }
 }

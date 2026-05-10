@@ -15,11 +15,11 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
-    // BOOTSTRAPPED ADMIN CHECK
     function isAdmin() {
-      // Allowing the owner email from metadata as admin
-      return isEmailVerified() && (
-        request.auth.token.email == 'biplobnbc04@gmail.com'
+      return isSignedIn() && (
+        request.auth.token.email == 'biplobnbc04@gmail.com' ||
+        request.auth.token.email == 'parvesvai00@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
@@ -35,7 +35,7 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // --- Product Validation ---
+    // --- Validation Helpers ---
     function isValidProduct(data) {
       return data.keys().hasAll(['id', 'name', 'price', 'description', 'category', 'images', 'stock', 'status'])
         && data.id is string && data.id.size() <= 128
@@ -44,42 +44,62 @@ service cloud.firestore {
         && data.description is string && data.description.size() <= 4000
         && data.category is string && data.category.size() <= 100
         && data.images is list && data.images.size() <= 20
-        && data.stock is number
+        && data.stock is number && data.stock >= 0
         && data.status in ['Draft', 'Published'];
     }
 
     // --- Products Collection ---
     match /products/{productId} {
-      allow read: if true; // Products are public
-      
-      // Allow creation for everyone to let the app seed itself on first run
-      allow create: if isValidId(productId) && isValidProduct(incoming());
-      
-      // Allow stock updates (for checkout) for signed-in users
-      allow update: if (isAdmin() && isValidProduct(incoming())) 
-                    || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['stock', 'updatedAt']));
-      
-      allow delete: if isAdmin() && isValidId(productId);
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
+
+    // --- Customers Collection ---
+    match /customers/{customerId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
     }
 
     // --- Orders Collection ---
     match /orders/{orderId} {
-      function isOwner() {
-        return isSignedIn() && incoming().customerEmail == request.auth.token.email;
-      }
-      
-      allow read: if isAdmin() || (isSignedIn() && existing().customerEmail == request.auth.token.email);
-      allow create: if isSignedIn() && isValidId(orderId);
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
     }
 
     // --- Reviews Collection ---
     match /reviews/{reviewId} {
       allow read: if true;
-      allow create: if isSignedIn() && isValidId(reviewId);
-      allow update: if isAdmin();
+      allow create: if isSignedIn() && isValidId(reviewId) && incoming().customerEmail == request.auth.token.email;
+      allow update: if isAdmin() || (isSignedIn() && resource.data.customerEmail == request.auth.token.email);
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.customerEmail == request.auth.token.email);
+    }
+
+    // --- Chat Sessions ---
+    match /chatSessions/{sessionId} {
+      allow list: if isAdmin();
+      allow get: if isAdmin() || (isSignedIn() && (resource.data.customerEmail == request.auth.token.email || resource.data.userId == request.auth.uid || sessionId == ('guest_' + request.auth.uid)));
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || (isSignedIn() && (existing().customerEmail == request.auth.token.email || existing().userId == request.auth.uid || sessionId == ('guest_' + request.auth.uid)));
       allow delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow list, get: if isAdmin() || (
+          isSignedIn() && 
+          exists(/databases/$(database)/documents/chatSessions/$(sessionId)) && 
+          (
+            get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.customerEmail == request.auth.token.email || 
+            get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.userId == request.auth.uid ||
+            sessionId == ('guest_' + request.auth.uid)
+          )
+        );
+        allow create: if isSignedIn();
+      }
     }
   }
 }

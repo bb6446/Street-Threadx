@@ -12,7 +12,7 @@ export const MOCK_PRODUCTS: Product[] = [
     materials: '100% Organic Cotton, 220GSM.',
     category: 'T-Shirts',
     images: [
-      'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&q=80&w=800'
+      'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&q=80&w=800&fm=webp'
     ],
     stock: 50,
     minStockLevel: 10,
@@ -33,7 +33,7 @@ export const MOCK_PRODUCTS: Product[] = [
     materials: '100% Organic Cotton, 220GSM.',
     category: 'T-Shirts',
     images: [
-      'https://images.unsplash.com/photo-1503341504253-dff48153452a?auto=format&fit=crop&q=80&w=800'
+      'https://images.unsplash.com/photo-1503341504253-dff48153452a?auto=format&fit=crop&q=80&w=800&fm=webp'
     ],
     stock: 50,
     minStockLevel: 10,
@@ -52,10 +52,12 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 9500,
     description: 'Constructed for the modern nomad. 450GSM heavyweight armor. Architectural boxy fit. Brutalist aesthetic. Foundation of the uniform. Engineered for life in the grey.',
     materials: '100% Premium Organic Cotton Fleece. Pre-shrunk and garment dyed for a vintage hand-feel.',
+    materialComposition: '100% ORGANIC COTTON',
+    careInstructions: 'MACHINE WASH COLD WITH LIKE COLORS. TUMBLE DRY LOW. DO NOT IRON ON PRINT.',
     category: 'Hoodies',
     images: [
-      'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800',
-      'https://images.unsplash.com/photo-1521223890158-f9f7c3d5ded1?auto=format&fit=crop&q=80&w=800'
+      'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800&fm=webp',
+      'https://images.unsplash.com/photo-1521223890158-f9f7c3d5ded1?auto=format&fit=crop&q=80&w=800&fm=webp'
     ],
     stock: 12,
     minStockLevel: 10,
@@ -76,8 +78,8 @@ export const MOCK_PRODUCTS: Product[] = [
     materials: '80% Cotton, 20% Polyester Blend. Features high-density tonal embroidery on chest.',
     category: 'Sweaters',
     images: [
-      'https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?auto=format&fit=crop&q=80&w=800',
-      'https://images.unsplash.com/photo-1576566588028-4147f3842f27?auto=format&fit=crop&q=80&w=800'
+      'https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?auto=format&fit=crop&q=80&w=800&fm=webp',
+      'https://images.unsplash.com/photo-1576566588028-4147f3842f27?auto=format&fit=crop&q=80&w=800&fm=webp'
     ],
     stock: 25,
     minStockLevel: 5,
@@ -96,7 +98,7 @@ export const MOCK_PRODUCTS: Product[] = [
     description: 'Vintage wash oversized t-shirt with signature neon graphic print on back.',
     materials: '220GSM Single Jersey Cotton. Screen-printed using water-based eco-inks.',
     category: 'T-Shirts',
-    images: ['https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&q=80&w=800'],
+    images: ['https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&q=80&w=800&fm=webp'],
     stock: 45,
     minStockLevel: 15,
     sizes: ['M', 'L', 'XL'],
@@ -115,7 +117,7 @@ export const MOCK_PRODUCTS: Product[] = [
     materials: 'Wool and Acrylic hybrid knit for maximum warmth without the itch. Hand-distressed details.',
     category: 'Sweaters',
     images: [
-      'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?auto=format&fit=crop&q=80&w=800'
+      'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?auto=format&fit=crop&q=80&w=800&fm=webp'
     ],
     stock: 8,
     minStockLevel: 5,
@@ -134,7 +136,7 @@ export const MOCK_PRODUCTS: Product[] = [
     description: 'Thick ribbed knit beanie with metallic branded plate.',
     materials: '100% Recycled Poly-Acrylic knit. Branded plate crafted from zinc alloy.',
     category: 'Accessories',
-    images: ['https://images.unsplash.com/photo-1576828831022-ae41d437a78e?auto=format&fit=crop&q=80&w=800'],
+    images: ['https://images.unsplash.com/photo-1576828831022-ae41d437a78e?auto=format&fit=crop&q=80&w=800&fm=webp'],
     stock: 5,
     minStockLevel: 10,
     sizes: ['One Size'],
@@ -152,7 +154,7 @@ export const MOCK_PRODUCTS: Product[] = [
     description: 'Water-repellent tech fleece with integrated face mask and asymmetric zippers.',
     materials: 'DWR-coated Technical Fleece (Polyester/Elastane). Laser-cut zippers and reinforced seams.',
     category: 'Hoodies',
-    images: ['https://images.unsplash.com/photo-1529139574466-a301f3d41d92?auto=format&fit=crop&q=80&w=800'],
+    images: ['https://images.unsplash.com/photo-1529139574466-a301f3d41d92?auto=format&fit=crop&q=80&w=800&fm=webp'],
     stock: 20,
     minStockLevel: 10,
     sizes: ['L', 'XL'],
@@ -170,7 +172,7 @@ export const MOCK_PRODUCTS: Product[] = [
     description: 'Technical cargo pants with 8 pockets and adjustable ankle straps.',
     materials: 'Ripstop Cotton/Nylon blend. Reinforced knee panels and industrial-grade webbing straps.',
     category: 'Accessories',
-    images: ['https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?auto=format&fit=crop&q=80&w=800'],
+    images: ['https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?auto=format&fit=crop&q=80&w=800&fm=webp'],
     stock: 18,
     minStockLevel: 10,
     sizes: ['30', '32', '34'],

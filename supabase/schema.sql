@@ -83,6 +83,16 @@ CREATE POLICY "Customers can update own profile"
     ON customers FOR UPDATE 
     USING (auth.uid() = id);
 
+-- Customers can insert their own profile
+CREATE POLICY "Customers can insert own profile" 
+    ON customers FOR INSERT 
+    WITH CHECK (auth.uid() = id);
+
+-- Admins can manage all customers
+CREATE POLICY "Admins can manage customers" 
+    ON customers FOR ALL 
+    USING (auth.jwt() ->> 'role' = 'admin');
+
 -- ------------------------------------------
 -- Products Policies
 -- ------------------------------------------
@@ -111,6 +121,11 @@ CREATE POLICY "Customers can insert own orders"
     ON orders FOR INSERT 
     WITH CHECK (auth.uid() = customer_id);
 
+-- Admins can manage all orders
+CREATE POLICY "Admins can manage orders" 
+    ON orders FOR ALL 
+    USING (auth.jwt() ->> 'role' = 'admin');
+
 -- ------------------------------------------
 -- Order Items Policies
 -- ------------------------------------------
@@ -136,6 +151,11 @@ CREATE POLICY "Customers can insert own order items"
         )
     );
 
+-- Admins can manage all order items
+CREATE POLICY "Admins can manage order items" 
+    ON order_items FOR ALL 
+    USING (auth.jwt() ->> 'role' = 'admin');
+
 -- ==========================================
 -- 3. RPC for Transactional Order Creation
 -- ==========================================
@@ -154,6 +174,11 @@ DECLARE
     v_order_id UUID;
     v_item JSONB;
 BEGIN
+    -- Ensure the user is inserting an order for themselves
+    IF auth.uid() != p_customer_id THEN
+        RAISE EXCEPTION 'Unauthorized: You can only create orders for your own account';
+    END IF;
+
     -- Insert Order
     INSERT INTO orders (customer_id, subtotal, discount, total_amount, shipping_address, status)
     VALUES (p_customer_id, p_subtotal, p_discount, p_total_amount, p_shipping_address, 'pending')
