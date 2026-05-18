@@ -75,7 +75,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSend
                   <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#1c1c1c] shadow-sm"></div>
                 </div>
                 <div className="flex flex-col">
-                  <h3 className="text-xs font-black text-white uppercase tracking-[0.2em]">Support Core</h3>
+                  <h3 className="text-xs font-black text-white uppercase tracking-[0.2em]">STREET THREADX Customer Service</h3>
                   <p className="text-[10px] text-emerald-500 font-medium opacity-90 flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                     Ready To Help
