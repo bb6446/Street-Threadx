@@ -1,0 +1,99 @@
+45:  customerInfo?: { name: string, email: string };
+47:}> = ({ cartCount, setView, toggleCart, toggleSearch, currentView, onNavigate, activeFilter, socialSettings, isBannerEnabled, cartBounce, customerInfo, onLogoutCustomer }) => {
+122:          {customerInfo?.email ? (
+127:                {customerInfo.name.split(' ')[0]}
+178:          {customerInfo?.email ? (
+181:                <span className="text-[10px] uppercase font-black tracking-widest">{customerInfo.name.split(' ')[0]}</span>
+188:                  <div className="text-[10px] font-black">{customerInfo.name}</div>
+189:                  <div className="text-[9px] text-zinc-500 truncate">{customerInfo.email}</div>
+378:  const [customerInfo, setCustomerInfo] = useState({
+421:    if (customerInfo.email) return customerInfo.email;
+430:  const chatIdentity = useMemo(() => getChatIdentity(), [customerInfo.email, auth.currentUser?.uid, auth.currentUser?.email]);
+492:          const finalName = customerInfo.name || 'GUEST_CONTACT';
+586:      await chatService.getOrCreateSession(emailToUse || sessionId, isAdmin ? 'ADMIN' : (customerInfo.name || 'GUEST'));
+591:      senderName: isAdmin ? 'ADMIN' : (customerInfo.name || auth.currentUser?.displayName || 'GUEST'),
+621:          // Merge customerInfo with firebase auth to ensure correct login status is passed
+623:            ...customerInfo,
+624:            email: customerInfo.email || auth.currentUser?.email || '',
+625:            name: customerInfo.name || auth.currentUser?.displayName || '',
+805:      const city = (customerInfo.city || '').toLowerCase().trim();
+814:  }, [customerInfo.city, cartSubtotal]);
+961:      const nameError = validateField('name', customerInfo.name);
+964:      const emailError = validateField('email', customerInfo.email);
+967:      const phoneError = validateField('phone', customerInfo.phone);
+970:      const addressError = validateField('address', customerInfo.address);
+973:      const cityError = validateField('city', customerInfo.city);
+976:      const zipError = validateField('zip', customerInfo.zip || '');
+981:      if (['bKash', 'Nagad', 'Rocket', 'COD'].includes(customerInfo.paymentMethod)) {
+982:        if (!customerInfo.senderNumber.trim()) errors.senderNumber = 'Sender number is required for verification.';
+983:        if (!customerInfo.trxId.trim()) errors.trxId = 'Transaction ID is required for verification.';
+986:      if (['Credit Card', 'Debit Card'].includes(customerInfo.paymentMethod)) {
+987:        const cnError = validateField('cardNumber', customerInfo.cardNumber);
+989:        const ceError = validateField('cardExpiry', customerInfo.cardExpiry);
+991:        const cvcError = validateField('cardCvc', customerInfo.cardCvc);
+1054:          customerEmail: customerInfo.email,
+1089:    if (customerInfo.paymentMethod === 'Credit Card' || customerInfo.paymentMethod === 'Debit Card') {
+1099:    const isCOD = customerInfo.paymentMethod === 'COD';
+1113:      customerName: customerInfo.name,
+1114:      customerEmail: customerInfo.email,
+1122:      paymentMethod: customerInfo.paymentMethod,
+1123:      ...(['bKash', 'Nagad', 'Rocket', 'COD'].includes(customerInfo.paymentMethod) && {
+1124:        transactionId: customerInfo.trxId,
+1125:        senderNumber: customerInfo.senderNumber
+1127:      ...(['Credit Card', 'Debit Card'].includes(customerInfo.paymentMethod) && {
+1140:      shippingAddress: `${customerInfo.address}, ${customerInfo.city}`,
+1141:      billingAddress: customerInfo.isBillingSame ? `${customerInfo.address}, ${customerInfo.city}` : `${customerInfo.billingAddress}, ${customerInfo.city}`
+1157:    const existing = customers.find(c => c.email.toLowerCase() === customerInfo.email.toLowerCase());
+1167:        name: customerInfo.name,
+1168:        email: customerInfo.email,
+1247:    if (!selectedProduct || !customerInfo?.name || !newReviewComment) return;
+1256:        author: customerInfo.name.toUpperCase().replace(/\s/g, '_'),
+1435:                    if (customerInfo?.email) {
+1501:        customerInfo={customerInfo}
+1797:        {currentView === ViewState.CUSTOMER_PROFILE && customerInfo?.email && (
+1801:                customerInfo={customerInfo}
+1992:                  <p className="text-zinc-500 uppercase text-[9px] tracking-[0.2em] font-black">A verification relay has been sent to {customerInfo.email}</p>
+2046:                          <input id="checkout-name" type="text" value={customerInfo.name} onChange={e => handleCustomerInfoChange('name', e.target.value)} className={`w-full bg-zinc-900/50 border px-4 py-3 text-xs font-bold uppercase text-white outline-none transition-all ${checkoutErrors.name ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' : 'border-zinc-800 focus:border-[#0055ff]'}`} placeholder="ID_ENTITY" />
+2054:                            value={customerInfo.phone} 
+2064:                        <input id="checkout-email" type="email" value={customerInfo.email} onChange={e => handleCustomerInfoChange('email', e.target.value)} className={`w-full bg-zinc-900/50 border px-4 py-3 text-xs font-bold uppercase text-white outline-none transition-all ${checkoutErrors.email ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' : 'border-zinc-800 focus:border-[#0055ff]'}`} placeholder="ENTITY@REACH.COM" />
+2071:                            <textarea id="checkout-address" value={customerInfo.address} onChange={e => handleCustomerInfoChange('address', e.target.value)} className={`w-full bg-zinc-900/50 border px-4 py-3 text-xs font-bold uppercase text-white outline-none transition-all min-h-[80px] ${checkoutErrors.address ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' : 'border-zinc-800 focus:border-[#0055ff]'}`} placeholder="BLOCK/STREET/HOUSE..." />
+2078:                                checked={customerInfo.isBillingSame}
+2082:                              <div className={`w-3.5 h-3.5 border flex items-center justify-center transition-all ${customerInfo.isBillingSame ? 'bg-[#0055ff] border-[#0055ff]' : 'border-zinc-700'}`}>
+2083:                                {customerInfo.isBillingSame && <svg className="w-2.5 h-2.5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7"/></svg>}
+2087:                            {!customerInfo.isBillingSame && (
+2090:                                <textarea id="checkout-billing" value={customerInfo.billingAddress} onChange={e => handleCustomerInfoChange('billingAddress', e.target.value)} className={`w-full bg-zinc-900/50 border border-zinc-800 px-4 py-3 text-xs font-bold uppercase text-white outline-none focus:border-[#0055ff] transition-all min-h-[80px]`} placeholder="BILLING ADDRESS..." />
+2098:                            <input id="checkout-city" type="text" value={customerInfo.city} onChange={e => handleCustomerInfoChange('city', e.target.value)} className={`w-full bg-zinc-900/50 border px-4 py-3 text-xs font-bold uppercase text-white outline-none transition-all ${checkoutErrors.city ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' : 'border-zinc-800 focus:border-[#0055ff]'}`} placeholder="CITY" />
+2106:                              value={customerInfo.zip || ''} 
+2132:                                  className={`p-4 border cursor-pointer flex flex-col justify-between transition-all ${customerInfo.paymentMethod === method ? 'border-[#0055ff] bg-[#0055ff]/10' : 'border-zinc-800 bg-zinc-900/50 opacity-60 hover:opacity-100'}`}
+2135:                                    <div className={`w-4 h-4 rounded-none border-2 flex items-center justify-center ${customerInfo.paymentMethod === method ? 'border-[#0055ff]' : 'border-zinc-700'}`}>
+2136:                                      {customerInfo.paymentMethod === method && <div className="w-2 h-2 rounded-none bg-[#0055ff]"></div>}
+2141:                                  {customerInfo.paymentMethod === method && (
+2160:                                            value={customerInfo.senderNumber}
+2171:                                            value={customerInfo.trxId}
+2194:                                  className={`p-4 border cursor-pointer flex flex-col justify-between transition-all ${customerInfo.paymentMethod === method ? 'border-emerald-500 bg-emerald-500/10' : 'border-zinc-800 bg-zinc-900/50 opacity-60 hover:opacity-100'}`}
+2197:                                    <div className={`w-4 h-4 rounded-none border-2 flex items-center justify-center ${customerInfo.paymentMethod === method ? 'border-emerald-500' : 'border-zinc-700'}`}>
+2198:                                      {customerInfo.paymentMethod === method && <div className="w-2 h-2 rounded-none bg-emerald-500"></div>}
+2203:                                  {customerInfo.paymentMethod === method && (
+2218:                                                value={customerInfo.cardNumber}
+2236:                                                value={customerInfo.cardExpiry}
+2248:                                                value={customerInfo.cardCvc}
+2274:                              className={`p-4 border cursor-pointer flex flex-col justify-between transition-all ${customerInfo.paymentMethod === 'COD' ? 'border-rose-500 bg-rose-500/10' : 'border-zinc-800 bg-zinc-900/50 opacity-60 hover:opacity-100'}`}
+2277:                                <div className={`w-4 h-4 rounded-none border-2 flex items-center justify-center ${customerInfo.paymentMethod === 'COD' ? 'border-rose-500' : 'border-zinc-700'}`}>
+2278:                                  {customerInfo.paymentMethod === 'COD' && <div className="w-2 h-2 rounded-none bg-rose-500"></div>}
+2283:                              {customerInfo.paymentMethod === 'COD' && (
+2297:                                        value={customerInfo.senderNumber}
+2308:                                        value={customerInfo.trxId}
+2347:                                  <span className="text-[8px] opacity-60">({customerInfo.city || 'Calculated at checkout'})</span>
+2377:                            {['bKash', 'Nagad', 'Rocket', 'Credit Card', 'Debit Card', 'COD'].includes(customerInfo.paymentMethod) && (
+2380:                                  {customerInfo.paymentMethod === 'COD' ? 'Delivery Advance (COD)' : 'Advance to pay now (50%)'}
+2382:                                <span className={`text-sm font-black ${customerInfo.paymentMethod === 'COD' ? 'text-rose-400' : 'text-emerald-400'}`}>
+2383:                                  ৳{(customerInfo.paymentMethod === 'COD' ? 150 : Math.ceil(cartTotal * 0.5)).toLocaleString()}
+2387:                            {['bKash', 'Nagad', 'Rocket', 'Credit Card', 'Debit Card', 'COD'].includes(customerInfo.paymentMethod) && (
+2390:                                  {customerInfo.paymentMethod === 'COD' ? 'Due on Delivery' : 'Due Before Shipping'}
+2393:                                  ৳{(cartTotal - (customerInfo.paymentMethod === 'COD' ? 150 : Math.ceil(cartTotal * 0.5))).toLocaleString()}
+2425:                          <p className="text-xs text-zinc-300">{customerInfo.name}</p>
+2426:                          <p className="text-xs text-zinc-300">{customerInfo.phone}</p>
+2427:                          <p className="text-xs text-zinc-300">{customerInfo.address}</p>
+2742:                      {customerInfo?.email ? (
+2771:                              value={customerInfo.name}
+2923:        customerName={customerInfo.name || 'Guest'}

@@ -1,18 +1,22 @@
 
-import { collection, onSnapshot, doc, setDoc, query, orderBy, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, query, orderBy, deleteDoc, updateDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Order } from '../types';
 import { supabase } from '../supabase';
 
-export const subscribeToOrders = (callback: (orders: Order[]) => void) => {
+export const subscribeToOrders = (callback: (orders: Order[]) => void, isAdmin: boolean = false, customerEmail: string = '') => {
+  if (!isAdmin && !customerEmail) {
+    callback([]);
+    return () => {};
+  }
   // If Supabase is available, we check it for orders
   if (supabase) {
-    fetchOrdersSupabase().then(callback);
+    fetchOrdersSupabase(isAdmin, customerEmail).then(callback);
     
     const channel = supabase
       .channel('public:orders')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, async () => {
-        const updatedOrders = await fetchOrdersSupabase();
+        const updatedOrders = await fetchOrdersSupabase(isAdmin, customerEmail);
         callback(updatedOrders);
       })
       .subscribe();
@@ -22,7 +26,12 @@ export const subscribeToOrders = (callback: (orders: Order[]) => void) => {
     };
   }
 
-  const q = query(collection(db, 'orders'), orderBy('date', 'desc'), orderBy('time', 'desc'));
+  let q;
+  if (!isAdmin && customerEmail) {
+    q = query(collection(db, 'orders'), where('customerEmail', '==', customerEmail));
+  } else {
+    q = query(collection(db, 'orders'), orderBy('date', 'desc'), orderBy('time', 'desc'));
+  }
   
   let isSeeding = false;
   return onSnapshot(q, (snapshot) => {
@@ -46,11 +55,16 @@ export const subscribeToOrders = (callback: (orders: Order[]) => void) => {
   });
 };
 
-const fetchOrdersSupabase = async () => {
+const fetchOrdersSupabase = async (isAdmin: boolean, customerEmail: string) => {
   if (!supabase) return [];
-  const { data, error } = await supabase
-    .from('orders')
-    .select('*, order_items(*)');
+  if (!isAdmin && !customerEmail) return [];
+  
+  let q = supabase.from('orders').select('*, order_items(*)');
+  if (!isAdmin && customerEmail) {
+    // Only fetch for this customer if RLS isn't set up on supabase
+    // q = q.eq('customerEmail', customerEmail);
+  }
+  const { data, error } = await q;
     
   if (error) {
     console.error('Supabase orders fetch error:', error);

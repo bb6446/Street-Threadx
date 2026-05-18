@@ -11,15 +11,12 @@ service cloud.firestore {
       return request.auth != null;
     }
     
-    function isEmailVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
-    }
-
     function isAdmin() {
+      // NOTE: For prototyping purposes, we hardcode allowed admin emails
       return isSignedIn() && (
         request.auth.token.email == 'biplobnbc04@gmail.com' ||
         request.auth.token.email == 'parvesvai00@gmail.com' ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        request.auth.token.isCustomAdmin == true
       );
     }
 
@@ -35,70 +32,104 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // --- Validation Helpers ---
-    function isValidProduct(data) {
-      return data.keys().hasAll(['id', 'name', 'price', 'description', 'category', 'images', 'stock', 'status'])
-        && data.id is string && data.id.size() <= 128
-        && data.name is string && data.name.size() <= 200
-        && data.price is number && data.price >= 0
-        && data.description is string && data.description.size() <= 4000
-        && data.category is string && data.category.size() <= 100
-        && data.images is list && data.images.size() <= 20
-        && data.stock is number && data.stock >= 0
-        && data.status in ['Draft', 'Published'];
-    }
-
     // --- Products Collection ---
     match /products/{productId} {
-      allow read: if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true;
+      allow get: if true;
+      allow list: if true;
+      allow create: if isAdmin() && isValidId(productId);
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
 
     // --- Customers Collection ---
     match /customers/{customerId} {
-      allow read: if true;
+      allow get: if isAdmin() || (isSignedIn() && existing().email == request.auth.token.email);
+      allow list: if isAdmin();
       allow create: if true;
-      allow update: if true;
-      allow delete: if true;
+      allow update: if isAdmin() || (isSignedIn() && existing().email == request.auth.token.email);
+      allow delete: if isAdmin();
     }
 
     // --- Orders Collection ---
     match /orders/{orderId} {
+      allow get: if isAdmin() || (isSignedIn() && existing().customerEmail == request.auth.token.email);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.customerEmail == request.auth.token.email);
+      allow create: if true; // Any guest can checkout
+      allow update: if isAdmin() || (isSignedIn() && existing().customerEmail == request.auth.token.email);
+      allow delete: if isAdmin();
+    }
+
+    // --- Expenses Collection ---
+    match /expenses/{expenseId} {
+      allow read, write: if isAdmin();
+    }
+
+    // --- Config Collection ---
+    match /config/{configId} {
       allow read: if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true;
+      allow write: if isAdmin();
     }
 
     // --- Reviews Collection ---
     match /reviews/{reviewId} {
       allow read: if true;
       allow create: if isSignedIn() && isValidId(reviewId) && incoming().customerEmail == request.auth.token.email;
-      allow update: if isAdmin() || (isSignedIn() && resource.data.customerEmail == request.auth.token.email);
-      allow delete: if isAdmin() || (isSignedIn() && resource.data.customerEmail == request.auth.token.email);
+      allow update: if isAdmin() || (isSignedIn() && existing().customerEmail == request.auth.token.email);
+      allow delete: if isAdmin() || (isSignedIn() && existing().customerEmail == request.auth.token.email);
+    }
+
+    // --- Admins Collection ---
+    match /admins/{adminId} {
+      allow read: if isAdmin() || true; // Everyone can read for login check? No, only admin can list, but read for login?
+      // Actually, we don't have a login collection, so we might need public read for username lookup or just admin.
+      // Better: allow read for anyone so they can attempt login (matching username/pass), 
+      // but only admin can write. 
+      // Actually, it's better to fetch ALL admins on App mount if we are using this logic.
+      allow read: if true; 
+      allow write: if isAdmin();
     }
 
     // --- Chat Sessions ---
     match /chatSessions/{sessionId} {
       allow list: if isAdmin();
-      allow get: if isAdmin() || (isSignedIn() && (resource.data.customerEmail == request.auth.token.email || resource.data.userId == request.auth.uid || sessionId == ('guest_' + request.auth.uid)));
-      allow create: if isSignedIn();
-      allow update: if isAdmin() || (isSignedIn() && (existing().customerEmail == request.auth.token.email || existing().userId == request.auth.uid || sessionId == ('guest_' + request.auth.uid)));
+      
+      allow get: if isAdmin() || 
+                    sessionId.matches('^guest_.*') || 
+                    (isSignedIn() && (
+                      existing() == null || 
+                      ('userId' in existing() && existing().userId == request.auth.uid) || 
+                      ('email' in request.auth.token && 'customerEmail' in existing() && existing().customerEmail == request.auth.token.email) ||
+                      sessionId == ('guest_' + request.auth.uid)
+                    ));
+
+      allow create: if isAdmin() || 
+                       sessionId.matches('^guest_.*') ||
+                       (isSignedIn() && (
+                         ('userId' in incoming() && incoming().userId == request.auth.uid) ||
+                         ('email' in request.auth.token && 'customerEmail' in incoming() && incoming().customerEmail == request.auth.token.email) ||
+                         sessionId == ('guest_' + request.auth.uid)
+                       ));
+
+      allow update: if isAdmin() || 
+                    sessionId.matches('^guest_.*') ||
+                    (isSignedIn() && (
+                      ('userId' in existing() && existing().userId == request.auth.uid) || 
+                      ('email' in request.auth.token && 'customerEmail' in existing() && existing().customerEmail == request.auth.token.email) ||
+                      sessionId == ('guest_' + request.auth.uid)
+                    ));
+      
       allow delete: if isAdmin();
 
       match /messages/{messageId} {
-        allow list, get: if isAdmin() || (
-          isSignedIn() && 
-          exists(/databases/$(database)/documents/chatSessions/$(sessionId)) && 
-          (
-            get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.customerEmail == request.auth.token.email || 
-            get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.userId == request.auth.uid ||
-            sessionId == ('guest_' + request.auth.uid)
-          )
-        );
-        allow create: if isSignedIn();
+        allow read, write: if isAdmin() || 
+                             sessionId.matches('^guest_.*') || 
+                             (isSignedIn() && (
+                               (exists(/databases/$(database)/documents/chatSessions/$(sessionId)) && (
+                                 ('userId' in get(/databases/$(database)/documents/chatSessions/$(sessionId)).data && get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.userId == request.auth.uid) ||
+                                 ('email' in request.auth.token && 'customerEmail' in get(/databases/$(database)/documents/chatSessions/$(sessionId)).data && get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.customerEmail == request.auth.token.email)
+                               )) ||
+                               sessionId == ('guest_' + request.auth.uid)
+                             ));
       }
     }
   }

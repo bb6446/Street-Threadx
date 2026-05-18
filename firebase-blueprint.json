@@ -8,6 +8,7 @@
         "id": { "type": "string" },
         "name": { "type": "string" },
         "price": { "type": "number" },
+        "cost": { "type": "number" },
         "sku": { "type": "string" },
         "description": { "type": "string" },
         "materials": { "type": "string" },
@@ -41,6 +42,21 @@
       },
       "required": ["id", "name", "price", "description", "category", "images", "stock", "status"]
     },
+    "Expense": {
+      "title": "Expense",
+      "description": "Business expense record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "amount": { "type": "number" },
+        "category": { "type": "string" },
+        "date": { "type": "string" },
+        "notes": { "type": "string" },
+        "receiptUrl": { "type": "string" }
+      },
+      "required": ["id", "title", "amount", "category", "date"]
+    },
     "ChatSession": {
       "title": "ChatSession",
       "description": "Customer support live chat session",
@@ -70,9 +86,27 @@
         "isAdmin": { "type": "boolean" }
       },
       "required": ["id", "senderId", "text", "timestamp", "isAdmin"]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Administrative user credentials",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "role": { "type": "string", "enum": ["SUPER_ADMIN", "EDITOR", "SUPPORT"] },
+        "lastLogin": { "type": "string" },
+        "canManageChat": { "type": "boolean" }
+      },
+      "required": ["id", "username", "password", "role"]
     }
   },
   "firestore": {
+    "admins/{adminId}": {
+      "schema": "AdminUser",
+      "description": "Administrative users for the system"
+    },
     "products/{productId}": {
       "schema": "Product",
       "description": "Collection of products available in the store"
@@ -85,6 +119,10 @@
       "schema": "Review",
       "description": "Product reviews"
     },
+    "expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Business expense records"
+    },
     "chatSessions/{sessionId}": {
       "schema": "ChatSession",
       "description": "Active and archived chat sessions"
@@ -92,6 +130,10 @@
     "chatSessions/{sessionId}/messages/{messageId}": {
       "schema": "ChatMessage",
       "description": "Messages within a chat session"
+    },
+    "config/{configId}": {
+      "schema": "object",
+      "description": "Application configuration and secrets"
     }
   }
 }

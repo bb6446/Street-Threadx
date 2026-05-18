@@ -2,7 +2,7 @@
 
 import ReactGA from 'react-ga4';
 import { Facebook, Instagram, Linkedin, Twitter } from 'lucide-react';
-import { ViewState, Product, CartItem, Review, AdminRole, AdminUser, LogEntry, SocialSettings, SocialReferral, Order, DiscountCode, Customer, ChatSession, ChatMessage } from './types';
+import { ViewState, Product, CartItem, Review, AdminRole, AdminUser, LogEntry, SocialSettings, SocialReferral, Order, DiscountCode, Customer, ChatSession, ChatMessage, Expense } from './types';
 import { MOCK_PRODUCTS, ACCENT_COLOR } from './constants';
 import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
@@ -11,12 +11,16 @@ const CustomerProfile = lazy(() => import('./components/CustomerProfile'));
 import { ChatWidget } from './components/ChatWidget';
 import { generateChatAgentResponse } from './services/geminiService';
 import { chatService } from './services/chatService';
-import { auth, db } from './firebase';
-import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+import { expenseService } from './services/expenseService';
+import { auth, db, storage, signInWithGoogle, logOut } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { deductStockFirebase } from './services/inventoryService';
 import { subscribeToProducts, seedProductsIfEmpty } from './services/productService';
 import { subscribeToOrders, saveOrderToFirestore } from './services/orderService';
 import { subscribeToCustomers, saveCustomerToFirestore, updateCustomer } from './services/customerService';
+import { settingsService } from './services/settingsService';
+import { adminService } from './services/adminService';
 
 // --- Color Mapping Helper ---
 const COLOR_MAP: Record<string, string> = {
@@ -299,6 +303,7 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [socialSettings, setSocialSettings] = useState<SocialSettings>({
     facebook: 'https://facebook.com/streetthreadx',
     instagram: 'https://instagram.com/streetthreadx',
@@ -317,7 +322,9 @@ export default function App() {
     merchantNumbers: {
       bKash: '01929667716',
       Nagad: '01929667716',
-      Rocket: '01929667716'
+      Rocket: '01929667716',
+      creditCard: '',
+      debitCard: ''
     }
   });
   const [socialReferrals, setSocialReferrals] = useState<SocialReferral[]>([
@@ -333,6 +340,7 @@ export default function App() {
   const [cartBounce, setCartBounce] = useState(false);
   const [showRotateCue, setShowRotateCue] = useState(true);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [heroImageIndex, setHeroImageIndex] = useState(0);
 
   // Auto-hide rotate cue
   useEffect(() => {
@@ -380,17 +388,25 @@ export default function App() {
     billingAddress: '',
     city: 'Dhaka',
     zip: '',
-    paymentMethod: 'bKash' as 'COD' | 'bKash' | 'Nagad' | 'Rocket' | 'Credit Card',
+    paymentMethod: 'bKash' as 'COD' | 'bKash' | 'Nagad' | 'Rocket' | 'Credit Card' | 'Debit Card',
     trxId: '',
     senderNumber: '',
-    isBillingSame: true
+    transactionScreenshot: '',
+    isBillingSame: true,
+    cardNumber: '',
+    cardExpiry: '',
+    cardCvc: '',
   });
+  
+  const [isUploadingScreenshot, setIsUploadingScreenshot] = useState(false);
 
   // Chat State
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
-  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(true);
   const [activeChatEmail, setActiveChatEmail] = useState<string>('');
   const [isAiTyping, setIsAiTyping] = useState(false);
+  const aiResponseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastAiRequestTimeRef = useRef<number>(0);
 
   // Admin & Security States
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
@@ -399,7 +415,28 @@ export default function App() {
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [isTwoFactorStep, setIsTwoFactorStep] = useState(false);
   const [adminLogs, setAdminLogs] = useState<LogEntry[]>([]);
+  const [adminUsersList, setAdminUsersList] = useState<AdminUser[]>([
+    { id: '1', username: 'root', role: AdminRole.SUPER_ADMIN, lastLogin: '', password: 'root123' },
+    { id: '2', username: 'editor', role: AdminRole.EDITOR, lastLogin: '', password: 'edit123' },
+    { id: '3', username: 'support', role: AdminRole.SUPPORT, lastLogin: '', password: 'sup123' },
+    { id: '4', username: 'bb6446', role: AdminRole.SUPER_ADMIN, lastLogin: '', password: 'bb6446' }
+  ]);
   const [loginError, setLoginError] = useState('');
+
+  // --- Chat Identity Helper ---
+  const getChatIdentity = () => {
+    // 1. Logged in customer email
+    if (customerInfo.email) return customerInfo.email;
+    // 2. Firebase Auth User (Email or UID)
+    if (auth.currentUser) {
+      return auth.currentUser.email || `guest_${auth.currentUser.uid}`;
+    }
+    // 3. Persistent Local Guest ID
+    return localStorage.getItem('street_threadx_guest_id') || 'guest_fallback';
+  };
+
+  const chatIdentity = useMemo(() => getChatIdentity(), [customerInfo.email, auth.currentUser?.uid, auth.currentUser?.email]);
+  const chatSessionId = useMemo(() => chatIdentity.replace(/[.@]/g, '_'), [chatIdentity]);
 
   // Sync Chat Sessions from Firestore (Admin)
   useEffect(() => {
@@ -407,7 +444,19 @@ export default function App() {
     if (!adminUser) return;
     
     const unsubscribe = chatService.subscribeToSessions((sessions) => {
-      setChatSessions(sessions);
+      setChatSessions(prev => {
+        // We MUST merge the new session metadata with any existing messages we've loaded
+        // This prevents the admin UI from "losing" the message history when a session updates
+        return sessions.map(newSession => {
+          const existing = prev.find(s => s.id === newSession.id);
+          return {
+            ...newSession,
+            messages: (existing?.messages && existing.messages.length > 0) 
+              ? existing.messages 
+              : (newSession.messages || [])
+          };
+        });
+      });
     });
 
     return () => {
@@ -417,18 +466,18 @@ export default function App() {
 
   // Initialize Firebase Auth
   useEffect(() => {
+    // Generate a persistent guest ID for chat if auth fails or is disabled
+    if (!localStorage.getItem('street_threadx_guest_id')) {
+      localStorage.setItem('street_threadx_guest_id', `guest_${Math.random().toString(36).substring(2, 11)}`);
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       // If we're not signed in, we try anonymous sign-in here to ensure
       // guest interactions (like chat) have a valid UID for security rules.
       // However, we catch the error if the developer hasn't enabled Anonymous Auth in the console.
       if (!user) {
-        signInAnonymously(auth).catch(err => {
-          if (err.code === 'auth/admin-restricted-operation') {
-            console.warn("Firebase Anonymous Auth is disabled. To enable guest chat, please enable 'Anonymous' in the Firebase Console (Build > Authentication > Sign-in method).");
-          } else {
-            console.error("Anonymous sign-in failed", err);
-          }
-        });
+        // We rely on chatService's ensureAuth instead of calling it here repeatedly
+        console.log("No authenticated user yet.");
       } else {
         console.log("Firebase Auth established:", user.isAnonymous ? "Guest" : user.email);
       }
@@ -437,108 +486,186 @@ export default function App() {
   }, []);
 
   // Sync messages and presence for the active session (Customer Side)
+  const [sessionInitialized, setSessionInitialized] = useState<string | null>(null);
+
   useEffect(() => {
     // If not an admin, we only care about our own session
     if (adminUser) return;
     
-    // Determine session ID
-    // We prioritize PROVIDED info, then logged in info
-    const emailToUse = customerInfo.email || auth.currentUser?.email;
-    const guestId = auth.currentUser?.uid ? `guest_${auth.currentUser.uid}` : null;
-    
-    const sessionId = emailToUse 
-      ? emailToUse.replace(/[.@]/g, '_') 
-      : (guestId || 'pending_auth');
-    
-    if (isChatOpen && sessionId !== 'pending_auth' && guestId) {
-      // Early initialization of the session to avoid permission errors on messages subscription
+    if (isChatOpen && chatSessionId) {
+      let isMounted = true;
+
       const initSession = async () => {
         try {
-          const finalEmail = emailToUse || `${guestId}@internal`;
           const finalName = customerInfo.name || 'GUEST_CONTACT';
-          
-          await chatService.getOrCreateSession(finalEmail, finalName);
+          await chatService.getOrCreateSession(chatIdentity, finalName);
+          if (isMounted) setSessionInitialized(chatSessionId);
         } catch (err) {
-          console.error("Failed to initialize guest session", err);
+          console.error("Failed to initialize chat session", err);
         }
       };
       
       initSession();
 
-      // Update presence
-      chatService.updatePresence(sessionId, true);
-      
-      const unsubscribeSession = chatService.subscribeToSession(sessionId, (session) => {
-        if (session) {
-          setChatSessions(prev => {
-            const index = prev.findIndex(s => s.id === sessionId);
-            if (index > -1) {
-              const next = [...prev];
-              next[index] = { ...next[index], ...session };
-              return next;
-            }
-            return [...prev, session];
-          });
-        }
-      });
-
-      const unsubscribeMessages = chatService.subscribeToMessages(sessionId, (messages) => {
-        setChatSessions(prev => 
-          prev.map(s => s.id === sessionId ? { ...s, messages } : s)
-        );
-      });
-
-      const presenceInterval = setInterval(() => {
-        chatService.updatePresence(sessionId, true);
-      }, 30000);
-
       return () => {
-        unsubscribeSession();
-        unsubscribeMessages();
-        clearInterval(presenceInterval);
-        chatService.updatePresence(sessionId, false);
+        isMounted = false;
+        setSessionInitialized(null);
       };
     }
-  }, [isChatOpen, customerInfo.email, adminUser, auth.currentUser]);
+  }, [isChatOpen, chatIdentity, chatSessionId, adminUser]);
 
-  const handleSendMessage = async (text: string, isAdmin: boolean = false, targetEmail?: string) => {
-    let emailToUse = isAdmin ? targetEmail : (customerInfo.email || auth.currentUser?.email);
-    const guestId = auth.currentUser?.uid ? `guest_${auth.currentUser.uid}` : null;
+  useEffect(() => {
+    if (!sessionInitialized || adminUser) return;
 
-    if (!emailToUse && !isAdmin && guestId) {
-      emailToUse = `${guestId}@internal`;
+    const sessionId = sessionInitialized;
+    
+    // Update presence
+    chatService.updatePresence(sessionId, true);
+    
+    const unsubscribeSession = chatService.subscribeToSession(sessionId, (session) => {
+      if (session) {
+        setChatSessions(prev => {
+          const index = prev.findIndex(s => s.id === sessionId);
+          if (index > -1) {
+            const next = [...prev];
+            // Merge session data while preserving messages
+            const existingMessages = next[index].messages || [];
+            next[index] = { 
+              ...next[index], 
+              ...session, 
+              messages: (session.messages?.length ? session.messages : existingMessages) 
+            };
+            return next;
+          }
+          return [...prev, { ...session, messages: [] }];
+        });
+      }
+    });
+
+    const unsubscribeMessages = chatService.subscribeToMessages(sessionId, (messages) => {
+      setChatSessions(prev => {
+        const index = prev.findIndex(s => s.id === sessionId);
+        if (index === -1) {
+          // If session doesn't exist in local state yet, we can't add messages to it
+          // But it SHOULD exist because subscribeToSession would have added it
+          return prev;
+        }
+        const next = [...prev];
+        next[index] = { ...next[index], messages };
+        return next;
+      });
+    });
+
+    const presenceInterval = setInterval(() => {
+      chatService.updatePresence(sessionId, true);
+    }, 30000);
+
+    return () => {
+      unsubscribeSession();
+      unsubscribeMessages();
+      clearInterval(presenceInterval);
+      chatService.updatePresence(sessionId, false);
+    };
+  }, [sessionInitialized, adminUser]);
+
+  useEffect(() => {
+    const unsubscribe = adminService.subscribeToAdmins(async (admins) => {
+      // NOTE: Only SUPER_ADMIN can write to admins, so we only seed if we are a SUPER_ADMIN.
+      if (admins.length === 0 && adminUser?.role === AdminRole.SUPER_ADMIN) {
+        // Seed default admins if collection is empty
+        const defaults = [
+          { id: '1', username: 'root', role: AdminRole.SUPER_ADMIN, lastLogin: '', password: 'root123' },
+          { id: '2', username: 'editor', role: AdminRole.EDITOR, lastLogin: '', password: 'edit123' },
+          { id: '3', username: 'support', role: AdminRole.SUPPORT, lastLogin: '', password: 'sup123' },
+          { id: '4', username: 'bb6446', role: AdminRole.SUPER_ADMIN, lastLogin: '', password: 'bb6446' }
+        ];
+        for (const admin of defaults) {
+          await adminService.saveAdmin(admin as AdminUser);
+        }
+      } else {
+        setAdminUsersList(admins);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleSendMessage = async (text: string, image?: string, isAdmin: boolean = false, targetEmail?: string, targetSessionId?: string) => {
+    let sessionId = targetSessionId;
+    let emailToUse = isAdmin ? targetEmail : chatIdentity;
+    
+    // Fallback for missing identity
+    if (!emailToUse && !isAdmin && !sessionId) {
+      console.warn("SEND_SIGNAL_ABORTED: No valid identity found. Using emergency fallback.");
+      emailToUse = `guest_emergency_${Date.now()}`;
+    }
+
+    // Determine sessionId
+    if (!sessionId) {
+      if (emailToUse) {
+        sessionId = emailToUse.replace(/[.@]/g, '_');
+      } else {
+        // Ultimate fallback if still no sessionId and it's an admin message without targetEmail
+        console.error("SEND_SIGNAL_ABORTED: Cannot determine sessionId for admin message.");
+        return;
+      }
     }
     
-    if (!emailToUse && !isAdmin) return;
-
-    const sessionId = emailToUse!.replace(/[.@]/g, '_');
-    
-    // Ensure session exists
-    await chatService.getOrCreateSession(emailToUse!, isAdmin ? 'ADMIN' : (customerInfo.name || 'GUEST'));
+    // Ensure session exists. If it's admin, we just update the admin part if valid
+    if (!isAdmin || emailToUse) {
+      await chatService.getOrCreateSession(emailToUse || sessionId, isAdmin ? 'ADMIN' : (customerInfo.name || 'GUEST'));
+    }
 
     const newMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
       senderId: isAdmin ? 'admin-1' : (auth.currentUser?.uid || 'customer-1'),
       senderName: isAdmin ? 'ADMIN' : (customerInfo.name || auth.currentUser?.displayName || 'GUEST'),
       text,
+      image,
       isAdmin
     };
 
     await chatService.sendMessage(sessionId, newMessage);
 
     if (!isAdmin) {
-      setActiveChatEmail(emailToUse || '');
+      if (aiResponseTimeoutRef.current) {
+        clearTimeout(aiResponseTimeoutRef.current);
+      }
+
       setIsAiTyping(true);
-      // Trigger AI Agent
-      setTimeout(async () => {
+      const currentIdentity = chatIdentity;
+      const currentSessionId = sessionId;
+      const currentText = text;
+      const currentImage = image;
+      
+      aiResponseTimeoutRef.current = setTimeout(async () => {
+        // Rate limiting logic: Check last request time
+        const now = Date.now();
+        if (now - lastAiRequestTimeRef.current < 2000) {
+          console.warn("AI_RATE_LIMIT_HIT: Throttling request to preserve quota.");
+          setIsAiTyping(false);
+          return;
+        }
+        lastAiRequestTimeRef.current = now;
+
         try {
-          const aiResponse = await generateChatAgentResponse(text, products, customerInfo, cart);
-          await handleSendMessage(aiResponse, true, emailToUse);
-        } catch (error) {
-          console.error("AI Agent failed:", error);
+          // Merge customerInfo with firebase auth to ensure correct login status is passed
+          const activeUserContext = {
+            ...customerInfo,
+            email: customerInfo.email || auth.currentUser?.email || '',
+            name: customerInfo.name || auth.currentUser?.displayName || '',
+          };
+          const aiResponse = await generateChatAgentResponse(currentText, products, activeUserContext, cart, currentImage);
+          await handleSendMessage(aiResponse, undefined, true, currentIdentity, currentSessionId);
+        } catch (error: any) {
+          console.error("CORE_AI_ERROR:", error);
+          if (error?.message?.includes('429') || error?.status === 429) {
+             await handleSendMessage("I am currently experiencing higher than normal link traffic. Support is still operational, please standby.", undefined, true, currentIdentity, currentSessionId);
+          }
         } finally {
           setIsAiTyping(false);
+          aiResponseTimeoutRef.current = null;
         }
-      }, 800);
+      }, 1500); // 1.5s delay to group rapid messages and provide human-like rhythm
     }
   };
 
@@ -613,18 +740,28 @@ export default function App() {
     
     const unsubscribeOrders = subscribeToOrders((updatedOrders) => {
       setOrders(updatedOrders);
-    });
+    }, !!adminUser, customerInfo?.email);
 
     const unsubscribeCustomers = subscribeToCustomers((updatedCustomers) => {
       setCustomers(updatedCustomers);
+    }, !!adminUser);
+
+    const unsubscribeSettings = settingsService.subscribeToSettings((updatedSettings) => {
+      setSocialSettings(prev => ({ ...prev, ...updatedSettings }));
     });
+
+    const unsubscribeExpenses = expenseService.subscribeToExpenses((updatedExpenses) => {
+      setExpenses(updatedExpenses);
+    }, !!adminUser);
 
     return () => {
       unsubscribeProducts();
       unsubscribeOrders();
       unsubscribeCustomers();
+      unsubscribeSettings();
+      unsubscribeExpenses();
     };
-  }, [adminUser]);
+  }, [adminUser, customerInfo?.email]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const { left, top, width, height } = e.currentTarget.getBoundingClientRect();
@@ -803,6 +940,18 @@ export default function App() {
         if (!value.trim()) error = 'Zip Code is required.';
         else if (!/^\d{4,5}$/.test(value)) error = 'Invalid Zip Code.';
         break;
+      case 'cardNumber':
+        if (!value.trim()) error = 'Card Number is required.';
+        else if (value.replace(/\s/g, '').length !== 16) error = 'Must be 16 digits.';
+        break;
+      case 'cardExpiry':
+        if (!value.trim()) error = 'Expiry is required.';
+        else if (!/^\d{2}\/\d{2}$/.test(value)) error = 'MM/YY format.';
+        break;
+      case 'cardCvc':
+        if (!value.trim()) error = 'CVC is required.';
+        else if (value.replace(/\D/g, '').length < 3) error = 'Min 3 digits.';
+        break;
     }
     return error;
   };
@@ -816,6 +965,19 @@ export default function App() {
       } else {
         formattedValue = cleaned;
       }
+    } else if (field === 'cardNumber' && typeof value === 'string') {
+      const cleaned = value.replace(/\D/g, '');
+      const match = cleaned.match(/.{1,4}/g);
+      formattedValue = match ? match.join(' ').substring(0, 19) : cleaned;
+    } else if (field === 'cardExpiry' && typeof value === 'string') {
+      const cleaned = value.replace(/\D/g, '');
+      if (cleaned.length > 2) {
+        formattedValue = cleaned.substring(0, 2) + '/' + cleaned.substring(2, 4);
+      } else {
+        formattedValue = cleaned;
+      }
+    } else if (field === 'cardCvc' && typeof value === 'string') {
+      formattedValue = value.replace(/\D/g, '').substring(0, 4);
     }
     setCustomerInfo(prev => ({ ...prev, [field]: formattedValue }));
     if (typeof formattedValue === 'string') {
@@ -824,6 +986,36 @@ export default function App() {
         ...prev,
         [field]: error
       }));
+    }
+  };
+
+  const handleScreenshotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate size (10MB max)
+    if (file.size > 10 * 1024 * 1024) {
+      alert("File is too large. Please select an image under 10MB.");
+      return;
+    }
+
+    setIsUploadingScreenshot(true);
+    try {
+      const storageRef = ref(storage, `transactions/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9]/g, '_')}`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      
+      setCustomerInfo(prev => ({ ...prev, transactionScreenshot: url }));
+      setCheckoutErrors(prev => {
+        const next = { ...prev };
+        delete next.transactionScreenshot;
+        return next;
+      });
+    } catch (error) {
+      console.error("Error uploading screenshot:", error);
+      alert("Failed to upload screenshot via server. Please try again.");
+    } finally {
+      setIsUploadingScreenshot(false);
     }
   };
 
@@ -851,9 +1043,18 @@ export default function App() {
     }
 
     if (checkoutStep === 2) {
-      if (['bKash', 'Nagad', 'Rocket'].includes(customerInfo.paymentMethod)) {
+      if (['bKash', 'Nagad', 'Rocket', 'COD'].includes(customerInfo.paymentMethod)) {
         if (!customerInfo.senderNumber.trim()) errors.senderNumber = 'Sender number is required for verification.';
         if (!customerInfo.trxId.trim()) errors.trxId = 'Transaction ID is required for verification.';
+      }
+
+      if (['Credit Card', 'Debit Card'].includes(customerInfo.paymentMethod)) {
+        const cnError = validateField('cardNumber', customerInfo.cardNumber);
+        if (cnError) errors.cardNumber = cnError;
+        const ceError = validateField('cardExpiry', customerInfo.cardExpiry);
+        if (ceError) errors.cardExpiry = ceError;
+        const cvcError = validateField('cardCvc', customerInfo.cardCvc);
+        if (cvcError) errors.cardCvc = cvcError;
       }
     }
 
@@ -906,6 +1107,7 @@ export default function App() {
 
   const handleStripeCheckout = async () => {
     setIsProcessingPayment(true);
+    
     try {
       const response = await fetch('/api/create-checkout-session', {
         method: 'POST',
@@ -915,20 +1117,33 @@ export default function App() {
         body: JSON.stringify({
           items: cart,
           customerEmail: customerInfo.email,
-          shippingCost
+          shippingCost,
         }),
       });
 
       const data = await response.json();
       if (data.url) {
-        window.location.href = data.url;
+        if (data.url.includes('checkout=success')) {
+          // Simulate processing time for a premium gateway feel
+          showToast("Initiating Secure Payment Gateway...");
+          setTimeout(() => {
+            showToast("Verifying Transaction Integrity...");
+            setTimeout(() => {
+              showToast("Payment Authorized Successfully.");
+              executeOrderLogic(true); // true means advance already paid via gateway
+              setIsProcessingPayment(false);
+            }, 1200);
+          }, 800);
+        } else {
+          window.location.href = data.url;
+        }
       } else {
-        alert(data.message || "Stripe session creation failed.");
+        showToast(data.message || "Gateway connection failed. Please retry.");
         setIsProcessingPayment(false);
       }
     } catch (error) {
       console.error("Payment error:", error);
-      alert("An error occurred during payment processing.");
+      showToast("An error occurred during gateway communication.");
       setIsProcessingPayment(false);
     }
   };
@@ -936,17 +1151,26 @@ export default function App() {
   const handleFinalCheckout = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (customerInfo.paymentMethod === 'Credit Card') {
+    if (customerInfo.paymentMethod === 'Credit Card' || customerInfo.paymentMethod === 'Debit Card') {
       handleStripeCheckout();
       return;
     }
 
-    executeOrderLogic();
+    executeOrderLogic(false);
   };
 
-  const executeOrderLogic = () => {
-    const isAdvance = ['bKash', 'Nagad', 'Rocket'].includes(customerInfo.paymentMethod);
-    const advancePaid = isAdvance ? Math.ceil(cartTotal * 0.5) : 0;
+  const executeOrderLogic = (isAdvanceAlreadyPaid: boolean = false) => {
+    // Decision logic for advance payment
+    const isCOD = customerInfo.paymentMethod === 'COD';
+    
+    // bKash/Nagad/Rocket/Cards: 50% Advance
+    // COD: 150 BDT Advance (Delivery Charge)
+    const advancePaid = isCOD ? 150 : Math.ceil(cartTotal * 0.5);
+    const dueAmount = Math.max(0, cartTotal - advancePaid);
+    
+    // If paid via Card Gateway, it's already verified.
+    // If MFS or COD, it needs manual verification.
+    const finalPaymentStatus = isAdvanceAlreadyPaid ? 'ADVANCE_VERIFIED' : 'PENDING_ADVANCE';
     
     // Create new order
     const newOrder: Order = {
@@ -959,12 +1183,18 @@ export default function App() {
       subtotal: cartSubtotal,
       discount: discountAmount,
       status: 'PENDING',
-      paymentStatus: isAdvance ? 'PENDING_ADVANCE' : 'UNPAID',
+      paymentStatus: finalPaymentStatus,
       paymentMethod: customerInfo.paymentMethod,
-      transactionId: isAdvance ? customerInfo.trxId : undefined,
-      senderNumber: isAdvance ? customerInfo.senderNumber : undefined,
+      ...(['bKash', 'Nagad', 'Rocket', 'COD'].includes(customerInfo.paymentMethod) && {
+        transactionId: customerInfo.trxId,
+        senderNumber: customerInfo.senderNumber,
+        transactionScreenshot: customerInfo.transactionScreenshot
+      }),
+      ...(['Credit Card', 'Debit Card'].includes(customerInfo.paymentMethod) && {
+        transactionId: `TXN-STR-${Math.floor(100000 + Math.random() * 900000)}`
+      }),
       advancePaid: advancePaid,
-      dueAmount: Math.max(0, cartTotal - advancePaid),
+      dueAmount: dueAmount,
       items: cart.reduce((acc, item) => acc + item.quantity, 0),
       orderItems: cart.map(item => ({
         productId: item.id,
@@ -1036,55 +1266,57 @@ export default function App() {
         billingAddress: '',
         city: 'Dhaka',
         zip: '',
-        paymentMethod: 'COD',
+        paymentMethod: 'bKash',
         trxId: '',
         senderNumber: '',
-        isBillingSame: true
+        transactionScreenshot: '',
+        isBillingSame: true,
+        cardNumber: '',
+        cardExpiry: '',
+        cardCvc: '',
       });
     }, 3000);
   };
 
-  const handleAdminLogin = (e: React.FormEvent) => {
+  const handleGoogleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoginError('');
-    const users = {
-      'root': { role: AdminRole.SUPER_ADMIN, pass: 'root123' },
-      'editor': { role: AdminRole.EDITOR, pass: 'edit123' },
-      'support': { role: AdminRole.SUPPORT, pass: 'sup123' },
-      'bb6446': { role: AdminRole.SUPER_ADMIN, pass: 'bb6446' }
-    };
-    const userEntry = users[adminUsername as keyof typeof users];
-    if (userEntry && userEntry.pass === adminPassword) {
-      setIsTwoFactorStep(true);
-      setLoginError('');
-    } else {
+    setLoginError('INITIATING GOOGLE SECURE HANDSHAKE...');
+    try {
+      const user = await signInWithGoogle();
+      if (!user) {
+        setLoginError('AUTH_FAILURE: CANCELLED');
+        return;
+      }
+      
+      const adminEmails = ["biplobnbc04@gmail.com", "parvesvai00@gmail.com"];
+      if (user.email && adminEmails.includes(user.email.toLowerCase())) {
+        const finalUser: AdminUser = {
+          id: user.uid,
+          username: user.email,
+          role: AdminRole.SUPER_ADMIN,
+          lastLogin: new Date().toISOString()
+        };
+        setAdminUser(finalUser);
+        setCurrentView(ViewState.ADMIN_DASHBOARD);
+        setLoginError('');
+        setAdminLogs(p => [{ 
+          id: Math.random().toString(36).substr(2, 9), 
+          timestamp: new Date().toLocaleTimeString(), 
+          user: finalUser.username, 
+          action: 'SESSION_INIT', 
+          role: finalUser.role 
+        }, ...p]);
+      } else {
+        setLoginError('AUTH_FAILURE: UNAUTHORIZED ACCOUNT (GOOGLE)');
+        await logOut();
+      }
+    } catch (err) {
+      console.error(err);
       setLoginError('AUTH_FAILURE: ACCESS DENIED');
     }
   };
 
-  const handleTwoFactorVerify = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (twoFactorCode === '123456') { 
-       const users = {
-          'root': { id: '1', role: AdminRole.SUPER_ADMIN },
-          'editor': { id: '2', role: AdminRole.EDITOR },
-          'support': { id: '3', role: AdminRole.SUPPORT },
-          'bb6446': { id: '4', role: AdminRole.SUPER_ADMIN }
-       };
-       const u = users[adminUsername as keyof typeof users];
-       const finalUser: AdminUser = { id: u.id, username: adminUsername, role: u.role, lastLogin: new Date().toISOString() };
-       setAdminUser(finalUser);
-       setCurrentView(ViewState.ADMIN_DASHBOARD);
-       setIsTwoFactorStep(false);
-       setAdminPassword('');
-       setAdminUsername('');
-       setTwoFactorCode('');
-       setLoginError('');
-       setAdminLogs(p => [{ id: Math.random().toString(36).substr(2, 9), timestamp: new Date().toLocaleTimeString(), user: finalUser.username, action: 'SESSION_INIT', role: finalUser.role }, ...p]);
-    } else {
-      setLoginError('INVALID_RSA_KEY');
-    }
-  };
+
 
   const handleReviewSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1274,7 +1506,18 @@ export default function App() {
                   placeholder="ORD-XXXX" 
                   className="bg-black border border-zinc-800 px-6 py-4 text-xs font-bold uppercase tracking-widest text-[#0055ff] outline-none focus:border-[#0055ff] flex-1 placeholder:text-zinc-800"
                 />
-                <button className="px-10 py-4 bg-white text-black font-black uppercase text-[10px] tracking-widest hover:bg-[#0055ff] hover:text-white transition-all">
+                <button 
+                  onClick={() => {
+                    if (customerInfo?.email) {
+                      setCurrentView(ViewState.CUSTOMER_PROFILE);
+                      window.scrollTo(0, 0);
+                    } else {
+                      setCurrentView(ViewState.CUSTOMER_LOGIN);
+                      window.scrollTo(0, 0);
+                    }
+                  }}
+                  className="px-10 py-4 bg-white text-black font-black uppercase text-[10px] tracking-widest hover:bg-[#0055ff] hover:text-white transition-all"
+                >
                   Sync Status
                 </button>
               </div>
@@ -1348,7 +1591,11 @@ export default function App() {
             paymentMethod: 'COD',
             trxId: '',
             senderNumber: '',
-            isBillingSame: true
+            transactionScreenshot: '',
+            isBillingSame: true,
+            cardNumber: '',
+            cardExpiry: '',
+            cardCvc: '',
           });
         }}
       />
@@ -1356,7 +1603,7 @@ export default function App() {
       <main className="flex-1 pb-20 md:pb-0">
         {currentView === ViewState.STORE && (
           <div className={`animate-in fade-in duration-700 ${socialSettings.announcementBanner?.enabled ? 'pt-28' : 'pt-20'}`}>
-            <section className="relative h-[65vh] md:h-[85vh] w-full overflow-hidden flex items-center px-6 md:px-20">
+            <section className="relative h-[65vh] md:h-[85vh] w-full overflow-hidden flex items-center px-6 md:px-20 group">
               {showRotateCue && (
                 <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none animate-in fade-in fade-out duration-1000 zoom-in">
                   <div className="flex flex-col items-center gap-4 bg-black/60 backdrop-blur-sm p-8 rounded-none border border-zinc-700/50">
@@ -1367,7 +1614,68 @@ export default function App() {
                   </div>
                 </div>
               )}
-              <img fetchPriority="high" src="https://images.unsplash.com/photo-1552374196-1ab2a1c593e8?auto=format&fm=webp&fit=crop&q=80&w=1920" className="absolute inset-0 w-full h-full object-cover brightness-50 contrast-125 hover:scale-105 transition-transform duration-[10s] drag-none" alt="Streetwear Hero" referrerPolicy="no-referrer" />
+              
+              {/* Dynamic Hero Image */}
+              {(() => {
+                const defaultImages = [
+                  "https://images.unsplash.com/photo-1552374196-1ab2a1c593e8?auto=format&fm=webp&fit=crop&q=80&w=1920",
+                  "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&q=80&w=1920",
+                  "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?auto=format&fit=crop&q=80&w=1920"
+                ];
+                const images = socialSettings.heroImages && socialSettings.heroImages.length > 0 
+                  ? socialSettings.heroImages 
+                  : defaultImages;
+                
+                return (
+                  <>
+                    <img 
+                      key={heroImageIndex} /* Force re-render for animation */
+                      fetchPriority="high" 
+                      src={images[heroImageIndex] || defaultImages[0]} 
+                      className="absolute inset-0 w-full h-full object-cover brightness-50 contrast-125 hover:scale-105 transition-transform duration-[10s] drag-none animate-in fade-in zoom-in-95 duration-1000" 
+                      alt={`Streetwear Hero ${heroImageIndex}`} 
+                      referrerPolicy="no-referrer" 
+                    />
+                    
+                    {/* Navigation Buttons */}
+                    {images.length > 1 && (
+                      <>
+                        <div className="absolute inset-x-0 bottom-6 md:bottom-10 flex justify-center z-30 pointer-events-none">
+                          <div className="flex items-center gap-2 bg-black/70 px-4 py-3 md:px-6 md:py-4 backdrop-blur-md border border-white/10 pointer-events-auto">
+                            {images.map((_, i) => (
+                              <button 
+                                key={i}
+                                onClick={() => setHeroImageIndex(i)}
+                                className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full transition-all ${i === heroImageIndex ? 'bg-white scale-125' : 'bg-white/30 hover:bg-white/50'}`} 
+                              />
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Large Side Arrows */}
+                        <button 
+                          onClick={() => setHeroImageIndex(prev => prev === 0 ? images.length - 1 : prev - 1)}
+                          className="absolute left-4 md:left-8 top-1/2 -translate-y-1/2 w-12 h-12 md:w-16 md:h-16 flex items-center justify-center bg-transparent text-white hover:bg-black/30 hover:backdrop-blur-sm transition-all rounded-full z-30 opacity-0 group-hover:opacity-100"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 md:h-10 md:w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
+                          </svg>
+                        </button>
+
+                        <button 
+                          onClick={() => setHeroImageIndex(prev => (prev + 1) % images.length)}
+                          className="absolute right-4 md:right-8 top-1/2 -translate-y-1/2 w-12 h-12 md:w-16 md:h-16 flex items-center justify-center bg-transparent text-white hover:bg-black/30 hover:backdrop-blur-sm transition-all rounded-full z-30 opacity-0 group-hover:opacity-100"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 md:h-10 md:w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
+
               <div className="relative z-10 max-w-2xl space-y-8">
                 <div className="space-y-2">
                   <span className="text-[#0055ff] font-bold text-xs uppercase tracking-[0.3em]">Drop 02 // 2024</span>
@@ -1394,9 +1702,9 @@ export default function App() {
                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
                      {products.filter(p => p.isNewArrival).slice(0, 4).map(product => (
                        <div key={`latest-${product.id}`} className="group relative flex flex-col cursor-pointer" onClick={() => setSelectedProduct(product)}>
-                         <div className="relative aspect-[4/5] overflow-hidden bg-zinc-900 border border-zinc-800 transition-all duration-500 group-hover:border-[#0055ff]/50">
-                           <img loading="lazy" src={product.images?.[0] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800'} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt={product.name} referrerPolicy="no-referrer" />
-                           <div className="absolute top-4 left-4 bg-[#0055ff] text-white text-[8px] font-black px-2 py-1 uppercase tracking-widest">New</div>
+                         <div className="relative aspect-[4/5] overflow-hidden bg-zinc-900 border border-zinc-800 transition-all duration-300 group-hover:border-[#0055ff]/70 group-hover:shadow-[0_0_25px_rgba(0,85,255,0.15)]">
+                           <img loading="lazy" src={product.images?.[0] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800'} className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-110" alt={product.name} referrerPolicy="no-referrer" />
+                           <div className="absolute top-4 left-4 bg-[#0055ff] text-white text-[8px] font-black px-2 py-1 uppercase tracking-widest shadow-md">New</div>
                          </div>
                          <div className="mt-4 space-y-1">
                            <h4 className="font-black uppercase tracking-tighter text-sm group-hover:text-[#0055ff] transition-colors">{product.name}</h4>
@@ -1641,19 +1949,30 @@ export default function App() {
         {currentView === ViewState.ADMIN_LOGIN && (
           <div className="min-h-screen flex items-center justify-center p-6 bg-[#020202] pt-20">
              <div className="w-full max-w-md space-y-12 text-center">
-                <h2 className="text-5xl font-black heading-font italic uppercase tracking-tighter text-white">STREET<span className="text-[#0055ff]">THREADX</span></h2>
-                {!isTwoFactorStep ? (
-                  <form onSubmit={handleAdminLogin} className="space-y-8">
-                    <input type="text" value={adminUsername} onChange={(e) => setAdminUsername(e.target.value)} className="w-full bg-black border border-zinc-800 px-6 py-5 text-xs font-bold uppercase tracking-widest text-white outline-none focus:border-[#0055ff]" placeholder="TERMINAL_ID" required />
-                    <input type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} className="w-full bg-black border border-zinc-800 px-6 py-5 text-xs font-bold uppercase tracking-widest text-white outline-none focus:border-[#0055ff]" placeholder="CYPHER_KEY" required />
-                    <button type="submit" className="w-full bg-white text-black py-5 font-black uppercase text-[10px] tracking-[0.3em] hover:bg-[#0055ff] hover:text-white transition-all">Establish Link</button>
-                  </form>
-                ) : (
-                  <form onSubmit={handleTwoFactorVerify} className="space-y-8">
-                    <input type="text" maxLength={6} value={twoFactorCode} onChange={(e) => setTwoFactorCode(e.target.value)} className="w-full bg-black border border-zinc-800 px-4 py-8 text-4xl font-black text-center tracking-[0.8em] text-[#0055ff] outline-none" placeholder="000000" required />
-                    <button type="submit" className="w-full bg-[#0055ff] text-white py-5 font-black uppercase text-[10px] tracking-[0.3em]">Verify Session</button>
-                  </form>
-                )}
+                <div className="space-y-4">
+                  <h2 className="text-5xl font-black heading-font italic uppercase tracking-tighter text-white">STREET<span className="text-[#0055ff]">THREADX</span></h2>
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">Authorized Personnel Management</p>
+                </div>
+                
+                <div className="space-y-10">
+                  {/* Google Auth for Super Admin */}
+                  <div className="space-y-4">
+                    <p className="text-[8px] font-black uppercase tracking-[0.2em] text-[#0055ff]">Super_Admin_Relay</p>
+                    <form onSubmit={handleGoogleLogin}>
+                      <button type="submit" className="w-full bg-white text-black py-5 font-black uppercase text-[10px] tracking-[0.3em] hover:bg-[#0055ff] hover:text-white transition-all flex items-center justify-center gap-3">
+                        <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                        </svg>
+                        Authenticate via Google
+                      </button>
+                    </form>
+                  </div>
+
+                  {loginError && <p className="text-[#0055ff] font-bold text-[10px] uppercase tracking-widest animate-pulse">{loginError}</p>}
+                </div>
              </div>
           </div>
         )}
@@ -1679,7 +1998,12 @@ export default function App() {
               reviews={reviews}
               setReviews={setReviews}
               chatSessions={chatSessions}
+              setChatSessions={setChatSessions}
+              expenses={expenses}
+              setExpenses={setExpenses}
               onSendMessage={handleSendMessage}
+              adminUsersList={adminUsersList}
+              setAdminUsersList={setAdminUsersList}
             />
           </Suspense>
         )}
@@ -1836,7 +2160,7 @@ export default function App() {
               <div className="space-y-10">
                 <header className="space-y-4">
                   <div>
-                    <h2 className="text-3xl font-black heading-font uppercase">Execution_Relay</h2>
+                    <h2 className="text-3xl font-black heading-font uppercase">STREET THREADX CHECKOUT</h2>
                     <p className="text-[9px] text-[#0055ff] font-black uppercase tracking-widest">Complete Logistics Calibration</p>
                   </div>
                   
@@ -1947,60 +2271,234 @@ export default function App() {
                       <div className="space-y-4">
                         <h3 className="text-xs font-black uppercase text-zinc-500">Select Payment Method</h3>
                         
-                        {(['bKash', 'Nagad', 'Rocket', 'Cash On Delivery', 'Credit Card'] as const).map((method) => (
-                          <div 
-                            key={method}
-                            onClick={() => handleCustomerInfoChange('paymentMethod', method === 'Cash On Delivery' ? 'COD' : method as any)}
-                            className={`p-4 border cursor-pointer flex flex-col justify-between transition-all ${customerInfo.paymentMethod === (method === 'Cash On Delivery' ? 'COD' : method) ? 'border-[#0055ff] bg-[#0055ff]/10' : 'border-zinc-800 bg-zinc-900/50 opacity-60 hover:opacity-100'}`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className={`w-4 h-4 rounded-none border-2 flex items-center justify-center ${customerInfo.paymentMethod === (method === 'Cash On Delivery' ? 'COD' : method) ? 'border-[#0055ff]' : 'border-zinc-700'}`}>
-                                {customerInfo.paymentMethod === (method === 'Cash On Delivery' ? 'COD' : method) && <div className="w-2 h-2 rounded-none bg-[#0055ff]"></div>}
-                              </div>
-                              <span className="text-sm font-bold uppercase">{method}</span>
-                            </div>
+                        <div className="space-y-8">
+                          {/* Section 1: Mobile Banking */}
+                          <div className="space-y-3">
+                            <h3 className="text-[10px] font-black uppercase text-[#0055ff] tracking-widest border-l-2 border-[#0055ff] pl-2">01_Mobile_Banking</h3>
+                            <div className="grid grid-cols-1 gap-2">
+                              {(['bKash', 'Nagad', 'Rocket'] as const).map((method) => (
+                                <div 
+                                  key={method}
+                                  onClick={() => handleCustomerInfoChange('paymentMethod', method as any)}
+                                  className={`p-4 border cursor-pointer flex flex-col justify-between transition-all ${customerInfo.paymentMethod === method ? 'border-[#0055ff] bg-[#0055ff]/10' : 'border-zinc-800 bg-zinc-900/50 opacity-60 hover:opacity-100'}`}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-4 h-4 rounded-none border-2 flex items-center justify-center ${customerInfo.paymentMethod === method ? 'border-[#0055ff]' : 'border-zinc-700'}`}>
+                                      {customerInfo.paymentMethod === method && <div className="w-2 h-2 rounded-none bg-[#0055ff]"></div>}
+                                    </div>
+                                    <span className="text-sm font-bold uppercase">{method}</span>
+                                  </div>
 
-                            {customerInfo.paymentMethod === method && ['bKash', 'Nagad', 'Rocket'].includes(method) && (
-                              <div className="mt-4 pt-4 border-t border-[#0055ff]/30 text-xs text-zinc-300 leading-relaxed space-y-4">
-                                <div className="space-y-1">
-                                  <p className="font-black text-[#0055ff] uppercase tracking-wider mb-2">50% Advance Required</p>
-                                  <p>1. Go to your {method} app.</p>
-                                  <p>2. Select "Make Payment".</p>
-                                  <p>3. Enter our Merchant Number: <strong className="text-white">
-                                    {method === 'bKash' ? (socialSettings.merchantNumbers?.bKash || '01929667716') : 
-                                     method === 'Nagad' ? (socialSettings.merchantNumbers?.Nagad || '01929667716') : 
-                                     (socialSettings.merchantNumbers?.Rocket || '01929667716')}
-                                  </strong></p>
-                                  <p>4. Enter the Advance Amount: <strong className="text-white">৳{Math.ceil(cartTotal * 0.5)}</strong></p>
+                                  {customerInfo.paymentMethod === method && (
+                                    <div className="mt-4 pt-4 border-t border-[#0055ff]/30 text-xs text-zinc-300 leading-relaxed space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                                      <div className="space-y-1">
+                                        <p className="font-black text-[#0055ff] uppercase tracking-wider mb-2">50% Advance Required</p>
+                                        <p>1. Go to your {method} app.</p>
+                                        <p>2. Select "Make Payment".</p>
+                                        <p>3. Enter our Merchant Number: <strong className="text-white">
+                                          {method === 'bKash' ? (socialSettings.merchantNumbers?.bKash || '01929667716') : 
+                                           method === 'Nagad' ? (socialSettings.merchantNumbers?.Nagad || '01929667716') : 
+                                           (socialSettings.merchantNumbers?.Rocket || '01929667716')}
+                                        </strong></p>
+                                        <p>4. Enter the Advance Amount: <strong className="text-white">৳{Math.ceil(cartTotal * 0.5)}</strong></p>
+                                      </div>
+
+                                      <div className="space-y-3 pt-2">
+                                        <div className="space-y-1">
+                                          <label className="text-[9px] font-black uppercase text-zinc-500">Sender Number <span className="text-rose-500">*</span></label>
+                                          <input 
+                                            type="tel" 
+                                            value={customerInfo.senderNumber}
+                                            onChange={e => handleCustomerInfoChange('senderNumber', e.target.value)}
+                                            placeholder="e.g. 017XXXXXXXX"
+                                            className={`w-full bg-zinc-900/50 border px-4 py-2 text-xs font-bold text-white outline-none focus:border-[#0055ff] ${checkoutErrors.senderNumber ? 'border-rose-500' : 'border-[#0055ff]/50'}`}
+                                          />
+                                          {checkoutErrors.senderNumber && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.senderNumber}</p>}
+                                        </div>
+                                        <div className="space-y-1">
+                                          <label className="text-[9px] font-black uppercase text-zinc-500">Transaction ID (TrxID) <span className="text-rose-500">*</span></label>
+                                          <input 
+                                            type="text" 
+                                            value={customerInfo.trxId}
+                                            onChange={e => handleCustomerInfoChange('trxId', e.target.value)}
+                                            placeholder="e.g. 9B6A2..."
+                                            className={`w-full bg-zinc-900/50 border px-4 py-2 text-xs font-bold text-white outline-none focus:border-[#0055ff] ${checkoutErrors.trxId ? 'border-rose-500' : 'border-[#0055ff]/50'}`}
+                                          />
+                                          {checkoutErrors.trxId && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.trxId}</p>}
+                                        </div>
+                                        <div className="space-y-1">
+                                          <label className="text-[9px] font-black uppercase text-zinc-500">Transaction Screenshot <span className="text-zinc-500/50">(Optional)</span></label>
+                                          <div className="relative">
+                                            <input 
+                                              type="file" 
+                                              accept=".png,.jpg,.jpeg"
+                                              onChange={handleScreenshotUpload}
+                                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                            />
+                                            <div className={`w-full bg-zinc-900/50 border px-4 py-2 text-xs font-bold text-white outline-none flex items-center justify-between border-[#0055ff]/50 hover:bg-[#0055ff]/20 transition-colors ${isUploadingScreenshot ? 'animate-pulse' : ''}`}>
+                                              <span className="truncate">{customerInfo.transactionScreenshot ? 'Screenshot Uploaded ✓' : 'Upload Screenshot (PNG, JPG)'}</span>
+                                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
-                                <div className="space-y-3">
-                                  <div className="space-y-1">
-                                    <label className="text-[9px] font-black uppercase text-zinc-500">Sender Number <span className="text-rose-500">*</span></label>
-                                    <input 
-                                      type="tel" 
-                                      value={customerInfo.senderNumber}
-                                      onChange={e => handleCustomerInfoChange('senderNumber', e.target.value)}
-                                      placeholder="e.g. 017XXXXXXXX"
-                                      className={`w-full bg-zinc-900/50 border px-4 py-2 text-xs font-bold text-white outline-none focus:border-[#0055ff] ${checkoutErrors.senderNumber ? 'border-rose-500' : 'border-[#0055ff]/50'}`}
-                                    />
-                                    {checkoutErrors.senderNumber && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.senderNumber}</p>}
-                                  </div>
-                                  <div className="space-y-1">
-                                    <label className="text-[9px] font-black uppercase text-zinc-500">Transaction ID (TrxID) <span className="text-rose-500">*</span></label>
-                                    <input 
-                                      type="text" 
-                                      value={customerInfo.trxId}
-                                      onChange={e => handleCustomerInfoChange('trxId', e.target.value)}
-                                      placeholder="e.g. 9B6A2..."
-                                      className={`w-full bg-zinc-900/50 border px-4 py-2 text-xs font-bold text-white outline-none focus:border-[#0055ff] ${checkoutErrors.trxId ? 'border-rose-500' : 'border-[#0055ff]/50'}`}
-                                    />
-                                    {checkoutErrors.trxId && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.trxId}</p>}
-                                  </div>
-                                </div>
-                              </div>
-                            )}
+                              ))}
+                            </div>
                           </div>
-                        ))}
+
+                          {/* Section 2: Card Payment */}
+                          <div className="space-y-3">
+                            <h3 className="text-[10px] font-black uppercase text-emerald-500 tracking-widest border-l-2 border-emerald-500 pl-2">02_Secure_Card_Payment</h3>
+                            <div className="grid grid-cols-1 gap-2">
+                              {(['Credit Card', 'Debit Card'] as const).map((method) => (
+                                <div 
+                                  key={method}
+                                  onClick={() => handleCustomerInfoChange('paymentMethod', method as any)}
+                                  className={`p-4 border cursor-pointer flex flex-col justify-between transition-all ${customerInfo.paymentMethod === method ? 'border-emerald-500 bg-emerald-500/10' : 'border-zinc-800 bg-zinc-900/50 opacity-60 hover:opacity-100'}`}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-4 h-4 rounded-none border-2 flex items-center justify-center ${customerInfo.paymentMethod === method ? 'border-emerald-500' : 'border-zinc-700'}`}>
+                                      {customerInfo.paymentMethod === method && <div className="w-2 h-2 rounded-none bg-emerald-500"></div>}
+                                    </div>
+                                    <span className="text-sm font-bold uppercase">{method}</span>
+                                  </div>
+
+                                  {customerInfo.paymentMethod === method && (
+                                    <div className="mt-4 pt-4 border-t border-emerald-500/30 text-xs text-zinc-300 leading-relaxed space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                                      <div className="space-y-1">
+                                        <p className="font-black text-emerald-500 uppercase tracking-wider mb-2 text-xs">Secure Card Checkout (50% Advance)</p>
+                                        <p>Since these are custom pieces, we only charge <span className="text-white font-bold">50% upfront (৳{Math.ceil(cartTotal * 0.5)})</span> via our secure gateway. The remaining 50% is due right before shipping.</p>
+                                        
+                                        {/* Real Card Input Fields */}
+                                        <div className="pt-4 space-y-3 animate-in fade-in duration-500">
+                                          <div className="space-y-1">
+                                            <label className="text-[9px] font-black uppercase text-zinc-500">Card Number</label>
+                                            <div className="relative">
+                                              <input 
+                                                id="checkout-cardNumber"
+                                                type="text" 
+                                                placeholder="XXXX XXXX XXXX XXXX" 
+                                                value={customerInfo.cardNumber}
+                                                onChange={e => handleCustomerInfoChange('cardNumber', e.target.value)}
+                                                className={`w-full bg-zinc-900/50 border px-4 py-2 text-xs font-bold text-white outline-none transition-all ${checkoutErrors.cardNumber ? 'border-rose-500' : 'border-zinc-800 focus:border-emerald-500'}`}
+                                              />
+                                              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1 opacity-50">
+                                                <img src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg" alt="Visa" className="h-2 grayscale invert" />
+                                                <img src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg" alt="Mastercard" className="h-2 grayscale invert" />
+                                              </div>
+                                            </div>
+                                            {checkoutErrors.cardNumber && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.cardNumber}</p>}
+                                          </div>
+                                          <div className="grid grid-cols-2 gap-3">
+                                            <div className="space-y-1">
+                                              <label className="text-[9px] font-black uppercase text-zinc-500">Expiry</label>
+                                              <input 
+                                                id="checkout-cardExpiry"
+                                                type="text" 
+                                                placeholder="MM/YY" 
+                                                value={customerInfo.cardExpiry}
+                                                onChange={e => handleCustomerInfoChange('cardExpiry', e.target.value)}
+                                                className={`w-full bg-zinc-900/50 border px-4 py-2 text-xs font-bold text-white outline-none transition-all ${checkoutErrors.cardExpiry ? 'border-rose-500' : 'border-zinc-800 focus:border-emerald-500'}`}
+                                              />
+                                              {checkoutErrors.cardExpiry && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.cardExpiry}</p>}
+                                            </div>
+                                            <div className="space-y-1">
+                                              <label className="text-[9px] font-black uppercase text-zinc-500">CVC</label>
+                                              <input 
+                                                id="checkout-cardCvc"
+                                                type="text" 
+                                                placeholder="***" 
+                                                value={customerInfo.cardCvc}
+                                                onChange={e => handleCustomerInfoChange('cardCvc', e.target.value)}
+                                                className={`w-full bg-zinc-900/50 border px-4 py-2 text-xs font-bold text-white outline-none transition-all ${checkoutErrors.cardCvc ? 'border-rose-500' : 'border-zinc-800 focus:border-emerald-500'}`}
+                                              />
+                                              {checkoutErrors.cardCvc && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.cardCvc}</p>}
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div className="flex gap-2 pt-2 opacity-50">
+                                          <img src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg" alt="Visa" className="h-4 grayscale invert" />
+                                          <img src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg" alt="Mastercard" className="h-4 grayscale invert" />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Section 3: Cash on Delivery */}
+                          <div className="space-y-3">
+                            <h3 className="text-[10px] font-black uppercase text-rose-500 tracking-widest border-l-2 border-rose-500 pl-2">03_Offline_Payment</h3>
+                            <div 
+                              onClick={() => handleCustomerInfoChange('paymentMethod', 'COD')}
+                              className={`p-4 border cursor-pointer flex flex-col justify-between transition-all ${customerInfo.paymentMethod === 'COD' ? 'border-rose-500 bg-rose-500/10' : 'border-zinc-800 bg-zinc-900/50 opacity-60 hover:opacity-100'}`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`w-4 h-4 rounded-none border-2 flex items-center justify-center ${customerInfo.paymentMethod === 'COD' ? 'border-rose-500' : 'border-zinc-700'}`}>
+                                  {customerInfo.paymentMethod === 'COD' && <div className="w-2 h-2 rounded-none bg-rose-500"></div>}
+                                </div>
+                                <span className="text-sm font-bold uppercase">Cash on Delivery</span>
+                              </div>
+
+                              {customerInfo.paymentMethod === 'COD' && (
+                                <div className="mt-4 pt-4 border-t border-rose-500/30 text-xs text-zinc-300 leading-relaxed space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                                  <div className="space-y-1">
+                                    <p className="font-black text-rose-500 uppercase tracking-wider mb-2">Partial Delivery Advance Required</p>
+                                    <p>For custom streetwear pieces, we require a <span className="text-white font-bold">৳150 Delivery Advance</span> to confirm your order.</p>
+                                    <p className="pt-2">1. Send <strong className="text-white">৳150</strong> to any Merchant number above.</p>
+                                    <p>2. Enter the TrxID below to verify.</p>
+                                  </div>
+
+                                  <div className="space-y-3 pt-2">
+                                    <div className="space-y-1">
+                                      <label className="text-[9px] font-black uppercase text-zinc-500">Sender Number <span className="text-rose-500">*</span></label>
+                                      <input 
+                                        type="tel" 
+                                        value={customerInfo.senderNumber}
+                                        onChange={e => handleCustomerInfoChange('senderNumber', e.target.value)}
+                                        placeholder="e.g. 017XXXXXXXX"
+                                        className={`w-full bg-zinc-900/50 border px-4 py-2 text-xs font-bold text-white outline-none focus:border-rose-500 ${checkoutErrors.senderNumber ? 'border-rose-500' : 'border-zinc-800'}`}
+                                      />
+                                      {checkoutErrors.senderNumber && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.senderNumber}</p>}
+                                    </div>
+                                    <div className="space-y-1">
+                                      <label className="text-[9px] font-black uppercase text-zinc-500">Transaction ID (TrxID) <span className="text-rose-500">*</span></label>
+                                      <input 
+                                        type="text" 
+                                        value={customerInfo.trxId}
+                                        onChange={e => handleCustomerInfoChange('trxId', e.target.value)}
+                                        placeholder="e.g. 9B6A2..."
+                                        className={`w-full bg-zinc-900/50 border px-4 py-2 text-xs font-bold text-white outline-none focus:border-rose-500 ${checkoutErrors.trxId ? 'border-rose-500' : 'border-zinc-800'}`}
+                                      />
+                                      {checkoutErrors.trxId && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.trxId}</p>}
+                                    </div>
+                                    <div className="space-y-1">
+                                      <label className="text-[9px] font-black uppercase text-zinc-500">Transaction Screenshot <span className="text-zinc-500/50">(Optional)</span></label>
+                                      <div className="relative">
+                                        <input 
+                                          type="file" 
+                                          accept=".png,.jpg,.jpeg"
+                                          onChange={handleScreenshotUpload}
+                                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                        />
+                                        <div className={`w-full bg-zinc-900/50 border px-4 py-2 text-xs font-bold text-white outline-none flex items-center justify-between border-zinc-800 hover:border-rose-500 hover:bg-rose-500/10 transition-colors ${isUploadingScreenshot ? 'animate-pulse' : ''}`}>
+                                          <span className="truncate">{customerInfo.transactionScreenshot ? 'Screenshot Uploaded ✓' : 'Upload Screenshot (PNG, JPG)'}</span>
+                                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                         
                       </div>
                     </div>
@@ -2057,16 +2555,24 @@ export default function App() {
                               <span className="text-[8px] font-black uppercase text-zinc-400 tracking-widest">Est. Logistics Completion: 2-3 Solar Days</span>
                             </div>
 
-                            {['bKash', 'Nagad', 'Rocket'].includes(customerInfo.paymentMethod) && (
+                            {['bKash', 'Nagad', 'Rocket', 'Credit Card', 'Debit Card', 'COD'].includes(customerInfo.paymentMethod) && (
                               <div className="flex justify-between items-center pt-2 mt-2 border-t border-zinc-800">
-                                <span className="text-[10px] text-zinc-500 uppercase font-black">Advance Required (50%)</span>
-                                <span className="text-sm font-black text-white">৳{Math.ceil(cartTotal * 0.5).toLocaleString()}</span>
+                                <span className="text-[10px] text-zinc-500 uppercase font-black">
+                                  {customerInfo.paymentMethod === 'COD' ? 'Delivery Advance (COD)' : 'Advance to pay now (50%)'}
+                                </span>
+                                <span className={`text-sm font-black ${customerInfo.paymentMethod === 'COD' ? 'text-rose-400' : 'text-emerald-400'}`}>
+                                  ৳{(customerInfo.paymentMethod === 'COD' ? 150 : Math.ceil(cartTotal * 0.5)).toLocaleString()}
+                                </span>
                               </div>
                             )}
-                            {['bKash', 'Nagad', 'Rocket'].includes(customerInfo.paymentMethod) && (
+                            {['bKash', 'Nagad', 'Rocket', 'Credit Card', 'Debit Card', 'COD'].includes(customerInfo.paymentMethod) && (
                               <div className="flex justify-between items-center pt-1">
-                                <span className="text-[10px] text-zinc-500 uppercase font-black">Cash on Delivery Due</span>
-                                <span className="text-sm font-black text-rose-500">৳{(cartTotal - Math.ceil(cartTotal * 0.5)).toLocaleString()}</span>
+                                <span className="text-[10px] text-zinc-500 uppercase font-black">
+                                  {customerInfo.paymentMethod === 'COD' ? 'Due on Delivery' : 'Due Before Shipping'}
+                                </span>
+                                <span className="text-sm font-black text-rose-500">
+                                  ৳{(cartTotal - (customerInfo.paymentMethod === 'COD' ? 150 : Math.ceil(cartTotal * 0.5))).toLocaleString()}
+                                </span>
                               </div>
                             )}
                           </div>
@@ -2177,7 +2683,7 @@ export default function App() {
                   
                   {/* Ratings */}
                   <div className="flex items-center gap-4 mt-2 border-b border-gray-200 pb-2">
-                    <div className="flex items-center text-[#ffffff]">
+                    <div className="flex items-center text-[#0055ff]">
                       {[1,2,3,4,5].map(star => (
                         <svg key={star} className={`w-4 h-4 ${star <= Math.round(averageRating) ? 'fill-current' : 'text-gray-300 fill-current'}`} viewBox="0 0 20 20">
                           <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
@@ -2276,19 +2782,19 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 mb-4 mt-2">
-                    <label className="text-sm font-medium text-gray-900 border border-gray-300 rounded-none overflow-hidden shadow-sm flex items-center bg-gray-100/50 relative">
-                      <span className="px-3 text-gray-700 bg-gray-100 border-r border-gray-300 py-1.5 text-xs">Qty:</span>
+                    <label className="text-sm font-bold text-gray-900 border border-gray-300 rounded-none overflow-hidden hover:border-[#0055ff] transition-colors flex items-center bg-gray-50 relative">
+                      <span className="px-3 text-gray-600 bg-gray-100 border-r border-gray-300 py-1.5 text-[10px] uppercase tracking-widest font-black">Qty:</span>
                       <select 
                         value={selectedQuantity}
                         onChange={(e) => setSelectedQuantity(parseInt(e.target.value))}
-                        className="pl-2 pr-6 py-1.5 bg-transparent outline-none text-sm cursor-pointer appearance-none"
+                        className="pl-2 pr-8 py-1.5 bg-transparent outline-none text-sm cursor-pointer appearance-none text-gray-900 font-bold"
                       >
                         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
-                          <option key={n} value={n}>{n}</option>
+                          <option key={n} value={n} className="bg-white text-black">{n}</option>
                         ))}
                       </select>
-                      <div className="pointer-events-none absolute right-2 flex items-center px-1 text-gray-500">
-                        <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                      <div className="pointer-events-none absolute right-2 flex items-center px-1 text-[#0055ff]">
+                        <svg className="fill-current h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
                       </div>
                     </label>
                   </div>
@@ -2399,7 +2905,7 @@ export default function App() {
                   <div className="w-full lg:w-1/3 space-y-6">
                     <h2 className="text-2xl font-bold">Customer Reviews</h2>
                     <div className="flex items-center gap-2">
-                      <div className="flex items-center text-[#ffffff]">
+                      <div className="flex items-center text-[#0055ff]">
                         {[1, 2, 3, 4, 5].map(star => (
                           <svg key={star} className={`w-6 h-6 ${star <= Math.round(averageRating) ? 'fill-current' : 'text-gray-300 fill-current'}`} viewBox="0 0 20 20">
                             <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
@@ -2425,7 +2931,7 @@ export default function App() {
                                     key={star}
                                     type="button"
                                     onClick={() => setNewReviewRating(star)}
-                                    className={`transition-all transform hover:scale-110 ${star <= newReviewRating ? 'text-[#ffffff]' : 'text-gray-300'}`}
+                                    className={`transition-all transform hover:scale-110 ${star <= newReviewRating ? 'text-[#0055ff]' : 'text-gray-300'}`}
                                   >
                                     <svg className="w-8 h-8 fill-current" viewBox="0 0 20 20">
                                       <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
@@ -2511,7 +3017,7 @@ export default function App() {
                               <span className="text-sm font-medium">{review.author}</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <div className="flex items-center text-[#ffffff]">
+                              <div className="flex items-center text-[#0055ff]">
                                 {[1, 2, 3, 4, 5].map(star => (
                                   <svg key={star} className={`w-3 h-3 ${star <= review.rating ? 'fill-current' : 'text-gray-300 fill-current'}`} viewBox="0 0 20 20">
                                     <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
@@ -2593,17 +3099,20 @@ export default function App() {
       <ChatWidget 
         isOpen={isChatOpen}
         onToggle={() => setIsChatOpen(!isChatOpen)}
-        onSendMessage={(text) => handleSendMessage(text)}
-        session={chatSessions.find(s => s.customerEmail === (customerInfo.email || 'guest_session'))}
+        onSendMessage={(text, image) => handleSendMessage(text, image)}
+        session={chatSessions.find(s => s.id === chatSessionId)}
         customerName={customerInfo.name || 'Guest'}
         isTyping={isAiTyping}
       />
 
-      {/* Toast Notifications */}
-      <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-2 pointer-events-none">
+      {/* Toast Notifications - Moved to Top Right to avoid ChatWidget overlap */}
+      <div className="fixed top-24 right-4 z-[200] flex flex-col gap-2 pointer-events-none">
         {toasts.map(toast => (
-          <div key={toast.id} className="bg-black text-white px-6 py-4 border border-zinc-500 shadow-2xl animate-in slide-in-from-right fade-in pointer-events-auto">
-            <p className="text-xs font-black uppercase">{toast.message}</p>
+          <div key={toast.id} className="bg-black text-white px-6 py-4 border border-[#0055ff] shadow-[0_0_20px_rgba(0,85,255,0.2)] animate-in slide-in-from-right fade-in pointer-events-auto min-w-[200px]">
+            <div className="flex items-center gap-3">
+              <span className="w-1.5 h-1.5 bg-[#0055ff] animate-pulse"></span>
+              <p className="text-[10px] font-black uppercase tracking-widest">{toast.message}</p>
+            </div>
           </div>
         ))}
       </div>

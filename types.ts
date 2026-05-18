@@ -10,6 +10,7 @@ export interface Product {
   id: string;
   name: string;
   price: number;
+  cost?: number;
   sku?: string;
   description: string;
   materials?: string;
@@ -32,6 +33,16 @@ export interface Product {
   sales?: number;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface Expense {
+  id: string;
+  title: string;
+  amount: number;
+  category: string;
+  date: string;
+  notes?: string;
+  receiptUrl?: string;
 }
 
 export interface Review {
@@ -76,6 +87,8 @@ export interface AdminUser {
   username: string;
   role: AdminRole;
   lastLogin: string;
+  password?: string;
+  canManageChat?: boolean;
 }
 
 export interface OrderItem {
@@ -114,9 +127,10 @@ export interface Order {
   trackingProvider?: string;
   isPaid?: boolean;
   paymentStatus?: 'PENDING_ADVANCE' | 'ADVANCE_VERIFIED' | 'FULLY_PAID' | 'UNPAID';
-  paymentMethod?: 'bKash' | 'Nagad' | 'Rocket' | 'COD' | 'Credit Card' | 'CASH';
+  paymentMethod?: 'bKash' | 'Nagad' | 'Rocket' | 'COD' | 'Credit Card' | 'Debit Card' | 'CASH';
   transactionId?: string;
   senderNumber?: string;
+  transactionScreenshot?: string;
   advancePaid?: number;
   dueAmount?: number;
 }
@@ -158,11 +172,24 @@ export interface SocialSettings {
     enabled: boolean;
     text: string;
   };
+  heroImages?: string[];
   merchantNumbers?: {
     bKash: string;
     Nagad: string;
     Rocket: string;
+    creditCard?: string;
+    debitCard?: string;
   };
+}
+
+export interface SecretValues {
+  stripeSecretKey: string;
+  stripePublishableKey: string;
+  geminiApiKey: string;
+  adminTwoFactorSecret: string;
+  facebookAppId?: string;
+  facebookAppSecret?: string;
+  [key: string]: string | undefined;
 }
 
 export interface SocialReferral {
@@ -189,6 +216,7 @@ export interface ChatMessage {
   senderId: string;
   senderName: string;
   text: string;
+  image?: string;
   timestamp: string;
   isAdmin: boolean;
 }

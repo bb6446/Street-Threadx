@@ -107,12 +107,15 @@ const CustomerPortal: React.FC<{
         onLoginSuccess({ email: user.email, name: user.displayName || 'Google User' });
       }
     } catch (err: any) {
-      if (err.code === 'auth/operation-not-allowed') {
-        setError('GOOGLE_LOGIN_NOT_ENABLED: Please enable Google Sign-In in your Firebase Console.');
-      } else if (err.code === 'auth/popup-closed-by-user') {
+      const errorCode = err.code || '';
+      const errorMessage = err.message || '';
+      
+      if (errorCode === 'auth/operation-not-allowed' || errorMessage.includes('operation-not-allowed')) {
+        setError('GOOGLE_LOGIN_NOT_ENABLED: Please enable Google Sign-In in your Firebase Console (Authentication > Sign-in method).');
+      } else if (errorCode === 'auth/popup-closed-by-user') {
         setError('GOOGLE_LOGIN_CANCELLED: Authentication window was closed.');
       } else {
-        setError(err.message || 'GOOGLE_AUTH_FAILURE: ACCESS DENIED');
+        setError(errorMessage || 'GOOGLE_AUTH_FAILURE: ACCESS DENIED');
       }
     } finally {
       setIsSocialLoading(false);
@@ -124,16 +127,22 @@ const CustomerPortal: React.FC<{
     setIsSocialLoading(true);
     try {
       const user = await signInWithFacebook();
-      if (user && user.email) {
-        onLoginSuccess({ email: user.email, name: user.displayName || 'Facebook User' });
+      if (user) {
+        onLoginSuccess({ 
+          email: user.email || `${user.uid}@facebook.user`, 
+          name: user.displayName || 'Facebook User' 
+        });
       }
     } catch (err: any) {
-      if (err.code === 'auth/operation-not-allowed') {
-        setError('FACEBOOK_LOGIN_NOT_ENABLED: Please enable Facebook Sign-In in your Firebase Console (Authentication > Sign-in method).');
-      } else if (err.code === 'auth/popup-closed-by-user') {
+      const errorCode = err.code || '';
+      const errorMessage = err.message || '';
+      
+      if (errorCode === 'auth/operation-not-allowed' || errorMessage.includes('operation-not-allowed')) {
+        setError('FACEBOOK_LOGIN_NOT_ENABLED: Please go to Firebase Console > Authentication > Sign-in method, click "Add new provider", select Facebook, and set your App ID and Secret.');
+      } else if (errorCode === 'auth/popup-closed-by-user') {
         setError('FACEBOOK_LOGIN_CANCELLED: Authentication window was closed.');
       } else {
-        setError(err.message || 'FACEBOOK_AUTH_FAILURE: ACCESS DENIED');
+        setError(errorMessage || 'FACEBOOK_AUTH_FAILURE: ACCESS DENIED');
       }
     } finally {
       setIsSocialLoading(false);

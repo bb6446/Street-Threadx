@@ -1,5 +1,6 @@
 {
-  "name": "STREET THREADX. Streetwear",
-  "description": "A high-conversion, minimalist streetwear store featuring automated AI management for inventory, SEO, and customer support.",
-  "requestFramePermissions": []
+  "name": "STREET THREADX | AI-Enhanced Streetwear",
+  "description": "Premium minimalist streetwear store with AI-powered lookbook generation, SEO automation, and multi-channel MFS payments.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

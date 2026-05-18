@@ -52,21 +52,41 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
-async function ensureAuth() {
+let authPromise: Promise<any> | null = null;
+async function ensureAuth(retries = 3) {
   if (auth.currentUser) return auth.currentUser;
-  try {
-    const result = await signInAnonymously(auth);
-    return result.user;
-  } catch (error: any) {
-    if (error.code === 'auth/admin-restricted-operation') {
-      console.warn("StreetThreadX: Anonymous auth restricted by project policy. Chat may requires explicit login or console configuration.");
-    } else if (error.code === 'auth/operation-not-allowed') {
-      console.warn("StreetThreadX: Anonymous auth disabled in Firebase console.");
-    } else {
-      console.error("Auth Error:", error);
+  if (authPromise) return authPromise;
+
+  authPromise = (async () => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const result = await signInAnonymously(auth);
+        return result.user;
+      } catch (error: any) {
+        const isNetworkError = error?.code === 'auth/network-request-failed';
+        if (isNetworkError && i < retries - 1) {
+          const delay = Math.pow(2, i) * 1000;
+          console.warn(`StreetThreadX: Auth Network error. Retrying in ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+
+        if (error.code === 'auth/admin-restricted-operation') {
+          console.warn("StreetThreadX: Anonymous auth restricted by project policy.");
+        } else if (error.code === 'auth/operation-not-allowed') {
+          console.warn("StreetThreadX: Anonymous auth disabled in Firebase console.");
+        } else {
+          console.error("Auth Error:", error);
+        }
+        return null;
+      }
     }
     return null;
-  }
+  })();
+  
+  const finalUser = await authPromise;
+  authPromise = null;
+  return finalUser;
 }
 
 export const chatService = {
@@ -77,8 +97,26 @@ export const chatService = {
     const sessionRef = doc(db, 'chatSessions', sessionId);
     
     try {
-      const docSnap = await getDoc(sessionRef);
-      if (!docSnap.exists()) {
+      let docSnap;
+      let retries = 3;
+      while (retries > 0) {
+        try {
+          docSnap = await getDoc(sessionRef);
+          break;
+        } catch (error: any) {
+          const isOffline = error?.message?.includes('offline') || error?.code === 'unavailable';
+          if (isOffline && retries > 1) {
+            console.warn(`StreetThreadX: Firestore offline/unavailable. Retrying... (${retries-1} left)`);
+            retries--;
+            await new Promise(r => setTimeout(r, 2000));
+            continue;
+          }
+          handleFirestoreError(error, OperationType.GET, `chatSessions/${sessionId}`);
+          return sessionId;
+        }
+      }
+
+      if (!docSnap || !docSnap.exists()) {
         await setDoc(sessionRef, {
           id: sessionId,
           customerName: name,
@@ -115,15 +153,22 @@ export const chatService = {
     const sessionRef = doc(db, 'chatSessions', sessionId);
     
     const timestamp = new Date().toISOString();
-    const newMessage = {
-      ...message,
+    const newMessage: any = {
+      senderId: message.senderId,
+      senderName: message.senderName,
+      text: message.text || "...",
+      isAdmin: message.isAdmin,
       timestamp
     };
+
+    if (message.image) {
+      newMessage.image = message.image;
+    }
 
     try {
       await addDoc(messagesRef, newMessage);
       await updateDoc(sessionRef, {
-        lastMessage: message.text,
+        lastMessage: message.text || "...",
         lastTimestamp: timestamp,
         isPresenceActive: true,
         lastPresenceUpdate: timestamp

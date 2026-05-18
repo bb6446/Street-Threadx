@@ -2,7 +2,11 @@ import { collection, onSnapshot, doc, setDoc, query, orderBy, updateDoc } from '
 import { db } from '../firebase';
 import { Customer } from '../types';
 
-export const subscribeToCustomers = (callback: (customers: Customer[]) => void) => {
+export const subscribeToCustomers = (callback: (customers: Customer[]) => void, isAdmin: boolean = false) => {
+  if (!isAdmin) {
+    callback([]);
+    return () => {};
+  }
   const q = query(collection(db, 'customers'), orderBy('lastSeen', 'desc'));
   
   let isSeeding = false;

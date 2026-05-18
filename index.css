@@ -37,3 +37,14 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #3f3f46;
 }
+
+/* Custom Utilities */
+@layer utilities {
+  .scrollbar-hide::-webkit-scrollbar, .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide, .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}

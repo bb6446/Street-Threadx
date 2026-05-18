@@ -5,18 +5,22 @@ import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   BarChart, Bar, Cell, PieChart, Pie 
 } from 'recharts';
-import { Sun, Moon, Monitor, Shield, Zap, Database, Globe, Share2, MessageSquare, Trash2, Edit3, Plus, Copy, Check, ChevronRight, ChevronLeft, Search, Filter, Download, ArrowUpRight, ArrowDownRight, Layout, List as ListIcon, Maximize2, Trash, ExternalLink } from 'lucide-react';
-import { generateSEOContent, generateSupportReply, generateAnalyticsReport, generateProductDescription, generateResponseSuggestions } from '../services/geminiService';
+import { Sun, Moon, Monitor, Shield, Zap, Database, Globe, Share2, MessageSquare, Trash2, Edit3, Plus, Copy, Check, ChevronRight, ChevronLeft, Search, Filter, Download, ArrowUpRight, ArrowDownRight, Layout, List as ListIcon, Maximize2, Trash, ExternalLink, User, Cloud, ShoppingCart, Users, X, Key, Activity, Lock } from 'lucide-react';
+import { generateSEOContent, generateSupportReply, generateAnalyticsReport, generateProductDescription, generateResponseSuggestions, generateAgentMonitorReply, generateModelSwapImages, generatePromotionalImage } from '../services/geminiService';
 import { chatService } from '../services/chatService';
 import { updateProductStock, updateProductPrice, saveProductToFirestore, updateProductsBulk } from '../services/productService';
 import { saveOrderToFirestore, updateOrder, deleteOrderFromFirestore, updateOrderStatus } from '../services/orderService';
 import { updateCustomer } from '../services/customerService';
+import { settingsService } from '../services/settingsService';
+import { expenseService } from '../services/expenseService';
+import { adminService } from '../services/adminService';
 import PosSystem from './PosSystem';
 import Markdown from 'react-markdown';
+import * as XLSX from 'xlsx';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '../firebase';
+import { storage, signInWithGoogle, auth } from '../firebase';
 import { MOCK_PRODUCTS } from '../constants';
-import { AdminRole, AdminUser, LogEntry, Order, Customer, Product, ProductVariant, SocialSettings, SocialReferral, DiscountCode, Review, ChatSession, ChatMessage } from '../types';
+import { AdminRole, AdminUser, LogEntry, Order, Customer, Product, ProductVariant, SocialSettings, SocialReferral, DiscountCode, Review, ChatSession, ChatMessage, SecretValues, Expense } from '../types';
 
 interface SupportRelay {
   id: string;
@@ -48,14 +52,25 @@ interface Props {
   reviews: Review[];
   setReviews: React.Dispatch<React.SetStateAction<Review[]>>;
   chatSessions: ChatSession[];
-  onSendMessage: (text: string, isAdmin: boolean, targetEmail: string) => void;
+  setChatSessions: React.Dispatch<React.SetStateAction<ChatSession[]>>;
+  onSendMessage: (text: string, image: string | undefined, isAdmin: boolean, targetEmail?: string, targetSessionId?: string) => Promise<void>;
+  adminUsersList: AdminUser[];
+  setAdminUsersList: React.Dispatch<React.SetStateAction<AdminUser[]>>;
+  expenses: Expense[];
+  setExpenses: React.Dispatch<React.SetStateAction<Expense[]>>;
 }
 
 const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800';
 
-const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, setOrders, customers, setCustomers, socialSettings, setSocialSettings, socialReferrals, onLogout, logs, addLog, discountCodes, setDiscountCodes, reviews, setReviews, chatSessions, onSendMessage }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders' | 'pending_verification' | 'customers' | 'activity_logs' | 'settings' | 'discounts' | 'reviews' | 'insights' | 'support' | 'pos' | 'chat'>('dashboard');
+const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, setOrders, customers, setCustomers, socialSettings, setSocialSettings, socialReferrals, onLogout, logs, addLog, discountCodes, setDiscountCodes, reviews, setReviews, chatSessions, setChatSessions, onSendMessage, adminUsersList, setAdminUsersList, expenses, setExpenses }) => {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders' | 'pending_verification' | 'customers' | 'activity_logs' | 'settings' | 'discounts' | 'reviews' | 'insights' | 'support' | 'pos' | 'chat' | 'user_management' | 'accounting'>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(true);
+
+  // AI Monitor State
+  const [aiMonitorInput, setAiMonitorInput] = useState('');
+  const [aiMonitorLog, setAiMonitorLog] = useState<{type: 'user' | 'agent', text: string}[]>([{type: 'agent', text: 'Monitoring site metrics... System nominal. Awaiting command.'}]);
+  const [isAiMonitoring, setIsAiMonitoring] = useState(false);
+  const [vaultLocked, setVaultLocked] = useState(true);
 
   // CRM State
   const [crmQuery, setCrmQuery] = useState('');
@@ -115,17 +130,71 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   const [productEditStep, setProductEditStep] = useState<number>(1);
   const [draggedImageIndex, setDraggedImageIndex] = useState<number | null>(null);
   const [isEditingMerchants, setIsEditingMerchants] = useState(false);
-  const [tempMerchants, setTempMerchants] = useState({ bKash: '', Nagad: '', Rocket: '' });
+  const [isEditingUser, setIsEditingUser] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [newUser, setNewUser] = useState<Partial<AdminUser>>({ username: '', role: AdminRole.SUPPORT, password: '' });
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [showBackupModal, setShowBackupModal] = useState(false);
+  const [backupView, setBackupView] = useState<'options' | 'preview'>('options');
+  const [previewTab, setPreviewTab] = useState<'products' | 'orders' | 'customers'>('products');
+  const [backupHistory, setBackupHistory] = useState<{name: string, date: string, type: string}[]>([]);
+  const [tempMerchants, setTempMerchants] = useState({ bKash: '', Nagad: '', Rocket: '', creditCard: '', debitCard: '' });
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [newImageUrl, setNewImageUrl] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newProductVariant, setNewProductVariant] = useState({ size: '', color: '', stock: 0, sku: '' });
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
   const [isGeneratingSeo, setIsGeneratingSeo] = useState(false);
+  const [isAiAutofilling, setIsAiAutofilling] = useState(false);
+  const [managedExpense, setManagedExpense] = useState<Partial<Expense> | null>(null);
+  const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
+  const [expenseDeleteConfirm, setExpenseDeleteConfirm] = useState<string | null>(null);
+  const [isGeneratingModels, setIsGeneratingModels] = useState<string | null>(null);
+  const [aiPreviewImages, setAiPreviewImages] = useState<string[]>([]);
+  const [isAiPreviewOpen, setIsAiPreviewOpen] = useState(false);
+  const [isSavingAiImages, setIsSavingAiImages] = useState(false);
+  const [selectedAiImages, setSelectedAiImages] = useState<string[]>([]);
+  const [isGeneratingPromo, setIsGeneratingPromo] = useState(false);
+  const [promoPrompt, setPromoPrompt] = useState('');
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
 
   // Discount Management State
   const [managedDiscount, setManagedDiscount] = useState<Partial<DiscountCode> | null>(null);
+
+  // Secure Vault State
+  const [secretValues, setSecretValues] = useState<SecretValues>({
+    stripeSecretKey: '',
+    stripePublishableKey: '',
+    geminiApiKey: '',
+    adminTwoFactorSecret: '',
+    facebookAppId: '',
+    facebookAppSecret: ''
+  });
+  const [isSavingSecrets, setIsSavingSecrets] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const handleVerifyAdministrativeIdentity = async () => {
+    setAuthError(null);
+    try {
+      const user = await signInWithGoogle();
+      if (user) {
+        const secrets = await settingsService.getSecrets();
+        if (secrets) {
+          setSecretValues(secrets);
+          setVaultLocked(false);
+        }
+      }
+    } catch (err: any) {
+      console.error("Verification error:", err);
+      if (err.code === 'auth/popup-closed-by-user') {
+        setAuthError("Sign-in window was closed. If you didn't close it, check if your browser blocked the popup.");
+      } else if (err.code === 'auth/popup-blocked') {
+        setAuthError("Popup blocked. Please allow popups for this site or open in a new tab.");
+      } else {
+        setAuthError(err.message || "Failed to verify identity. Please try opening in a new tab if you are using an iframe.");
+      }
+    }
+  };
 
   // Chat Management State
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
@@ -133,6 +202,13 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   const [activeSessionMessages, setActiveSessionMessages] = useState<ChatMessage[]>([]);
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
+  const messageScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (messageScrollRef.current) {
+      messageScrollRef.current.scrollTop = messageScrollRef.current.scrollHeight;
+    }
+  }, [activeSessionMessages]);
 
   useEffect(() => {
     if (selectedChatId) {
@@ -148,9 +224,103 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
 
   useEffect(() => {
     if (activeSessionMessages.length > 0 && activeSessionMessages[activeSessionMessages.length - 1].isAdmin === false) {
-      handleGenerateSuggestions();
+      const timer = setTimeout(() => {
+        handleGenerateSuggestions();
+      }, 2000); // 2s debounce for suggestions
+      return () => clearTimeout(timer);
     }
   }, [activeSessionMessages]);
+
+  // Initialize settings and secrets
+  useEffect(() => {
+    // Listen for auth changes to auto-unlock if the user is already remembered locally
+    // or if they just signed in via the Google button in this component.
+    const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          const secrets = await settingsService.getSecrets();
+          if (secrets) {
+            setSecretValues(secrets);
+            setVaultLocked(false);
+          } else {
+            // Document might not exist or we still don't have permission despite being logged in
+            setVaultLocked(true);
+          }
+        } catch (err: any) {
+          setVaultLocked(true);
+        }
+      } else {
+        setVaultLocked(true);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleSaveSecrets = async () => {
+    setIsSavingSecrets(true);
+    try {
+      await settingsService.saveSecrets(secretValues);
+      addLog('SECURE_VAULT_SYNC: SECRETS_UPDATED');
+      alert('Security vault successfully synchronized with Firestore.');
+    } catch (error) {
+      console.error("Error saving secrets:", error);
+      alert('Failed to synchronize security vault.');
+    } finally {
+      setIsSavingSecrets(false);
+    }
+  };
+
+  const handleSaveSocialSettings = async () => {
+    try {
+      await settingsService.saveSettings(socialSettings);
+      addLog('SOCIAL_SETTINGS_UPDATE: PLATFORM_URLS_SYNCED');
+      alert('Social settings updated successfully.');
+    } catch (error) {
+      console.error("Error saving settings:", error);
+      alert('Failed to update social settings.');
+    }
+  };
+
+  const handleAiMonitorSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!aiMonitorInput.trim()) return;
+
+    const query = aiMonitorInput;
+    setAiMonitorInput('');
+    setAiMonitorLog(prev => [...prev, { type: 'user', text: query }]);
+    setIsAiMonitoring(true);
+
+    try {
+      const stats = { revenue: 4290400, totalOrders: orders.length, activeCustomers: 1204 };
+      let finalResponse = await generateAgentMonitorReply(query, stats);
+      
+      if (query.toLowerCase().includes('add product') || query.toLowerCase().includes('create product') || query.toLowerCase().includes('new product')) {
+        setActiveTab('products');
+        setManagedProduct({
+          id: '',
+          name: 'AI Generated Initial Draft',
+          description: 'A new product initiated by the AI monitor.',
+          price: 0,
+          category: 'Hoodies',
+          stock: 10,
+          images: [],
+          status: 'Draft',
+          tags: ['new', 'ai-draft'],
+        });
+        finalResponse = "I've navigated you to the Products dashboard and started a new product draft. You can now upload your images and videos!";
+      } else if ((query.toLowerCase().includes('fill') || query.toLowerCase().includes('autofill') || query.toLowerCase().includes('set values')) && managedProduct) {
+        handleProductAiAutofill();
+        finalResponse = "I am currently executing the neural autofill protocol for your active product draft. All metadata, SEO, and assets are being synchronized.";
+      }
+
+      setAiMonitorLog(prev => [...prev, { type: 'agent', text: finalResponse }]);
+    } catch (error) {
+      setAiMonitorLog(prev => [...prev, { type: 'agent', text: 'Error connecting to Nexus core.' }]);
+    } finally {
+      setIsAiMonitoring(false);
+    }
+  };
 
   const handleGenerateSuggestions = async () => {
     if (!selectedChatId || activeSessionMessages.length === 0) return;
@@ -357,6 +527,53 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     });
   };
 
+  const handleDeleteOrder = async (id: string) => {
+    try {
+      await deleteOrderFromFirestore(id);
+      setOrders(prev => prev.filter(o => o.id !== id));
+      setOrderDeleteConfirm(null);
+      addLog(`ORDER_DELETED: ${id}`);
+    } catch (error) {
+      console.error('Error deleting order:', error);
+    }
+  };
+
+  const handleSaveExpense = async () => {
+    if (!managedExpense?.title || !managedExpense?.amount) {
+      alert('Please provide title and amount');
+      return;
+    }
+    try {
+      if (managedExpense.id) {
+        await expenseService.saveExpense(managedExpense as Expense);
+        setExpenses(prev => prev.map(e => e.id === managedExpense.id ? (managedExpense as Expense) : e));
+        addLog(`EXPENSE_UPDATE: ${managedExpense.title}`);
+      } else {
+        const newExpense = await expenseService.saveExpense({
+          ...managedExpense,
+          createdAt: new Date().toISOString()
+        } as Expense);
+        setExpenses(prev => [newExpense, ...prev]);
+        addLog(`EXPENSE_CREATE: ${managedExpense.title}`);
+      }
+      setIsExpenseModalOpen(false);
+      setManagedExpense(null);
+    } catch (error) {
+      console.error('Error saving expense:', error);
+    }
+  };
+
+  const handleDeleteExpense = async (id: string) => {
+    try {
+      await expenseService.deleteExpense(id);
+      setExpenses(prev => prev.filter(e => e.id !== id));
+      setExpenseDeleteConfirm(null);
+      addLog(`EXPENSE_DELETED: ${id}`);
+    } catch (error) {
+      console.error('Error deleting expense:', error);
+    }
+  };
+
   const handleTogglePaid = (id: string) => {
     const order = orders.find(o => o.id === id);
     if (!order) return;
@@ -382,10 +599,49 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     addLog(`ADVANCE_REJECTED: ${id}`);
   };
 
-  const handleDeleteOrder = (id: string) => {
-    deleteOrderFromFirestore(id).catch(console.error);
-    addLog(`ORDER_DELETE: ${id}`);
-    setOrderDeleteConfirm(null);
+  const handleProductAiAutofill = async () => {
+    if (!managedProduct || !managedProduct.name) {
+      alert("Please enter a product name first.");
+      return;
+    }
+    setIsAiAutofilling(true);
+    try {
+      const name = managedProduct.name;
+      const category = managedProduct.category || 'Hoodies';
+      
+      // 1. Generate Description
+      const desc = await generateProductDescription(name, category);
+      
+      // 2. Generate SEO
+      const seo = await generateSEOContent(name, desc, category, managedProduct.tags || []);
+      
+      // 3. Generate placeholders if no images
+      let images = managedProduct.images || [];
+      if (images.length === 0) {
+        images = [
+          `https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800`,
+          `https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?auto=format&fit=crop&q=80&w=800`
+        ];
+      }
+
+      setManagedProduct({
+        ...managedProduct,
+        description: managedProduct.description || desc,
+        seoTitle: managedProduct.seoTitle || seo.seoTitle,
+        seoDescription: managedProduct.seoDescription || seo.seoDescription,
+        images,
+        status: 'Draft',
+        taxCategory: 'Standard'
+      });
+      
+      addLog('AI_AUTOFILL: PRODUCT_METADATA_GENERATED', { entityId: managedProduct.id });
+      alert('AI Autofill completed successfully.');
+    } catch (error) {
+      console.error("AI Autofill error:", error);
+      alert('AI Autofill encountered a neural error.');
+    } finally {
+      setIsAiAutofilling(false);
+    }
   };
 
   const handleSaveProduct = async () => {
@@ -496,7 +752,9 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     setTempMerchants({
       bKash: socialSettings.merchantNumbers?.bKash || '01929667716',
       Nagad: socialSettings.merchantNumbers?.Nagad || '01929667716',
-      Rocket: socialSettings.merchantNumbers?.Rocket || '01929667716'
+      Rocket: socialSettings.merchantNumbers?.Rocket || '01929667716',
+      creditCard: socialSettings.merchantNumbers?.creditCard || '',
+      debitCard: socialSettings.merchantNumbers?.debitCard || ''
     });
     setIsEditingMerchants(true);
   };
@@ -508,6 +766,110 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     }));
     setIsEditingMerchants(false);
     addLog('MERCHANT_NUMBERS_UPDATED');
+  };
+
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(localStorage.getItem('last_backup_sync'));
+
+  const handleBackup = async (mode: 'download' | 'sync' | 'both' | 'json' = 'both') => {
+    setIsBackingUp(true);
+    try {
+      const now = new Date();
+      const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
+      
+      if (mode === 'json') {
+        const data = {
+          products,
+          orders,
+          customers,
+          socialSettings,
+          timestamp: now.toISOString(),
+          version: '1.0.0'
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `street_threadx_data_${timestamp}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        addLog(`DATA_EXPORT_JSON: Full database dump`);
+        return;
+      }
+
+      const fileName = `backup_${timestamp}.xlsx`;
+      const wb = XLSX.utils.book_new();
+
+      // Products Sheet
+      const wsProducts = XLSX.utils.json_to_sheet(products.map(p => ({
+        ID: p.id,
+        Name: p.name,
+        Price: p.price,
+        Stock: p.stock,
+        Category: p.category,
+        Status: p.status,
+        SKU: p.sku || 'N/A'
+      })));
+      XLSX.utils.book_append_sheet(wb, wsProducts, "Products");
+
+      // Orders Sheet
+      const wsOrders = XLSX.utils.json_to_sheet(orders.map(o => ({
+        ID: o.id,
+        Date: o.date,
+        Customer: o.customerName,
+        Email: o.customerEmail,
+        Status: o.status,
+        Total: o.total,
+        Payment: o.paymentStatus || (o.isPaid ? 'PAID' : 'UNPAID')
+      })));
+      XLSX.utils.book_append_sheet(wb, wsOrders, "Orders");
+
+      // Customers Sheet
+      const wsCustomers = XLSX.utils.json_to_sheet(customers.map(c => ({
+        ID: c.id,
+        Name: c.name,
+        Email: c.email,
+        TotalSpent: c.totalSpent,
+        OrdersCount: c.orders,
+        Joined: c.lastSeen || 'N/A'
+      })));
+      XLSX.utils.book_append_sheet(wb, wsCustomers, "Customers");
+
+      const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      
+      if (mode === 'download' || mode === 'both') {
+        const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+
+      if (mode === 'sync' || mode === 'both') {
+        const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const storageRef = ref(storage, `backups/${fileName}`);
+        await uploadBytes(storageRef, blob);
+        
+        const syncTime = new Date().toLocaleString();
+        setLastSyncTime(syncTime);
+        localStorage.setItem('last_backup_sync', syncTime);
+
+        // Track in history
+        const newEntry = { name: fileName, date: syncTime, type: 'XLSX_SYNC' };
+        setBackupHistory(prev => [newEntry, ...prev].slice(0, 5));
+      }
+
+      addLog(`BACKUP_${mode.toUpperCase()}: ${fileName}`);
+      alert(`Backup ${mode === 'download' ? 'downloaded' : mode === 'sync' ? 'synced' : 'downloaded & synced'} successfully!`);
+    } catch (error) {
+      console.error("Backup failed", error);
+      alert('Backup failed. Check network or storage permissions.');
+    } finally {
+      setIsBackingUp(false);
+    }
   };
 
   const handleBulkAction = (action: string) => {
@@ -975,24 +1337,132 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     if (!files || !managedProduct) return;
 
     for (const file of Array.from(files)) {
-      if (file.type === 'image/png' || file.type === 'image/jpeg' || file.type === 'image/webp') {
+      if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
         try {
-          const fileName = `products/${Date.now()}-${file.name}`;
-          const storageRef = ref(storage, fileName);
+          const storageRef = ref(storage, `products/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9]/g, '_')}`);
           await uploadBytes(storageRef, file);
-          const downloadUrl = await getDownloadURL(storageRef);
+          const url = await getDownloadURL(storageRef);
           
           setManagedProduct(prev => ({
             ...prev,
-            images: [...(prev?.images || []), downloadUrl]
+            images: [...(prev?.images || []), url]
           }));
         } catch (error) {
-          console.error("Error uploading image:", error);
-          alert('Failed to upload image. Please try again.');
+          console.error("Error uploading file:", error);
+          alert('Failed to upload file via server proxy. Please check connection.');
         }
       } else {
-        alert('Only PNG, JPG, and WEBP files are supported.');
+        alert('Only Image (PNG/JPG/WEBP) and Video (MP4/WEBM) files are supported.');
       }
+    }
+  };
+
+  const handleHeroImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    const newImageUrls: string[] = [];
+    for (const file of Array.from(files)) {
+      if (file.type.startsWith('image/')) {
+        try {
+          const storageRef = ref(storage, `hero/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9]/g, '_')}`);
+          await uploadBytes(storageRef, file);
+          const url = await getDownloadURL(storageRef);
+          newImageUrls.push(url);
+        } catch (error) {
+          console.error("Error uploading file:", error);
+          alert('Failed to upload hero image.');
+        }
+      }
+    }
+    
+    if (newImageUrls.length > 0) {
+      setSocialSettings(prev => ({
+        ...prev,
+        heroImages: [...(prev.heroImages || []), ...newImageUrls]
+      }));
+    }
+  };
+
+  const handleGenerateModelVersions = async (imageUrl: string, count: number = 4) => {
+    if (!managedProduct) return;
+    setIsGeneratingModels(imageUrl);
+    try {
+      const modelImages = await generateModelSwapImages(null, imageUrl, managedProduct.name || 'Product', managedProduct.category || 'Streetwear', count);
+      
+      if (modelImages && modelImages.length > 0) {
+        setAiPreviewImages(modelImages);
+        setIsAiPreviewOpen(true);
+      }
+    } catch (error) {
+      console.error("Model generation error:", error);
+      alert("Failed to generate model variants.");
+    } finally {
+      setIsGeneratingModels(null);
+    }
+  };
+
+  const handleSaveSelectedAiImages = async (selectedImages: string[]) => {
+    if (!managedProduct || selectedImages.length === 0) return;
+    setIsSavingAiImages(true);
+    try {
+      const uploadedUrls = await Promise.all(selectedImages.map(async (b64, i) => {
+        try {
+          const response = await fetch(b64);
+          const b = await response.blob();
+          const f = new File([b], `model_swap_${Date.now()}_${i}.png`, { type: 'image/png' });
+          const storageRef = ref(storage, `ai_generated/model_swap_${Date.now()}_${i}.png`);
+          await uploadBytes(storageRef, f);
+          const url = await getDownloadURL(storageRef);
+          return url;
+        } catch (e) {
+          console.error("Nested upload error:", e);
+          return null;
+        }
+      }));
+
+      const validUrls = uploadedUrls.filter(Boolean) as string[];
+
+      setManagedProduct(prev => ({
+        ...prev,
+        images: [...(prev?.images || []), ...validUrls]
+      }));
+      addLog(`AI_MODEL_SWAP: Saved ${validUrls.length} model variants for ${managedProduct.name}`);
+      setIsAiPreviewOpen(false);
+      setAiPreviewImages([]);
+      setSelectedAiImages([]);
+    } catch (error) {
+      console.error("Error saving AI images:", error);
+      alert("Failed to save selected images.");
+    } finally {
+      setIsSavingAiImages(false);
+    }
+  };
+
+  const handleCreatePromoImage = async () => {
+    if (!promoPrompt.trim()) return;
+    setIsGeneratingPromo(true);
+    try {
+      const b64 = await generatePromotionalImage(promoPrompt);
+      if (b64) {
+        const response = await fetch(b64);
+        const b = await response.blob();
+        const f = new File([b], `promo_${Date.now()}.png`, { type: 'image/png' });
+        const storageRef = ref(storage, `promo_assets/promo_${Date.now()}.png`);
+        await uploadBytes(storageRef, f);
+        const url = await getDownloadURL(storageRef);
+        setManagedProduct(prev => ({
+          ...prev,
+          images: [...(prev?.images || []), url]
+        }));
+        setPromoPrompt('');
+        addLog(`AI_PROMO_GENERATE: ${promoPrompt}`);
+      }
+    } catch (error) {
+      console.error("Promo generation error:", error);
+      alert("Failed to generate promotional image.");
+    } finally {
+      setIsGeneratingPromo(false);
     }
   };
 
@@ -1032,6 +1502,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   const canManageOrders = user.role === AdminRole.SUPER_ADMIN || user.role === AdminRole.SUPPORT;
   const canManageCustomers = user.role === AdminRole.SUPER_ADMIN || user.role === AdminRole.SUPPORT;
   const canViewLogs = user.role === AdminRole.SUPER_ADMIN;
+  const canReplyToChat = user.role === AdminRole.SUPER_ADMIN || user.canManageChat;
 
   const availableTabs = [
     { id: 'dashboard', label: 'Dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
@@ -1046,6 +1517,8 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     { id: 'discounts', label: 'Discounts', icon: 'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z', hidden: !canManageProducts },
     { id: 'reviews', label: 'Reviews', icon: 'M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z', hidden: !canManageProducts },
     { id: 'settings', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z', hidden: !canManageProducts },
+    { id: 'accounting', label: 'Accounting', icon: 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z', hidden: user.role !== AdminRole.SUPER_ADMIN },
+    { id: 'user_management', label: 'Admin Users', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z', hidden: user.role !== AdminRole.SUPER_ADMIN },
     { id: 'activity_logs', label: 'Activity Logs', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', hidden: !canViewLogs },
   ].filter(t => !t.hidden);
 
@@ -1075,6 +1548,27 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                 )}
               </button>
             ))}
+            
+            {user.role === AdminRole.SUPER_ADMIN && (
+              <div className="pt-8">
+                <button
+                  onClick={() => setShowBackupModal(true)}
+                  disabled={isBackingUp}
+                  className={`w-full text-left px-5 py-3 rounded-none transition-all flex items-center gap-4 opacity-70 hover:bg-[#0055ff]/10 hover:text-[#0055ff] hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed`}
+                >
+                  {isBackingUp ? (
+                    <span className="w-4 h-4 border-2 border-[#0055ff]/30 border-t-[#0055ff] rounded-full animate-spin"></span>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  )}
+                  <span className="text-[10px] font-black uppercase tracking-[0.3em]">
+                    {isBackingUp ? 'SYNCING...' : 'Backup'}
+                  </span>
+                </button>
+              </div>
+            )}
           </nav>
           <button onClick={onLogout} className={`w-full py-4 border-2 text-[9px] font-black uppercase tracking-[0.4em] transition-all ${isDarkMode ? 'border-zinc-800 hover:bg-zinc-900' : 'border-black hover:bg-black hover:text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none'}`}>DISCONNECT</button>
         </aside>
@@ -1116,13 +1610,57 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                     <p className="text-4xl font-black italic uppercase">{orders.length}</p>
                     <div className="mt-2 text-[10px] text-emerald-500 font-bold">+4.2% vs last month</div>
                   </div>
-                  <div className={`border p-8 rounded-none ${cardClasses}`}>
-                    <h3 className="text-zinc-500 text-[9px] font-black uppercase mb-4">Active Customers</h3>
-                    <p className="text-4xl font-black italic uppercase">1,204</p>
-                  </div>
-                  <div className={`border p-8 rounded-none ${cardClasses}`}>
-                    <h3 className="text-zinc-500 text-[9px] font-black uppercase mb-4">Conversion Rate</h3>
-                    <p className="text-4xl font-black italic uppercase">3.2%</p>
+                  <div className={`border rounded-none ${cardClasses} md:col-span-2 flex flex-col min-h-[300px]`}>
+                    <div className="flex justify-between items-center mb-4 pb-3 border-b border-zinc-800/20 dark:border-zinc-800 p-4">
+                      <h3 className="text-zinc-500 text-[11px] font-black uppercase flex items-center gap-2">
+                        <Monitor className="w-4 h-4 text-[#0055ff]" /> AI Site Monitor
+                      </h3>
+                      {isAiMonitoring ? (
+                        <div className="flex items-center gap-2 text-[10px] text-zinc-500 font-bold">
+                          PROCESSING <span className="w-2 h-2 bg-[#0055ff] rounded-full animate-pulse"></span>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-emerald-500 font-bold flex items-center gap-1"><div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div> ONLINE</span>
+                      )}
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto mb-4 px-4 space-y-3 no-scrollbar flex flex-col font-mono">
+                      {aiMonitorLog.map((log, i) => (
+                        <div key={i} className={`flex ${log.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`flex items-start gap-2 max-w-[85%] ${log.type === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                            <div className={`w-6 h-6 rounded-none flex items-center justify-center shrink-0 ${log.type === 'user' ? 'bg-[#0055ff] text-white' : isDarkMode ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-200 text-zinc-800'}`}>
+                              {log.type === 'user' ? <User className="w-3 h-3" /> : <Monitor className="w-3 h-3" />}
+                            </div>
+                            <span className={`p-3 text-[11px] leading-relaxed ${log.type === 'user' ? 'bg-[#0055ff] text-white' : isDarkMode ? 'bg-zinc-800/50 text-zinc-300' : 'bg-zinc-100 text-zinc-800'} border ${isDarkMode ? 'border-zinc-800' : 'border-zinc-200'}`}>
+                              {log.text}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    <div className="p-4 pt-0">
+                      <form onSubmit={handleAiMonitorSubmit} className={`flex flex-col mt-auto border focus-within:border-[#0055ff] transition-colors ${isDarkMode ? 'border-zinc-800 bg-zinc-900/50' : 'border-zinc-300 bg-zinc-50'}`}>
+                        <textarea 
+                          value={aiMonitorInput} 
+                          onChange={e => setAiMonitorInput(e.target.value)} 
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleAiMonitorSubmit(e);
+                            }
+                          }}
+                          placeholder="Command the AI agent... (e.g. 'Add product', 'Show error rates')" 
+                          className={`w-full bg-transparent text-[11px] p-3 outline-none resize-none min-h-[60px] max-h-[120px] font-mono ${isDarkMode ? 'text-white placeholder:text-zinc-600' : 'text-black placeholder:text-zinc-400'}`} 
+                        />
+                        <div className={`flex justify-between items-center p-2 border-t ${isDarkMode ? 'border-zinc-800' : 'border-zinc-200'}`}>
+                           <span className="text-[9px] text-zinc-500 uppercase font-bold px-2">Shift + Enter for new line</span>
+                           <button type="submit" disabled={isAiMonitoring || !aiMonitorInput.trim()} className="px-4 py-1.5 flex items-center gap-2 bg-[#0055ff] text-white text-[10px] font-black uppercase disabled:opacity-50 hover:bg-[#0044cc] transition-colors">
+                            Execute <ArrowUpRight className="w-3 h-3" />
+                           </button>
+                        </div>
+                      </form>
+                    </div>
                   </div>
                 </div>
 
@@ -1484,6 +2022,15 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         onChange={e => setDateRange(prev => ({ ...prev, end: e.target.value }))}
                         className={`px-4 py-3 text-[10px] font-black uppercase border outline-none ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-black'}`}
                       />
+                      <button 
+                        onClick={() => {
+                          const today = new Date().toISOString().split('T')[0];
+                          setDateRange({ start: today, end: today });
+                        }}
+                        className={`px-4 py-3 text-[10px] font-black uppercase border hover:bg-[#0055ff] hover:text-white transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'}`}
+                      >
+                        Today
+                      </button>
                     </div>
                     <div className="flex bg-zinc-900 border border-zinc-800 rounded-none overflow-hidden">
                       <button 
@@ -1610,9 +2157,9 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                   <button 
                                     onClick={() => setVoucherOrder(o)} 
                                     className="px-3 py-2 border border-emerald-500/50 hover:bg-emerald-500/10 hover:border-emerald-500 text-emerald-500 uppercase text-[9px] font-black transition-all"
-                                    title="Generate Receipts Voucher"
+                                    title="Generate Sales Invoice"
                                   >
-                                    Voucher
+                                    Invoice
                                   </button>
                                   <button 
                                     onClick={() => setPreviewOrderId(previewOrderId === o.id ? null : o.id)} 
@@ -1695,12 +2242,26 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                             <span className="opacity-50">Payment</span>
                                             <span className="font-bold text-amber-500">{o.paymentMethod || 'COD'}</span>
                                           </div>
+                                          {o.transactionId && o.paymentMethod === 'COD' && (
+                                            <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                                              <span className="opacity-50">COD TrxID / Phone</span>
+                                              <span className="font-bold truncate text-right">
+                                                {o.transactionId} <br/> {o.senderNumber}
+                                              </span>
+                                            </div>
+                                          )}
                                           {['bKash', 'Nagad', 'Rocket'].includes(o.paymentMethod || '') && (
                                             <div className="flex justify-between border-b border-zinc-800/50 pb-1">
                                               <span className="opacity-50">TrxID / Phone</span>
-                                              <span className="font-bold truncate" title={`${o.transactionId} / ${o.senderNumber}`}>
+                                              <span className="font-bold truncate text-right" title={`${o.transactionId} / ${o.senderNumber}`}>
                                                 {o.transactionId} <br/> {o.senderNumber}
                                               </span>
+                                            </div>
+                                          )}
+                                          {o.transactionScreenshot && (
+                                            <div className="flex justify-between border-b border-zinc-800/50 pb-1 pt-2">
+                                              <span className="opacity-50">Proof</span>
+                                              <a href={o.transactionScreenshot} target="_blank" rel="noopener noreferrer" className="font-bold text-[#0055ff] hover:underline underline-offset-2">View Screenshot</a>
                                             </div>
                                           )}
                                         </div>
@@ -1746,17 +2307,6 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                               </svg>
                               <div className="text-xs font-black uppercase tracking-widest">No_Orders_Found</div>
-                              <button 
-                                onClick={() => {
-                                  setOrderSearch('');
-                                  setStatusFilter('ALL');
-                                  setPriceFilter('ALL');
-                                  setDateRange({ start: '', end: '' });
-                                }}
-                                className="text-[#0055ff] text-[10px] font-black uppercase hover:underline"
-                              >
-                                Reset_All_Filters
-                              </button>
                             </div>
                           </td>
                         </tr>
@@ -2111,8 +2661,8 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                   )}
                 </div>
 
-                {/* Merchant Reference Numbers */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+                {/* Merchant Reference Numbers & Global Gateways */}
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 mb-8">
                   <div className={`p-4 border ${cardClasses} border-l-4 border-l-[#D12053]`}>
                     <p className="text-[9px] text-zinc-500 uppercase font-black mb-1">bKash Merchant</p>
                     {isEditingMerchants ? (
@@ -2150,6 +2700,34 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                       />
                     ) : (
                       <p className="text-sm font-black tracking-[0.2em] text-[#8C3494]">{socialSettings.merchantNumbers?.Rocket || '01929667716'}</p>
+                    )}
+                  </div>
+                  <div className={`p-4 border ${cardClasses} border-l-4 border-l-[#4285F4]`}>
+                    <p className="text-[9px] text-zinc-500 uppercase font-black mb-1">Int'l Credit Card (API Key)</p>
+                    {isEditingMerchants ? (
+                      <input 
+                        type="text" 
+                        placeholder="Gateway API or MID"
+                        value={tempMerchants.creditCard} 
+                        onChange={(e) => setTempMerchants({...tempMerchants, creditCard: e.target.value})}
+                        className="w-full bg-black/40 border border-zinc-800 text-xs p-1 outline-none focus:border-[#0055ff]"
+                      />
+                    ) : (
+                      <p className="text-sm font-black tracking-[0.2em] text-[#4285F4] truncate">{socialSettings.merchantNumbers?.creditCard || 'NOT_SET'}</p>
+                    )}
+                  </div>
+                  <div className={`p-4 border ${cardClasses} border-l-4 border-l-[#0F9D58]`}>
+                    <p className="text-[9px] text-zinc-500 uppercase font-black mb-1">Local Debit Card (API Key)</p>
+                    {isEditingMerchants ? (
+                      <input 
+                        type="text" 
+                        placeholder="Gateway API or MID"
+                        value={tempMerchants.debitCard} 
+                        onChange={(e) => setTempMerchants({...tempMerchants, debitCard: e.target.value})}
+                        className="w-full bg-black/40 border border-zinc-800 text-xs p-1 outline-none focus:border-[#0055ff]"
+                      />
+                    ) : (
+                      <p className="text-sm font-black tracking-[0.2em] text-[#0F9D58] truncate">{socialSettings.merchantNumbers?.debitCard || 'NOT_SET'}</p>
                     )}
                   </div>
                 </div>
@@ -2197,111 +2775,135 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
             )}
 
             {activeTab === 'chat' && (
-              <div className="h-[calc(100vh-12rem)] flex gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="h-[calc(100vh-12rem)] flex gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans">
                 {/* Chat List */}
-                <div className={`w-80 border flex flex-col ${cardClasses}`}>
-                  <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-                    <h3 className="text-[10px] font-black uppercase tracking-widest text-[#0055ff]">Active_Channels</h3>
-                    <span className="text-[9px] px-2 py-0.5 bg-[#0055ff]/10 text-[#0055ff]">{chatSessions.length}</span>
+                <div className={`w-80 border flex flex-col rounded-xl overflow-hidden ${cardClasses}`}>
+                  <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-[#0084ff]">Chats</h3>
+                    <span className="text-[10px] px-2 py-0.5 bg-[#0084ff]/20 text-[#0084ff] rounded-full font-bold">{chatSessions.length}</span>
                   </div>
-                  <div className="flex-1 overflow-y-auto overflow-x-hidden">
+                  <div className="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar">
                     {chatSessions.map((session) => (
                       <button
                         key={session.id}
                         onClick={() => setSelectedChatId(session.id)}
-                        className={`w-full text-left p-4 border-b border-zinc-800/50 flex flex-col gap-1 transition-all ${selectedChatId === session.id ? 'bg-[#0055ff]/5 border-l-4 border-l-[#0055ff]' : 'hover:bg-white/5'}`}
+                        className={`w-full text-left p-4 border-b border-zinc-800/30 flex items-center gap-3 transition-all ${selectedChatId === session.id ? 'bg-[#0084ff]/10 border-l-4 border-l-[#0084ff]' : 'hover:bg-white/5'}`}
                       >
-                        <div className="flex items-center justify-between w-full">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-black uppercase truncate ${selectedChatId === session.id ? 'text-[#0055ff]' : 'text-white'}`}>{session.customerName}</span>
-                            {session.isPresenceActive && (
-                              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(16,185,129,0.5)]"></span>
-                            )}
+                        <div className="relative flex-shrink-0">
+                          <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400 font-bold border border-zinc-700">
+                            {session.customerName.charAt(0)}
                           </div>
-                          <span className="text-[8px] text-zinc-500 font-bold uppercase">{new Date(session.lastTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          {session.isPresenceActive && (
+                            <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-zinc-900 rounded-full"></div>
+                          )}
                         </div>
-                        <p className="text-[9px] text-zinc-500 truncate">{session.lastMessage}</p>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className={`text-sm font-bold truncate ${selectedChatId === session.id ? 'text-[#0084ff]' : 'text-white'}`}>{session.customerName}</span>
+                            <span className="text-[10px] text-zinc-500 font-medium">{new Date(session.lastTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                          <p className="text-xs text-zinc-500 truncate mt-0.5 font-medium">{session.lastMessage}</p>
+                        </div>
                       </button>
                     ))}
                     {chatSessions.length === 0 && (
-                      <div className="p-8 text-center text-[10px] text-zinc-600 font-black uppercase tracking-widest">No active channels</div>
+                      <div className="p-12 text-center flex flex-col items-center gap-3">
+                         <div className="w-12 h-12 rounded-full bg-zinc-900 flex items-center justify-center text-zinc-700 border border-zinc-800">
+                           <MessageSquare className="w-6 h-6" />
+                         </div>
+                         <p className="text-xs text-zinc-600 font-bold uppercase tracking-widest">No active messages</p>
+                      </div>
                     )}
                   </div>
                 </div>
 
                 {/* Chat Detail */}
-                <div className={`flex-1 border flex flex-col overflow-hidden ${cardClasses}`}>
+                <div className={`flex-1 border flex flex-col overflow-hidden rounded-xl ${cardClasses}`}>
                   {selectedChatId ? (
                     <>
-                      <div className="p-4 border-b border-zinc-800 bg-zinc-900/30 flex items-center justify-between">
+                      <div className="p-4 border-b border-zinc-800 bg-zinc-900/40 flex items-center justify-between">
                         <div className="flex items-center gap-4">
                           <div className="relative">
-                            <div className="w-10 h-10 bg-[#0055ff]/10 border border-[#0055ff]/30 flex items-center justify-center text-[#0055ff] font-black text-xs uppercase">
+                            <div className="w-10 h-10 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-white font-bold text-sm">
                               {chatSessions.find(s => s.id === selectedChatId)?.customerName.charAt(0) || '?'}
                             </div>
                             {chatSessions.find(s => s.id === selectedChatId)?.isPresenceActive && (
-                              <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-emerald-500 border-2 border-black rounded-full"></div>
+                              <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-[#1c1c1c] rounded-full"></div>
                             )}
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
-                              <h4 className="text-[11px] font-black uppercase tracking-widest">
+                              <h4 className="text-sm font-bold text-white">
                                 {chatSessions.find(s => s.id === selectedChatId)?.customerName}
                               </h4>
-                              {chatSessions.find(s => s.id === selectedChatId)?.isPresenceActive ? (
-                                <span className="text-[7px] bg-emerald-500/10 text-emerald-500 px-1.5 py-0.5 font-black uppercase tracking-tighter">Active_Link_Established</span>
-                              ) : (
-                                <span className="text-[7px] bg-zinc-800 text-zinc-500 px-1.5 py-0.5 font-black uppercase tracking-tighter">Signal_Lost</span>
+                              {chatSessions.find(s => s.id === selectedChatId)?.isPresenceActive && (
+                                <span className="text-[9px] text-emerald-500 font-bold uppercase tracking-tight flex items-center gap-1">
+                                  <span className="w-1 h-1 bg-emerald-500 rounded-full"></span> Active now
+                                </span>
                               )}
                             </div>
-                            <p className="text-[9px] text-zinc-500 font-bold uppercase">{chatSessions.find(s => s.id === selectedChatId)?.customerEmail}</p>
+                            <p className="text-[10px] text-zinc-500 font-medium">{chatSessions.find(s => s.id === selectedChatId)?.customerEmail}</p>
                           </div>
                         </div>
                       </div>
 
-                      <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide">
+                      <div ref={messageScrollRef} className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar bg-[#1c1c1c]">
                         {activeSessionMessages.map((msg) => (
                           <div key={msg.id} className={`flex flex-col ${msg.isAdmin ? 'items-end' : 'items-start'}`}>
-                            <div className={`max-w-[70%] p-4 text-xs leading-relaxed ${msg.isAdmin ? 'bg-[#0055ff] text-white font-bold' : 'bg-zinc-800 text-zinc-300 border border-zinc-700'}`}>
+                            <div className={`max-w-[75%] px-4 py-2.5 text-[13px] leading-snug shadow-sm ${
+                              msg.isAdmin 
+                                ? 'bg-[#0084ff] text-white rounded-[20px] rounded-tr-[4px]' 
+                                : 'bg-[#3a3b3c] text-[#e4e6eb] rounded-[20px] rounded-tl-[4px]'
+                            }`}>
                               <div className="markdown-body prose prose-invert prose-xs max-w-none">
                                 <Markdown
                                   components={{
                                     img: ({ node, ...props }) => (
                                       <img loading="lazy" 
                                         {...props} 
-                                        className="w-full h-auto mt-2 border border-zinc-800 bg-black/50" 
+                                        className="w-full h-auto mt-2 rounded-lg border border-zinc-700" 
                                         referrerPolicy="no-referrer"
                                       />
                                     ),
-                                    p: ({ children }) => <span className="block mb-1 last:mb-0">{children}</span>
+                                    p: ({ children }) => <span className="block">{children}</span>
                                   }}
                                 >
                                   {msg.text}
                                 </Markdown>
                               </div>
                             </div>
-                            <div className="mt-2 text-[8px] font-black uppercase opacity-40">
-                              {msg.isAdmin ? 'SEC_OP_STREETX' : 'REMOTE_CLIENT'} • {new Date(msg.timestamp).toLocaleTimeString()}
+                            <div className={`mt-1 text-[10px] text-zinc-500 font-medium ${msg.isAdmin ? 'mr-1' : 'ml-1'}`}>
+                              {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </div>
                           </div>
                         ))}
                       </div>
 
-                      {aiSuggestions.length > 0 && !isGeneratingSuggestions && (
-                        <div className="px-6 py-3 bg-black/50 border-t border-zinc-800/50 flex flex-wrap gap-2">
-                          <span className="w-full text-[8px] font-black uppercase text-[#0055ff] mb-1 opacity-50 flex items-center gap-2">
-                            <Zap className="w-2 h-2" />
-                            CORE_AI_SUGGESTIONS:
-                          </span>
-                          {aiSuggestions.map((suggestion, idx) => (
-                            <button
-                              key={idx}
-                              onClick={() => setAdminChatInput(suggestion)}
-                              className="text-[9px] px-3 py-1.5 border border-zinc-800 hover:border-[#0055ff] text-zinc-400 hover:text-white transition-all bg-zinc-900/50 font-bold uppercase tracking-tighter"
-                            >
-                              {suggestion}
-                            </button>
-                          ))}
+                      {selectedChatId && (
+                        <div className="px-6 py-3 bg-zinc-900/60 border-t border-zinc-800 flex flex-wrap gap-3 items-center">
+                          <div className="flex items-center gap-2">
+                            <div className={`p-1 rounded-full ${isGeneratingSuggestions ? 'bg-[#0084ff]/20 animate-pulse' : 'bg-zinc-800'}`}>
+                              <Zap className={`w-3 h-3 ${isGeneratingSuggestions ? 'text-[#0084ff]' : 'text-zinc-500'}`} />
+                            </div>
+                            <span className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500">
+                              {isGeneratingSuggestions ? 'Aura_Thinking...' : 'AI_Ready'}
+                            </span>
+                          </div>
+                          
+                          {aiSuggestions.length > 0 && (
+                            <div className="flex flex-wrap gap-2 animate-in fade-in slide-in-from-left-2 duration-500">
+                              {aiSuggestions.map((suggestion, idx) => (
+                                <button
+                                  key={idx}
+                                  onClick={() => setAdminChatInput(suggestion)}
+                                  disabled={!canReplyToChat}
+                                  className={`text-[10px] px-3 py-1 bg-zinc-800/40 border border-zinc-700/30 transition-all font-bold uppercase tracking-tight ${canReplyToChat ? 'hover:border-[#0084ff]/50 hover:bg-[#0084ff]/5 text-zinc-400 hover:text-white' : 'text-zinc-600 cursor-not-allowed hidden'}`}
+                                >
+                                  {suggestion}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -2311,34 +2913,186 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                           if (!adminChatInput.trim()) return;
                           const currentSession = chatSessions.find(s => s.id === selectedChatId);
                           if (currentSession) {
-                            onSendMessage(adminChatInput, true, currentSession.customerEmail);
+                            onSendMessage(adminChatInput, undefined, true, currentSession.customerEmail, currentSession.id);
                             setAdminChatInput('');
+                            setAiSuggestions([]); // Clear suggestions after sending
                           }
                         }}
-                        className="p-6 border-t border-zinc-800 bg-zinc-900/30"
+                        className="p-4 bg-[#1c1c1c] border-t border-zinc-800"
                       >
-                        <div className="flex gap-4">
+                        <div className="flex gap-2 items-center">
                           <input 
                             type="text" 
                             value={adminChatInput}
                             onChange={(e) => setAdminChatInput(e.target.value)}
-                            placeholder="Type a message..."
-                            className="flex-1 bg-black border border-zinc-800 px-6 py-4 text-xs font-bold uppercase outline-none focus:border-[#0055ff] transition-all"
+                            disabled={!canReplyToChat}
+                            placeholder={canReplyToChat ? "Type a message..." : "Chat replies disabled for this user"}
+                            className={`flex-1 bg-[#3a3b3c] border-none px-5 py-3 text-sm rounded-full text-white placeholder:text-zinc-500 outline-none focus:ring-2 focus:ring-[#0084ff]/20 transition-all ${!canReplyToChat && 'opacity-50 cursor-not-allowed'}`}
                           />
-                          <button type="submit" className="px-8 py-4 bg-[#0055ff] text-black font-black uppercase text-[10px] tracking-widest hover:bg-white transition-all">Send_Signal</button>
+                          <button 
+                            type="submit" 
+                            disabled={!adminChatInput.trim() || !canReplyToChat}
+                            className={`p-3 rounded-full transition-all ${
+                              adminChatInput.trim() && canReplyToChat ? 'bg-[#0084ff] text-white hover:scale-110 active:scale-95 shadow-lg' : 'bg-zinc-800 text-zinc-500'
+                            }`}
+                          >
+                             <svg className="w-5 h-5 fill-current rotate-90" viewBox="0 0 24 24">
+                                <path d="M1.101 21.757L23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912z" />
+                             </svg>
+                          </button>
                         </div>
                       </form>
                     </>
                   ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center p-20 text-center opacity-40 space-y-4">
-                      <div className="w-16 h-16 border border-zinc-800 flex items-center justify-center">
-                        <svg className="w-8 h-8 text-[#0055ff]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                        </svg>
+                    <div className="flex-1 flex flex-col items-center justify-center p-20 text-center space-y-4">
+                      <div className="w-20 h-20 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800 shadow-inner">
+                        <MessageSquare className="w-10 h-10 text-zinc-700" />
                       </div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.3em]">Select a channel to establish link</p>
+                      <div className="flex flex-col items-center space-y-1">
+                        <p className="text-sm font-bold text-zinc-400">Select a conversation</p>
+                        <p className="text-xs text-zinc-600">Choose a chat from the left to start messaging</p>
+                      </div>
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'accounting' && (
+              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                {/* Financial Overview Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                  {(() => {
+                    const activeOrders = orders.filter(o => o.status !== 'CANCELLED');
+                    const revenue = activeOrders.reduce((sum, o) => sum + o.total, 0);
+                    const cogs = activeOrders.reduce((itemSum, o) => itemSum + (o.orderItems?.reduce((acc, item) => acc + (products.find(p => p.id === item.productId)?.cost || 0) * item.quantity, 0) || 0), 0);
+                    const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+                    const grossProfit = revenue - cogs;
+                    const netProfit = grossProfit - totalExpenses;
+
+                    return (
+                      <>
+                        <div className={`p-6 border ${cardClasses} shadow-sm group hover:border-[#0055ff] transition-all`}>
+                          <div className="flex justify-between items-start mb-4">
+                            <span className="text-[10px] font-black uppercase opacity-50 tracking-widest">Total_Revenue</span>
+                            <div className="p-2 bg-[#0055ff]/10 text-[#0055ff]">
+                              <ArrowUpRight className="w-4 h-4" />
+                            </div>
+                          </div>
+                          <div className="text-2xl font-black mb-1">৳{revenue.toLocaleString()}</div>
+                          <div className="text-[10px] opacity-40 font-bold uppercase tracking-tight">Net_Sales_Volume</div>
+                        </div>
+                        <div className={`p-6 border ${cardClasses} shadow-sm group hover:border-amber-500 transition-all`}>
+                          <div className="flex justify-between items-start mb-4">
+                            <span className="text-[10px] font-black uppercase opacity-50 tracking-widest">Product_COGS</span>
+                            <div className="p-2 bg-amber-500/10 text-amber-500">
+                              <ShoppingCart className="w-4 h-4" />
+                            </div>
+                          </div>
+                          <div className="text-2xl font-black mb-1">৳{cogs.toLocaleString()}</div>
+                          <div className="text-[10px] opacity-40 font-bold uppercase tracking-tight">Cost_of_Goods_Sold</div>
+                        </div>
+                        <div className={`p-6 border ${cardClasses} shadow-sm group hover:border-rose-500 transition-all`}>
+                          <div className="flex justify-between items-start mb-4">
+                            <span className="text-[10px] font-black uppercase opacity-50 tracking-widest">Total_Expenses</span>
+                            <div className="p-2 bg-rose-500/10 text-rose-500">
+                              <ArrowDownRight className="w-4 h-4" />
+                            </div>
+                          </div>
+                          <div className="text-2xl font-black mb-1">৳{totalExpenses.toLocaleString()}</div>
+                          <div className="text-[10px] opacity-40 font-bold uppercase tracking-tight">Operating_Expenditure</div>
+                        </div>
+                        <div className={`p-6 border border-[#0055ff] ${isDarkMode ? 'bg-[#0055ff]/5' : 'bg-[#0055ff]/10'} shadow-sm group transition-all`}>
+                          <div className="flex justify-between items-start mb-4">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-[#0055ff]">Net_Profit</span>
+                            <div className="p-2 bg-[#0055ff] text-white">
+                              <Zap className="w-4 h-4" />
+                            </div>
+                          </div>
+                          <div className={`text-2xl font-black mb-1 ${netProfit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>৳{netProfit.toLocaleString()}</div>
+                          <div className="text-[10px] opacity-40 font-bold uppercase tracking-tight">Bottom_Line_Earnings</div>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+
+                {/* Expenses Section */}
+                <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h3 className="text-sm font-black uppercase tracking-[0.2em] mb-1">Expense_Tracker</h3>
+                      <p className="text-[10px] opacity-40 font-bold">LOG_AND_MANAGE_BUSINESS_COSTS</p>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        setManagedExpense({
+                          date: new Date().toISOString().split('T')[0],
+                          amount: 0,
+                          category: 'Other',
+                          title: ''
+                        });
+                        setIsExpenseModalOpen(true);
+                      }}
+                      className="px-6 py-3 bg-[#0055ff] hover:bg-[#0044cc] text-white text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" /> ADD_EXPENSE
+                    </button>
+                  </div>
+
+                  <div className={`border rounded-none overflow-hidden ${cardClasses}`}>
+                    <table className="w-full text-left text-[11px] font-black uppercase">
+                      <thead className={`border-b ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                        <tr>
+                          <th className="px-6 py-4">Date</th>
+                          <th className="px-6 py-4">Title / Purpose</th>
+                          <th className="px-6 py-4">Category</th>
+                          <th className="px-6 py-4">Amount</th>
+                          <th className="px-6 py-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800/30">
+                        {expenses.length > 0 ? (
+                          expenses.sort((a, b) => b.date.localeCompare(a.date)).map((expense) => (
+                            <tr key={expense.id} className={`transition-colors ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}>
+                              <td className="px-6 py-4 opacity-60 font-mono">{new Date(expense.date).toLocaleDateString()}</td>
+                              <td className="px-6 py-4">
+                                <div className="font-bold">{expense.title}</div>
+                                {expense.notes && <div className="text-[9px] opacity-40 normal-case font-medium">{expense.notes}</div>}
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`px-2 py-0.5 border text-[8px] tracking-tighter ${isDarkMode ? 'bg-zinc-900 border-zinc-700' : 'bg-zinc-100 border-zinc-300'}`}>
+                                  {expense.category.toUpperCase()}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 text-rose-500 font-black">৳{expense.amount.toLocaleString()}</td>
+                              <td className="px-6 py-4 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button 
+                                    onClick={() => {
+                                      setManagedExpense(expense);
+                                      setIsExpenseModalOpen(true);
+                                    }}
+                                    className="p-2 border border-blue-500/30 text-blue-500 hover:bg-blue-500 hover:text-white transition-all"
+                                  >
+                                    <Edit3 className="w-3 h-3" />
+                                  </button>
+                                  <button 
+                                    onClick={() => setExpenseDeleteConfirm(expense.id || null)}
+                                    className="p-2 border border-rose-500/30 text-rose-500 hover:bg-rose-500 hover:text-white transition-all"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr><td colSpan={5} className="px-6 py-20 text-center text-zinc-500 tracking-widest font-black opacity-30">NO_EXPENSES_LOGGED_YET</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             )}
@@ -2380,6 +3134,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                   onOrderComplete={(order) => {
                     saveOrderToFirestore(order);
                     setOrders(prev => [order, ...prev]);
+                    setVoucherOrder(order);
                   }}
                   isDarkMode={isDarkMode} 
                 />
@@ -2518,6 +3273,56 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                 <div className={`border p-8 rounded-none space-y-8 ${cardClasses}`}>
                   <div className="flex items-center justify-between border-b pb-4 border-zinc-800">
                     <div>
+                      <h4 className="text-[12px] font-black uppercase tracking-widest text-[#0055ff]">Data_Management</h4>
+                      <p className="text-[9px] uppercase opacity-40 font-black mt-1">Cloud Storage Archiving & Backups</p>
+                    </div>
+                  </div>
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between p-4 border border-zinc-800 bg-zinc-900/20">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 flex items-center justify-center bg-emerald-500/10 border border-emerald-500/20">
+                          <Cloud className="w-5 h-5 text-emerald-500 animate-pulse" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase text-emerald-500">System_Realtime_Sync</p>
+                          <p className="text-[8px] font-bold opacity-40 uppercase">Last successful archival: {lastSyncTime || 'PENDING_FIRST_ROOT_SYNC'}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 text-emerald-500 text-[8px] font-black uppercase tracking-widest border border-emerald-500/20">
+                        <div className="w-1 h-1 bg-emerald-500 rounded-full animate-ping"></div>
+                        Live_Connection
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] font-black uppercase opacity-60">Generate System Backup</p>
+                        <p className="text-[8px] font-black uppercase opacity-40 mt-1 max-w-[200px]">Downloads XLSX/JSON and syncs to Firebase Cloud Storage automatically</p>
+                      </div>
+                      <button
+                        onClick={() => setShowBackupModal(true)}
+                        disabled={isBackingUp}
+                        className="bg-[#0055ff] hover:bg-[#0044cc] text-white px-6 py-3 text-[10px] font-black uppercase tracking-widest shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      >
+                        {isBackingUp ? (
+                          <>
+                            <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                            SYNCING...
+                          </>
+                        ) : (
+                          <>
+                            <Database className="w-4 h-4" />
+                            MANAGE_DATA_VAULT
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={`border p-8 rounded-none space-y-8 ${cardClasses}`}>
+                  <div className="flex items-center justify-between border-b pb-4 border-zinc-800">
+                    <div>
                       <h4 className="text-[12px] font-black uppercase tracking-widest text-[#0055ff]">Announcement_Banner</h4>
                       <p className="text-[9px] uppercase opacity-40 font-black mt-1">Control top-of-page global notices</p>
                     </div>
@@ -2559,6 +3364,38 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                   </div>
                 </div>
 
+                <div className={`border p-8 rounded-none space-y-8 ${cardClasses}`}>
+                  <div className="flex items-center justify-between border-b pb-4 border-zinc-800">
+                    <div>
+                      <h4 className="text-[12px] font-black uppercase tracking-widest text-[#0055ff]">Hero_Banner_Images</h4>
+                      <p className="text-[9px] uppercase opacity-40 font-black mt-1">Manage main storefront banner images (Comma separated URLs)</p>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-6">
+                    <div className="flex gap-4 items-center">
+                      <label className="bg-[#0055ff] hover:bg-[#0044cc] text-white px-4 py-2 text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px]">
+                        Upload_Image
+                        <input type="file" multiple accept="image/*" className="hidden" onChange={handleHeroImageUpload} />
+                      </label>
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-black uppercase opacity-40">Banner_Image_URLs</label>
+                      <input 
+                        type="text" 
+                        value={socialSettings.heroImages?.join(', ') || ''} 
+                        placeholder="https://image1.jpg, https://image2.jpg"
+                        onChange={(e) => setSocialSettings({ 
+                          ...socialSettings, 
+                          heroImages: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
+                        })}
+                        className={`w-full px-4 py-3 text-xs font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                   <div className={`border p-8 rounded-none space-y-8 ${cardClasses}`}>
                     <h3 className="text-zinc-500 text-[9px] font-black uppercase tracking-widest">Platform_Connections</h3>
@@ -2592,10 +3429,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                     </div>
                     
                     <button 
-                      onClick={() => {
-                        addLog('SOCIAL_SETTINGS_UPDATE: PLATFORM_URLS_SYNCED');
-                        alert('Social settings updated successfully.');
-                      }}
+                      onClick={handleSaveSocialSettings}
                       className="w-full py-4 bg-[#0055ff] text-white text-[10px] font-black uppercase tracking-[0.3em] hover:scale-[1.02] transition-transform"
                     >
                       Sync_Global_Settings
@@ -2678,6 +3512,129 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         </div>
                       ))}
                     </div>
+                  </div>
+
+                  <div className={`border p-8 rounded-none space-y-8 ${cardClasses}`}>
+                    <div className="flex items-center justify-between border-b pb-4 border-zinc-800">
+                      <div>
+                        <h4 className="text-[12px] font-black uppercase tracking-widest text-[#0055ff]">Security_Vault</h4>
+                        <p className="text-[9px] uppercase opacity-40 font-black mt-1">Encrypted Secret Values & API Keys</p>
+                      </div>
+                      <Shield className="w-4 h-4 text-[#0055ff] animate-pulse" />
+                    </div>
+                    
+                    {vaultLocked ? (
+                      <div className="py-12 border-2 border-dashed border-zinc-800 flex flex-col items-center justify-center text-center space-y-6 bg-[#0055ff]/5">
+                        <div className="w-16 h-16 bg-[#0055ff]/10 rounded-full flex items-center justify-center">
+                          <Lock className="w-8 h-8 text-[#0055ff]" />
+                        </div>
+                        <div className="space-y-2">
+                          <h3 className="text-sm font-black uppercase tracking-widest">Access Restricted</h3>
+                          <p className="text-[10px] uppercase opacity-40 font-black tracking-tight max-w-[250px]">To access private API keys, you must clarify your administrative identity via Google Secure Login.</p>
+                        </div>
+
+                        {authError && (
+                          <div className="p-4 bg-rose-500/10 border border-rose-500/30 text-rose-500 text-[10px] font-black uppercase tracking-widest max-w-sm animate-in fade-in slide-in-from-top-2">
+                             {authError}
+                          </div>
+                        )}
+
+                        <button 
+                          onClick={handleVerifyAdministrativeIdentity}
+                          className="bg-[#0055ff] text-white px-8 py-4 text-[10px] font-black uppercase tracking-[0.3em] hover:shadow-[0_0_30px_rgba(0,85,255,0.4)] transition-all"
+                        >
+                          Verify_Administrative_Identity
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                          <div className="space-y-6">
+                            <div className="space-y-3">
+                              <label className="text-[10px] font-black uppercase opacity-40">Stripe_Secret_Key</label>
+                              <input 
+                                type="password" 
+                                value={secretValues.stripeSecretKey} 
+                                onChange={(e) => setSecretValues({ ...secretValues, stripeSecretKey: e.target.value })}
+                                className={`w-full px-4 py-3 text-xs font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
+                                placeholder="sk_live_..."
+                              />
+                            </div>
+                            <div className="space-y-3">
+                              <label className="text-[10px] font-black uppercase opacity-40">Stripe_Publishable_Key</label>
+                              <input 
+                                type="text" 
+                                value={secretValues.stripePublishableKey} 
+                                onChange={(e) => setSecretValues({ ...secretValues, stripePublishableKey: e.target.value })}
+                                className={`w-full px-4 py-3 text-xs font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
+                                placeholder="pk_live_..."
+                              />
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-6">
+                            <div className="space-y-3">
+                              <label className="text-[10px] font-black uppercase opacity-40">Gemini_API_Key</label>
+                              <input 
+                                type="password" 
+                                value={secretValues.geminiApiKey} 
+                                onChange={(e) => setSecretValues({ ...secretValues, geminiApiKey: e.target.value })}
+                                className={`w-full px-4 py-3 text-xs font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
+                                placeholder="AIza..."
+                              />
+                            </div>
+                            <div className="space-y-3">
+                              <label className="text-[10px] font-black uppercase opacity-40">Admin_2FA_Secret</label>
+                              <input 
+                                type="password" 
+                                value={secretValues.adminTwoFactorSecret} 
+                                onChange={(e) => setSecretValues({ ...secretValues, adminTwoFactorSecret: e.target.value })}
+                                className={`w-full px-4 py-3 text-xs font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
+                                placeholder="SECURE_BASE32_VALUE"
+                              />
+                            </div>
+                            <div className="space-y-3">
+                              <label className="text-[10px] font-black uppercase opacity-40">Facebook_App_ID</label>
+                              <input 
+                                type="text" 
+                                value={secretValues.facebookAppId || ''} 
+                                onChange={(e) => setSecretValues({ ...secretValues, facebookAppId: e.target.value })}
+                                className={`w-full px-4 py-3 text-xs font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
+                                placeholder="FB_APP_ID"
+                              />
+                            </div>
+                            <div className="space-y-3">
+                              <label className="text-[10px] font-black uppercase opacity-40">Facebook_App_Secret</label>
+                              <input 
+                                type="password" 
+                                value={secretValues.facebookAppSecret || ''} 
+                                onChange={(e) => setSecretValues({ ...secretValues, facebookAppSecret: e.target.value })}
+                                className={`w-full px-4 py-3 text-xs font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
+                                placeholder="FB_APP_SECRET"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <button 
+                          onClick={handleSaveSecrets}
+                          disabled={isSavingSecrets}
+                          className="w-full py-4 bg-[#0055ff] disabled:bg-zinc-800 disabled:text-zinc-500 text-white text-[10px] font-black uppercase tracking-[0.3em] hover:scale-[1.02] transition-transform flex items-center justify-center gap-3"
+                        >
+                          {isSavingSecrets ? (
+                            <>
+                              <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                              SYNCING_VAULT...
+                            </>
+                          ) : (
+                            <>
+                              <Database className="w-4 h-4" />
+                              LOCK_&_SYNC_SECRETS
+                            </>
+                          )}
+                        </button>
+                      </>
+                    )}
                   </div>
 
                   <div className="space-y-8">
@@ -2996,6 +3953,201 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         Send_Reply
                       </button>
                     </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'user_management' && user.role === AdminRole.SUPER_ADMIN && (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                <div className="flex justify-between items-end">
+                  <div>
+                    <h3 className="text-xl font-black uppercase tracking-[0.2em]">User_Management</h3>
+                    <p className="text-[10px] uppercase opacity-40 font-black mt-2 tracking-widest">Global Terminal Access Control</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setIsEditingUser(true);
+                      setEditingUserId(null);
+                      setNewUser({ username: '', role: AdminRole.SUPPORT, password: '' });
+                    }}
+                    className="flex items-center gap-2 bg-[#0055ff] hover:bg-[#0044cc] text-white px-6 py-3 text-[10px] font-black uppercase tracking-widest shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px] transition-all"
+                  >
+                    <Plus className="w-4 h-4" />
+                    NEW_OPERATOR
+                  </button>
+                </div>
+
+                {isEditingUser && (
+                  <div className={`border p-8 rounded-none space-y-6 ${cardClasses} relative overflow-hidden`}>
+                    <div className="absolute top-0 left-0 w-full h-1 bg-[#0055ff]" />
+                    <h4 className="text-[12px] font-black uppercase tracking-widest text-[#0055ff]">
+                      {editingUserId ? 'UPDATE_OPERATOR' : 'PROVISION_OPERATOR'}
+                    </h4>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black uppercase opacity-50 block">Username</label>
+                        <input
+                          type="text"
+                          value={newUser.username || ''}
+                          onChange={(e) => setNewUser({...newUser, username: e.target.value})}
+                          className={`w-full p-4 border text-[10px] font-bold uppercase outline-none focus:border-[#0055ff] transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-300'}`}
+                          placeholder="OPERATOR_CODE"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black uppercase opacity-50 block">Password / Passkey</label>
+                        <input
+                          type="text"
+                          value={newUser.password || ''}
+                          onChange={(e) => setNewUser({...newUser, password: e.target.value})}
+                          className={`w-full p-4 border text-[10px] font-bold outline-none focus:border-[#0055ff] transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-300'}`}
+                          placeholder="•••"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black uppercase opacity-50 block">Clearance_Level</label>
+                        <select
+                          value={newUser.role || AdminRole.SUPPORT}
+                          onChange={(e) => setNewUser({...newUser, role: e.target.value as AdminRole})}
+                          className={`w-full p-4 border text-[10px] font-bold uppercase outline-none focus:border-[#0055ff] transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-300'}`}
+                        >
+                          <option value={AdminRole.SUPER_ADMIN}>SUPER_ADMIN // OVERRIDE</option>
+                          <option value={AdminRole.EDITOR}>EDITOR // CATALOG</option>
+                          <option value={AdminRole.SUPPORT}>SUPPORT // COMMUNICATIONS</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2 md:col-span-3">
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={newUser.canManageChat || false}
+                            onChange={(e) => setNewUser({...newUser, canManageChat: e.target.checked})}
+                            className="w-4 h-4 rounded-none accent-[#0055ff] bg-black border-zinc-800"
+                          />
+                          <span className="text-[10px] font-black uppercase">Enable Chat Reply Access</span>
+                        </label>
+                      </div>
+                    </div>
+                    
+                    <div className="flex gap-4 pt-4 border-t border-zinc-800">
+                      <button
+                        onClick={async () => {
+                          if (editingUserId) {
+                             const updatedAdmin = { ...adminUsersList.find(u => u.id === editingUserId), ...newUser } as AdminUser;
+                             await adminService.saveAdmin(updatedAdmin);
+                             addLog(`UPDATED_OPERATOR_${newUser.username}`);
+                          } else {
+                            if (!newUser.username || !newUser.password) return alert('Username and Password required');
+                            const id = Math.random().toString(36).substring(2, 9);
+                            const newAdmin: AdminUser = { id, lastLogin: 'Never', ...newUser as AdminUser };
+                            await adminService.saveAdmin(newAdmin);
+                            addLog(`PROVISIONED_OPERATOR_${newUser.username}`);
+                          }
+                          setIsEditingUser(false);
+                          setEditingUserId(null);
+                        }}
+                        className="bg-white text-black px-6 py-3 font-black text-[10px] uppercase tracking-widest hover:bg-[#0055ff] hover:text-white transition-all"
+                      >
+                        {editingUserId ? 'UPDATE' : 'PROVISION'}
+                      </button>
+                      <button
+                        onClick={() => setIsEditingUser(false)}
+                        className="border border-zinc-800 px-6 py-3 font-black text-[10px] uppercase tracking-widest hover:bg-zinc-900 transition-all text-white"
+                      >
+                        ABORT
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className={`border rounded-none ${cardClasses}`}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-zinc-800">
+                          <th className="p-6 text-[9px] uppercase tracking-[0.3em] font-black opacity-40">Operator</th>
+                          <th className="p-6 text-[9px] uppercase tracking-[0.3em] font-black opacity-40">Clearance</th>
+                          <th className="p-6 text-[9px] uppercase tracking-[0.3em] font-black opacity-40">Chat_Access</th>
+                          <th className="p-6 text-[9px] uppercase tracking-[0.3em] font-black opacity-40">Last_Sync</th>
+                          <th className="p-6 text-[9px] uppercase tracking-[0.3em] font-black opacity-40 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800">
+                        {adminUsersList.map(u => (
+                          <tr key={u.id} className="group hover:bg-zinc-900/40 transition-colors">
+                            <td className="p-6">
+                              <span className="text-xs font-black uppercase tracking-widest text-[#0055ff]">{u.username}</span>
+                              <div className="text-[8px] opacity-40 mt-1 uppercase">ID: {u.id}</div>
+                            </td>
+                            <td className="p-6">
+                              <span className={`px-2 py-1 text-[8px] font-black uppercase tracking-widest ${
+                                u.role === AdminRole.SUPER_ADMIN ? 'bg-red-500/20 text-red-500' :
+                                u.role === AdminRole.EDITOR ? 'bg-[#0055ff]/20 text-[#0055ff]' :
+                                'bg-green-500/20 text-green-500'
+                              }`}>
+                                {u.role}
+                              </span>
+                            </td>
+                            <td className="p-6">
+                              <span className="text-[10px] font-bold text-zinc-500">
+                                {u.role === AdminRole.SUPER_ADMIN || u.canManageChat ? 'GRANTED' : 'DENIED'}
+                              </span>
+                            </td>
+                            <td className="p-6">
+                              <span className="text-[10px] font-bold text-zinc-500">{u.lastLogin || 'NEVER'}</span>
+                            </td>
+                            <td className="p-6 flex justify-end gap-2">
+                              {u.username !== 'root' && (
+                                <>
+                                  <button
+                                    onClick={() => {
+                                      alert(`Operator: ${u.username}\nUnique ID: ${u.id}\nPasskey: ${u.password || 'NOT_SET_OR_MASKED'}`);
+                                    }}
+                                    className="p-3 bg-zinc-900/50 hover:bg-white hover:text-black transition-all group-hover:opacity-100 opacity-50"
+                                    title="Recover Credentials"
+                                  >
+                                    <Key className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setLogSearch(u.username);
+                                      setActiveTab('activity_logs');
+                                    }}
+                                    className="p-3 bg-zinc-900/50 hover:bg-white hover:text-black transition-all group-hover:opacity-100 opacity-50"
+                                    title="View Activity Logs"
+                                  >
+                                    <Activity className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setNewUser(u);
+                                      setEditingUserId(u.id);
+                                      setIsEditingUser(true);
+                                    }}
+                                    className="p-3 bg-zinc-900 hover:bg-white hover:text-black transition-all group-hover:opacity-100 opacity-50"
+                                  >
+                                    <Edit3 className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      if (confirm(`Terminate access for operator ${u.username}?`)) {
+                                        await adminService.deleteAdmin(u.id);
+                                        addLog(`TERMINATED_OPERATOR_${u.username}`);
+                                      }
+                                    }}
+                                    className="p-3 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all group-hover:opacity-100 opacity-50"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
@@ -3374,7 +4526,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setOrderDeleteConfirm(null)}></div>
           <div className={`relative w-full max-w-md p-8 shadow-2xl animate-in zoom-in-95 duration-300 ${isDarkMode ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'}`}>
-            <h3 className="text-xl font-black uppercase italic mb-4">Confirm_Deletion</h3>
+            <h3 className="text-xl font-black uppercase italic mb-4">Confirm_Order_Deletion</h3>
             <p className="text-xs text-zinc-500 uppercase leading-relaxed mb-8">
               Are you sure you want to permanently remove order <span className="text-white font-black">{orderDeleteConfirm}</span>? This action cannot be reversed.
             </p>
@@ -3389,7 +4541,122 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                 onClick={() => handleDeleteOrder(orderDeleteConfirm)}
                 className="flex-1 py-4 text-[10px] font-black uppercase bg-rose-600 text-white hover:bg-rose-500 transition-all"
               >
-                Delete_Permanently
+                Delete_Order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {expenseDeleteConfirm && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setExpenseDeleteConfirm(null)}></div>
+          <div className={`relative w-full max-w-md p-8 shadow-2xl animate-in zoom-in-95 duration-300 ${isDarkMode ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'}`}>
+            <h3 className="text-xl font-black uppercase italic mb-4">Confirm_Expense_Deletion</h3>
+            <p className="text-xs text-zinc-500 uppercase leading-relaxed mb-8">
+              Are you sure you want to permanently remove this expense entry?
+            </p>
+            <div className="flex gap-4">
+              <button 
+                onClick={() => setExpenseDeleteConfirm(null)}
+                className="flex-1 py-4 text-[10px] font-black uppercase border border-zinc-500/30 hover:border-white transition-all"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => handleDeleteExpense(expenseDeleteConfirm)}
+                className="flex-1 py-4 text-[10px] font-black uppercase bg-rose-600 text-white hover:bg-rose-500 transition-all"
+              >
+                Delete_Expense
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isExpenseModalOpen && managedExpense && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setIsExpenseModalOpen(false)}></div>
+          <div className={`relative w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden ${isDarkMode ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'}`}>
+            <div className="p-6 border-b border-zinc-800 flex items-center justify-between">
+              <h3 className="text-xl font-black uppercase italic">{managedExpense.id ? 'Edit_Expense' : 'New_Expense'}</h3>
+              <button onClick={() => setIsExpenseModalOpen(false)} className="p-2 hover:bg-white/5 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase opacity-40">Expense_Title</label>
+                <input 
+                  type="text" 
+                  value={managedExpense.title || ''} 
+                  onChange={e => setManagedExpense({...managedExpense, title: e.target.value})} 
+                  placeholder="E.G. OFFICE RENT, UTILITIES, MARKETING"
+                  className={`w-full px-5 py-4 text-sm font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase opacity-40">Amount (৳)</label>
+                  <input 
+                    type="number" 
+                    value={managedExpense.amount || 0} 
+                    onChange={e => setManagedExpense({...managedExpense, amount: parseInt(e.target.value) || 0})} 
+                    className={`w-full px-5 py-4 text-sm font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase opacity-40">Category</label>
+                  <select 
+                    value={managedExpense.category || 'Other'} 
+                    onChange={e => setManagedExpense({...managedExpense, category: e.target.value as any})}
+                    className={`w-full px-5 py-4 text-sm font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
+                  >
+                    <option value="Rent">Rent</option>
+                    <option value="Marketing">Marketing</option>
+                    <option value="Inventory">Inventory</option>
+                    <option value="Staff">Staff</option>
+                    <option value="Utility">Utility</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase opacity-40">Date</label>
+                <input 
+                  type="date" 
+                  value={managedExpense.date || ''} 
+                  onChange={e => setManagedExpense({...managedExpense, date: e.target.value})} 
+                  className={`w-full px-5 py-4 text-sm font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase opacity-40">Notes (Optional)</label>
+                <textarea 
+                  value={managedExpense.notes || ''} 
+                  onChange={e => setManagedExpense({...managedExpense, notes: e.target.value})} 
+                  placeholder="ADDITIONAL DETAILS..."
+                  className={`w-full px-5 py-4 text-sm font-bold border focus:border-[#0055ff] outline-none transition-all h-24 resize-none ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
+                />
+              </div>
+            </div>
+
+            <div className="p-8 border-t border-zinc-800 flex gap-4">
+              <button 
+                onClick={() => setIsExpenseModalOpen(false)}
+                className="flex-1 py-4 text-[10px] font-black uppercase border border-zinc-500/30 hover:border-white transition-all"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleSaveExpense}
+                className="flex-1 py-4 text-[10px] font-black uppercase bg-[#0055ff] text-white hover:bg-[#0044cc] transition-all"
+              >
+                {managedExpense.id ? 'Save_Changes' : 'Add_Expense'}
               </button>
             </div>
           </div>
@@ -3448,6 +4715,75 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
         </div>
       )}
 
+      {/* AI Image Preview Modal */}
+      {isAiPreviewOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={() => setIsAiPreviewOpen(false)}></div>
+          <div className={`relative w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-300 ${isDarkMode ? 'bg-[#0a0a0a] border border-zinc-800' : 'bg-white border border-zinc-200'}`}>
+            <div className={`p-6 border-b flex items-center justify-between ${isDarkMode ? 'border-zinc-800 bg-black/50' : 'border-zinc-200 bg-zinc-50'}`}>
+               <div>
+                  <h3 className="text-xl font-black uppercase italic tracking-tighter text-[#0055ff]">AI_Lookbook_Preview</h3>
+                  <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest mt-1">Select the variants you wish to add to the product gallery</p>
+               </div>
+               <button onClick={() => setIsAiPreviewOpen(false)} className="opacity-40 hover:opacity-100 transition-opacity">
+                 <X className="w-6 h-6" />
+               </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-8 grid grid-cols-2 md:grid-cols-4 gap-6 no-scrollbar content-start">
+              {aiPreviewImages.map((img, idx) => (
+                <div 
+                  key={idx} 
+                  onClick={() => {
+                    if (selectedAiImages.includes(img)) {
+                      setSelectedAiImages(selectedAiImages.filter(i => i !== img));
+                    } else {
+                      setSelectedAiImages([...selectedAiImages, img]);
+                    }
+                  }}
+                  className={`group relative aspect-[3/4] border-2 cursor-pointer transition-all overflow-hidden ${selectedAiImages.includes(img) ? 'border-[#0055ff]' : 'border-zinc-800 opacity-60 hover:opacity-100 hover:border-zinc-600'}`}
+                >
+                  <img src={img} className="w-full h-full object-cover" alt={`AI Preview ${idx}`} />
+                  <div className={`absolute top-3 right-3 w-6 h-6 rounded-none flex items-center justify-center transition-colors ${selectedAiImages.includes(img) ? 'bg-[#0055ff] text-white' : 'bg-black/50 border border-white/20 text-transparent'}`}>
+                    <Check className="w-4 h-4" />
+                  </div>
+                  {selectedAiImages.includes(img) && (
+                    <div className="absolute inset-0 bg-[#0055ff]/10 pointer-events-none" />
+                  )}
+                  <div className="absolute bottom-3 left-3 bg-black/80 px-2 py-1 text-[8px] font-black uppercase text-white opacity-0 group-hover:opacity-100 transition-opacity">Variant #{idx + 1}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className={`p-8 border-t flex justify-between items-center ${isDarkMode ? 'border-zinc-800' : 'border-zinc-200'}`}>
+              <span className="text-[10px] font-black uppercase opacity-60">
+                {selectedAiImages.length} Image{selectedAiImages.length !== 1 && 's'} Selected
+              </span>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => { setAiPreviewImages([]); setIsAiPreviewOpen(false); setSelectedAiImages([]); }}
+                  className="px-6 py-3 text-[10px] font-black uppercase border border-zinc-500/30 hover:border-white transition-all"
+                >
+                  Discard_All
+                </button>
+                <button 
+                  onClick={() => handleSaveSelectedAiImages(selectedAiImages)}
+                  disabled={selectedAiImages.length === 0 || isSavingAiImages}
+                  className="px-10 py-3 bg-[#0055ff] text-white text-[10px] font-black uppercase hover:brightness-110 transition-all disabled:opacity-30 flex items-center gap-2"
+                >
+                  {isSavingAiImages ? (
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Download className="w-3 h-3" />
+                  )}
+                  Commit_To_Product_Gallery
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {managedProduct && (
         <div className="fixed inset-0 z-[100] flex justify-end">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setManagedProduct(null); setProductEditStep(1); }}></div>
@@ -3467,6 +4803,14 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                 </div>
               </div>
               <div className="flex items-center gap-3">
+                <button 
+                  onClick={handleProductAiAutofill} 
+                  disabled={isAiAutofilling || !managedProduct.name}
+                  className="bg-zinc-800 text-[#0055ff] border border-[#0055ff] px-6 py-3 text-[10px] font-black uppercase tracking-widest hover:bg-[#0055ff] hover:text-white transition-all disabled:opacity-50 flex items-center gap-2"
+                >
+                  <Zap className={`w-3.5 h-3.5 ${isAiAutofilling ? 'animate-pulse' : ''}`} />
+                  {isAiAutofilling ? 'Autofilling...' : 'AI_Autofill_All'}
+                </button>
                 <button onClick={handleSaveProduct} className="bg-[#0055ff] text-white px-6 py-3 text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-transform">Commit_Changes</button>
                 <button onClick={() => { setManagedProduct(null); setProductEditStep(1); }} className="p-3 border border-zinc-500/30 hover:border-rose-500 transition-colors">
                   <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -3487,6 +4831,10 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase opacity-40">Price_Point (৳)</label>
                       <input type="number" value={managedProduct.price || 0} onChange={e => setManagedProduct({...managedProduct, price: parseInt(e.target.value)})} className={`w-full px-5 py-4 text-sm font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`} />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase opacity-40">Production_Cost (৳)</label>
+                      <input type="number" value={managedProduct.cost || 0} onChange={e => setManagedProduct({...managedProduct, cost: parseInt(e.target.value)})} className={`w-full px-5 py-4 text-sm font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`} />
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase opacity-40">Category</label>
@@ -3768,7 +5116,11 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                           onDrop={(e) => handleImageDrop(e, idx)}
                           className={`relative group aspect-[3/4] border overflow-hidden transition-all cursor-move ${idx === 0 ? 'border-[#0055ff] ring-2 ring-[#0055ff]/20' : 'border-zinc-800'} ${draggedImageIndex === idx ? 'opacity-50 border-dashed' : ''}`}
                         >
-                          <img loading="lazy" src={img} className="w-full h-full object-cover pointer-events-none" alt="" referrerPolicy="no-referrer" />
+                          {img.includes('.mp4') || img.includes('.webm') || img.includes('.mov') ? (
+                            <video src={img} className="w-full h-full object-cover pointer-events-none" autoPlay loop muted playsInline />
+                          ) : (
+                            <img loading="lazy" src={img} className="w-full h-full object-cover pointer-events-none" alt="" referrerPolicy="no-referrer" />
+                          )}
                           <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
                              <div className="flex gap-1">
                                 <button 
@@ -3787,6 +5139,23 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                 </button>
                              </div>
                              <button onClick={() => setPrimaryImage(idx)} className="w-full text-[8px] font-black uppercase bg-white text-black px-2 py-1 hover:bg-[#0055ff] hover:text-white transition-colors">Set Primary</button>
+                             {!img.includes('.mp4') && !img.includes('.webm') && (
+                               <div className="w-full space-y-1">
+                                 <div className="flex gap-1">
+                                   {[1, 2, 3, 4].map(num => (
+                                     <button 
+                                       key={num}
+                                       onClick={() => handleGenerateModelVersions(img, num)} 
+                                       disabled={isGeneratingModels === img}
+                                       className="flex-1 text-[8px] font-black uppercase bg-[#0055ff] text-white px-1 py-1 hover:bg-[#0033aa] transition-colors disabled:opacity-50"
+                                     >
+                                       {isGeneratingModels === img ? '..' : num}
+                                     </button>
+                                   ))}
+                                 </div>
+                                 <p className="text-[7px] font-bold text-center opacity-40 uppercase">Generate_Lookbook</p>
+                               </div>
+                             )}
                              <button onClick={() => removeImageFromManagedProduct(idx)} className="w-full text-[8px] font-black uppercase bg-rose-500 text-white px-2 py-1 hover:bg-rose-600 transition-colors">Remove</button>
                           </div>
                           {idx === 0 && <span className="absolute top-2 left-2 bg-[#0055ff] text-white text-[7px] font-black uppercase px-1.5 py-0.5 rounded-none z-10">Primary</span>}
@@ -3797,13 +5166,26 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         type="file" 
                         ref={fileInputRef} 
                         onChange={handleFileUpload} 
-                        accept=".png,.jpg,.jpeg" 
+                        accept="image/*,video/mp4,video/webm" 
                         multiple 
                         className="hidden" 
                       />
                       <div 
                         onClick={() => fileInputRef.current?.click()}
-                        className={`aspect-[3/4] border-2 border-dashed flex flex-col items-center justify-center p-4 text-center cursor-pointer hover:border-[#0055ff] transition-colors ${isDarkMode ? 'border-zinc-800 bg-zinc-900/20' : 'border-zinc-200 bg-zinc-50'}`}
+                        onDragOver={(e) => { e.preventDefault(); setDragOverStatus('active'); }}
+                        onDragLeave={() => setDragOverStatus(null)}
+                        onDrop={async (e) => {
+                          e.preventDefault();
+                          setDragOverStatus(null);
+                          if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                            // Create a synthetic event
+                            const syntheticEvent = {
+                              target: { files: e.dataTransfer.files }
+                            } as any;
+                            handleFileUpload(syntheticEvent);
+                          }
+                        }}
+                        className={`aspect-[3/4] border-2 border-dashed flex flex-col items-center justify-center p-4 text-center cursor-pointer transition-all ${dragOverStatus === 'active' ? 'border-[#0055ff] bg-[#0055ff]/10' : 'hover:border-[#0055ff]'} ${isDarkMode ? 'border-zinc-800 bg-zinc-900/20' : 'border-zinc-200 bg-zinc-50'}`}
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6 mb-2 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -3812,6 +5194,33 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                       </div>
                     </div>
                   </div>
+                  <div className="space-y-4 pt-4 border-t border-zinc-800">
+                    <label className="text-[10px] font-black uppercase opacity-40">AI_Promotion_Generator</label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        value={promoPrompt} 
+                        onChange={e => setPromoPrompt(e.target.value)}
+                        className={`flex-1 px-4 py-3 text-[10px] font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`} 
+                        placeholder="e.g. A group of models wearing our hoodies in Times Square at night" 
+                      />
+                      <button 
+                        type="button" 
+                        onClick={handleCreatePromoImage}
+                        disabled={isGeneratingPromo || !promoPrompt.trim()}
+                        className="bg-[#0055ff] text-white px-4 py-3 text-[9px] font-black uppercase disabled:opacity-50 flex items-center gap-2"
+                      >
+                        {isGeneratingPromo ? (
+                          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <Zap className="w-3 h-3" />
+                        )}
+                        Generate
+                      </button>
+                    </div>
+                    <p className="text-[8px] font-medium opacity-40 italic">Generate professional promotional lifestyle imagery using high-performance AI.</p>
+                  </div>
+
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase opacity-40">Add_Image_Via_URL</label>
                     <div className="flex gap-2">
@@ -4187,39 +5596,9 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
               <div className="flex gap-4">
                 <button 
                   onClick={() => {
-                    const printWindow = window.open('', '_blank');
-                    if (printWindow) {
-                        const content = document.getElementById('voucher-content')?.innerHTML;
-                        printWindow.document.write(`
-                            <html>
-                            <head>
-                                <title>Money Receipt Voucher - ${voucherOrder.id}</title>
-                                <script src="https://cdn.tailwindcss.com"></script>
-                                <style>
-                                  @media print {
-                                    .print\\:hidden { display: none !important; }
-                                    body { background: white !important; color: black !important; }
-                                    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-                                  }
-                                  body { padding: 40px; font-family: monospace; }
-                                </style>
-                            </head>
-                            <body class="bg-white text-black">
-                                ${content}
-                                <script>
-                                    setTimeout(() => {
-                                        window.print();
-                                        window.close();
-                                    }, 1000);
-                                </script>
-                            </body>
-                            </html>
-                        `);
-                        printWindow.document.close();
-                    } else {
-                        // Fallback if popups are blocked completely
+                    setTimeout(() => {
                         window.print();
-                    }
+                    }, 100);
                   }}
                   className="px-4 py-2 bg-[#0055ff] hover:bg-[#0044cc] text-white text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-2"
                 >
@@ -4419,6 +5798,270 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {showBackupModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => { setShowBackupModal(false); setBackupView('options'); }}></div>
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className={`relative w-full max-w-4xl max-h-[90vh] overflow-hidden border flex flex-col shadow-2xl ${isDarkMode ? 'bg-[#050505] border-zinc-800' : 'bg-white border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]'}`}
+          >
+            {/* Header */}
+            <div className={`p-8 border-b flex items-center justify-between shrink-0 ${isDarkMode ? 'bg-black/40' : 'bg-zinc-50'}`}>
+              <div>
+                <div className="flex items-center gap-3">
+                  <Database className="w-5 h-5 text-[#0055ff]" />
+                  <h3 className="text-xl font-black uppercase tracking-widest">NEXUS_DATA_VAULT</h3>
+                </div>
+                <p className="text-[10px] uppercase opacity-40 font-black mt-2 tracking-widest">System Record Integrity & Archival Protocol</p>
+              </div>
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => setBackupView(backupView === 'options' ? 'preview' : 'options')}
+                  className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border transition-all ${backupView === 'preview' ? 'bg-[#0055ff] text-white border-[#0055ff]' : 'border-zinc-800 hover:border-white'}`}
+                >
+                  {backupView === 'options' ? 'VIEW_FAST_PREVIEW' : 'BACK_TO_OPTIONS'}
+                </button>
+                <button onClick={() => { setShowBackupModal(false); setBackupView('options'); }} className="opacity-50 hover:opacity-100 transition-all">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-8 no-scrollbar">
+              {backupView === 'options' ? (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                  <div className="space-y-8">
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className={`p-6 border ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-black'} flex flex-col items-center justify-center space-y-2`}>
+                        <div className="text-2xl font-black">{products.length}</div>
+                        <div className="text-[8px] uppercase tracking-widest font-black opacity-50">Assets</div>
+                      </div>
+                      <div className={`p-6 border ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-black'} flex flex-col items-center justify-center space-y-2`}>
+                        <div className="text-2xl font-black">{orders.length}</div>
+                        <div className="text-[8px] uppercase tracking-widest font-black opacity-50">Orders</div>
+                      </div>
+                      <div className={`p-6 border ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-black'} flex flex-col items-center justify-center space-y-2`}>
+                        <div className="text-2xl font-black">{customers.length}</div>
+                        <div className="text-[8px] uppercase tracking-widest font-black opacity-50">Users</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <button 
+                        onClick={() => handleBackup('download')}
+                        disabled={isBackingUp}
+                        className="w-full flex items-center justify-between p-6 border border-zinc-800 hover:border-[#0055ff] hover:bg-[#0055ff]/10 transition-all group"
+                      >
+                        <div className="flex items-center gap-5">
+                          <div className="w-12 h-12 flex items-center justify-center bg-[#0055ff]/10 text-[#0055ff]">
+                            <Download className="w-6 h-6" />
+                          </div>
+                          <div className="text-left">
+                            <div className="text-[11px] font-black uppercase tracking-widest">Local_Export_XLSX</div>
+                            <div className="text-[9px] font-black opacity-40 uppercase mt-1">Download raw data for spreadsheet analysis</div>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 opacity-40 group-hover:opacity-100 group-hover:translate-x-2 transition-all" />
+                      </button>
+
+                      <button 
+                        onClick={() => handleBackup('json')}
+                        disabled={isBackingUp}
+                        className="w-full flex items-center justify-between p-6 border border-zinc-800 hover:border-[#0055ff] hover:bg-[#0055ff]/10 transition-all group"
+                      >
+                        <div className="flex items-center gap-5">
+                          <div className="w-12 h-12 flex items-center justify-center bg-zinc-800 text-zinc-400 group-hover:bg-[#0055ff]/10 group-hover:text-[#0055ff]">
+                            <Activity className="w-6 h-6" />
+                          </div>
+                          <div className="text-left">
+                            <div className="text-[11px] font-black uppercase tracking-widest">Developer_JSON_DUMP</div>
+                            <div className="text-[9px] font-black opacity-40 uppercase mt-1">Full state objects for external integration</div>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 opacity-40 group-hover:opacity-100 group-hover:translate-x-2 transition-all" />
+                      </button>
+
+                      <button 
+                        onClick={() => handleBackup('sync')}
+                        disabled={isBackingUp}
+                        className="w-full flex items-center justify-between p-6 border-2 border-[#0055ff] bg-[#0055ff]/5 hover:bg-[#0055ff]/10 transition-all group"
+                      >
+                        <div className="flex items-center gap-5">
+                          <div className="w-12 h-12 flex items-center justify-center bg-[#0055ff] text-white">
+                            <Cloud className="w-6 h-6 animate-pulse" />
+                          </div>
+                          <div className="text-left">
+                            <div className="text-[11px] font-black uppercase tracking-widest">Nexus_Cloud_Sync</div>
+                            <div className="text-[9px] font-black opacity-60 text-[#0055ff] uppercase mt-1">Authorize deep archival to secure storage</div>
+                          </div>
+                        </div>
+                        {isBackingUp ? (
+                          <div className="w-5 h-5 border-2 border-[#0055ff]/30 border-t-[#0055ff] rounded-full animate-spin"></div>
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-[#0055ff] group-hover:translate-x-2 transition-all" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-8">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-[10px] font-black uppercase text-[#0055ff] tracking-widest">Realtime_Network_Status</h4>
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                          <span className="text-[9px] font-bold uppercase opacity-60">Connected</span>
+                        </div>
+                      </div>
+                      <div className={`p-6 border border-dashed ${isDarkMode ? 'border-zinc-800' : 'border-zinc-200'} space-y-4`}>
+                        <div className="flex justify-between items-center text-[10px] font-black uppercase transition-all hover:opacity-100">
+                          <span className="opacity-40">Last_Cloud_Sync</span>
+                          <span className="text-[#0055ff]">{lastSyncTime || 'NEVER_SYNCED'}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-[10px] font-black uppercase transition-all hover:opacity-100">
+                          <span className="opacity-40">Database_Health</span>
+                          <span className="text-emerald-500">OPTIMIZED</span>
+                        </div>
+                        <div className="flex justify-between items-center text-[10px] font-black uppercase transition-all hover:opacity-100">
+                          <span className="opacity-40">Storage_Pressure</span>
+                          <span>0.04_MB</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h4 className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Recent_Vault_Activity</h4>
+                      <div className="space-y-3">
+                        {backupHistory.length > 0 ? backupHistory.map((h, i) => (
+                          <div key={i} className={`p-4 border transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700' : 'bg-zinc-50 border-zinc-200'} flex items-center justify-between`}>
+                            <div className="flex items-center gap-3">
+                              <Check className="w-3 h-3 text-emerald-500" />
+                              <div className="text-[10px] font-black uppercase truncate max-w-[200px]">{h.name}</div>
+                            </div>
+                            <div className="text-[9px] font-bold opacity-40 uppercase">{h.date.split(',')[0]}</div>
+                          </div>
+                        )) : (
+                          <div className="p-8 text-center border border-dashed border-zinc-800 opacity-30">
+                            <p className="text-[10px] font-black uppercase">No_Archive_History_Records</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
+                  <div className="flex p-1 border border-zinc-800 bg-zinc-900/50 w-fit">
+                    {(['products', 'orders', 'customers'] as const).map(t => (
+                      <button 
+                        key={t}
+                        onClick={() => setPreviewTab(t)}
+                        className={`px-8 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${previewTab === t ? 'bg-[#0055ff] text-white' : 'opacity-40 hover:opacity-100'}`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className={`border h-[400px] overflow-auto no-scrollbar rounded-none ${isDarkMode ? 'border-zinc-800 bg-black/40' : 'border-black bg-white'}`}>
+                    <table className="w-full text-left text-[11px] font-mono border-collapse">
+                      <thead className={`sticky top-0 z-10 ${isDarkMode ? 'bg-zinc-900 text-[#0055ff]' : 'bg-zinc-100 text-[#0055ff]'} uppercase font-black`}>
+                        <tr>
+                          {previewTab === 'products' && (
+                            <>
+                              <th className="p-4 border-b border-zinc-800">ID</th>
+                              <th className="p-4 border-b border-zinc-800">Asset_Name</th>
+                              <th className="p-4 border-b border-zinc-800">Price</th>
+                              <th className="p-4 border-b border-zinc-800">Stock</th>
+                              <th className="p-4 border-b border-zinc-800">Status</th>
+                            </>
+                          )}
+                          {previewTab === 'orders' && (
+                            <>
+                              <th className="p-4 border-b border-zinc-800">Order_ID</th>
+                              <th className="p-4 border-b border-zinc-800">Customer</th>
+                              <th className="p-4 border-b border-zinc-800">Total</th>
+                              <th className="p-4 border-b border-zinc-800">Status</th>
+                              <th className="p-4 border-b border-zinc-800">Date</th>
+                            </>
+                          )}
+                          {previewTab === 'customers' && (
+                            <>
+                              <th className="p-4 border-b border-zinc-800">User_ID</th>
+                              <th className="p-4 border-b border-zinc-800">Display_Name</th>
+                              <th className="p-4 border-b border-zinc-800">Email_Address</th>
+                              <th className="p-4 border-b border-zinc-800">Order_Count</th>
+                              <th className="p-4 border-b border-zinc-800">LTV</th>
+                            </>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800">
+                        {previewTab === 'products' && products.map(p => (
+                          <tr key={p.id} className="hover:bg-[#0055ff]/5 transition-colors">
+                            <td className="p-4 text-zinc-500">#{p.id}</td>
+                            <td className="p-4 font-black">{p.name}</td>
+                            <td className="p-4">৳{p.price.toLocaleString()}</td>
+                            <td className="p-4">{p.stock}</td>
+                            <td className="p-4"><span className={`px-2 py-0.5 text-[9px] font-black ${p.status === 'Published' ? 'text-emerald-500' : 'text-amber-500'}`}>{p.status}</span></td>
+                          </tr>
+                        ))}
+                        {previewTab === 'orders' && orders.map(o => (
+                          <tr key={o.id} className="hover:bg-[#0055ff]/5 transition-colors">
+                            <td className="p-4 text-zinc-500">#{o.id}</td>
+                            <td className="p-4 font-black">{o.customerName}</td>
+                            <td className="p-4">৳{o.total.toLocaleString()}</td>
+                            <td className="p-4"><span className="px-2 py-0.5 bg-zinc-800 text-[9px] font-black">{o.status}</span></td>
+                            <td className="p-4 opacity-50">{o.date}</td>
+                          </tr>
+                        ))}
+                        {previewTab === 'customers' && customers.map(c => (
+                          <tr key={c.id} className="hover:bg-[#0055ff]/5 transition-colors">
+                            <td className="p-4 text-zinc-500">#{c.id}</td>
+                            <td className="p-4 font-black">{c.name}</td>
+                            <td className="p-4 opacity-70">{c.email}</td>
+                            <td className="p-4">{c.orders}</td>
+                            <td className="p-4 text-emerald-500 font-bold">৳{c.totalSpent.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex gap-4">
+                    <button 
+                      onClick={() => handleBackup('download')}
+                      className="bg-zinc-800 text-white px-8 py-4 text-[10px] font-black uppercase tracking-widest hover:bg-[#0055ff] transition-all flex items-center gap-3"
+                    >
+                      <Download className="w-4 h-4" /> Download_Current_XLSX
+                    </button>
+                    <button 
+                      onClick={() => handleBackup('json')}
+                      className="bg-transparent border border-zinc-800 text-zinc-400 px-8 py-4 text-[10px] font-black uppercase tracking-widest hover:border-white hover:text-white transition-all flex items-center gap-3"
+                    >
+                      <Activity className="w-4 h-4" /> Export_Raw_JSON
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer Status */}
+            <div className={`p-4 border-t flex items-center justify-between text-[8px] font-black uppercase tracking-[0.2em] opacity-40 shrink-0 ${isDarkMode ? 'bg-black/20' : 'bg-zinc-100'}`}>
+              <div className="flex items-center gap-4">
+                <span>SECURE_ENCRYPTION: AES-256</span>
+                <span>DATA_LOCALITY: US-EAST-1</span>
+              </div>
+              <div className="flex items-center gap-4">
+                <span>API_STATUS: NOMINAL</span>
+                <span>SYSTEM_TIME: {new Date().toLocaleTimeString()}</span>
+              </div>
+            </div>
+          </motion.div>
         </div>
       )}
 
