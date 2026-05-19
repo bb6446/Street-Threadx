@@ -17,19 +17,18 @@ If you are using a Backend-as-a-Service (BaaS) like Supabase or Firebase to hand
 
 ## Phase 3: Deploy the Frontend
 
-### Choice A: Firebase Hosting (Recommended for this project)
-Since your project already has `firebase.json` and `.firebaserc` configured:
+### Choice A: Cloud Run (Recommended for Full AI Capabilities)
+This app is a full-stack Node.js application. Simple hosting (like Firebase Hosting alone or InfinityFree) only serves the frontend, which means AI chat and checkout sessions will fail. 
 
-1. **Build Your Site:** Run `npm run build` to generate the `dist` folder.
-2. **Deploy via AI Studio:** Use the **Share** or **Deploy** button in the AI Studio interface.
-3. **Manual Deploy:** If you have the Firebase CLI installed locally, run:
-   ```bash
-   npm run deploy
-   ```
-   *Note: If you see "Site Not Found", it means you haven't successfully completed a deploy yet, or your custom domain setup is still propagating.*
+1. **Build the project:** `npm run build`
+2. **Deploy to Cloud Run:** This handles both your frontend and the Express backend (API).
 
-### Choice B: Vercel or Netlify
-Vercel or Netlify are excellent alternatives for React/Vite projects.
+### Choice B: Firebase (Hosting + Functions/Cloud Run)
+1. **Frontend:** Deployed via `firebase deploy --only hosting`.
+2. **Backend:** You must proxy `/api` requests to a server or Firebase Functions.
+
+### Choice C: Shared Hosting (cPanel / InfinityFree)
+**Warning:** AI features and Checkout will NOT work on basic shared hosting as they cannot run the Node.js `server.ts` process. You must use a VPS or a Node.js-compatible host.
 ...
 
 ## Alternative: Deploy to Shared Hosting (InfinityFree / cPanel)

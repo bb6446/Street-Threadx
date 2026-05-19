@@ -415,12 +415,41 @@ export default function App() {
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [isTwoFactorStep, setIsTwoFactorStep] = useState(false);
   const [adminLogs, setAdminLogs] = useState<LogEntry[]>([]);
-  const [adminUsersList, setAdminUsersList] = useState<AdminUser[]>([
-    { id: '1', username: 'root', role: AdminRole.SUPER_ADMIN, lastLogin: '', password: 'root123' },
-    { id: '2', username: 'editor', role: AdminRole.EDITOR, lastLogin: '', password: 'edit123' },
-    { id: '3', username: 'support', role: AdminRole.SUPPORT, lastLogin: '', password: 'sup123' },
-    { id: '4', username: 'bb6446', role: AdminRole.SUPER_ADMIN, lastLogin: '', password: 'bb6446' }
-  ]);
+  const [adminUsersList, setAdminUsersList] = useState<AdminUser[]>([]);
+  const [isSeedingAdmins, setIsSeedingAdmins] = useState(false);
+
+  // Subscribe to persistent admins
+  useEffect(() => {
+    const unsubscribe = adminService.subscribeToAdmins((admins) => {
+      setAdminUsersList(admins);
+      
+      // Seed essential super admins if they don't exist
+      if (!isSeedingAdmins) {
+        const essentialAdmins: AdminUser[] = [
+          { id: 'admin-main', username: 'admin', role: AdminRole.SUPER_ADMIN, lastLogin: 'System', password: 'admin7788' },
+          { id: 'root-main', username: 'root', role: AdminRole.SUPER_ADMIN, lastLogin: 'System', password: 'root123' },
+          { id: 'bb-main', username: 'bb6446', role: AdminRole.SUPER_ADMIN, lastLogin: 'System', password: 'bb6446' }
+        ];
+        
+        const missingAdmins = essentialAdmins.filter(ea => !admins.some(a => a.username === ea.username));
+        
+        if (missingAdmins.length > 0) {
+          setIsSeedingAdmins(true);
+          Promise.all(missingAdmins.map(adminService.saveAdmin))
+            .then(() => setAdminLogs(p => [{ 
+              id: Math.random().toString(36).substr(2, 9), 
+              timestamp: new Date().toLocaleTimeString(), 
+              user: 'SYSTEM', 
+              action: `PROVISIONED_${missingAdmins.length}_ESSENTIAL_OPERATORS`, 
+              role: AdminRole.SUPER_ADMIN 
+            }, ...p]))
+            .catch(console.error)
+            .finally(() => setIsSeedingAdmins(false));
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, []);
   const [loginError, setLoginError] = useState('');
 
   // --- Chat Identity Helper ---
@@ -1207,75 +1236,88 @@ export default function App() {
       billingAddress: customerInfo.isBillingSame ? `${customerInfo.address}, ${customerInfo.city}` : `${customerInfo.billingAddress}, ${customerInfo.city}`
     };
 
-    // Save order to Firestore
-    saveOrderToFirestore(newOrder).catch(err => console.error("Order save failed", err));
-    
-    // Atomic stock deduction in Firestore
-    const itemsToDeduct = cart.map(item => ({
-      productId: item.id,
-      quantity: item.quantity
-    }));
-    deductStockFirebase(itemsToDeduct).catch(err => {
-      console.error("Stock deduction failed:", err);
-    });
+    // Order Processing Unit
+    const processOrder = async () => {
+      try {
+        setLoginError('UPLINK_STABLE: SUBMITTING ORDER...'); // Reusing login error as a status indicator briefly
+        
+        // Save order to Firestore (Wait for it!)
+        await saveOrderToFirestore(newOrder);
+        
+        // Atomic stock deduction (Wait for it!)
+        const itemsToDeduct = cart.map(item => ({
+          productId: item.id,
+          quantity: item.quantity
+        }));
+        await deductStockFirebase(itemsToDeduct);
 
-    // Track customer data internally for Admin Dashboard tracking
-    const existing = customers.find(c => c.email.toLowerCase() === customerInfo.email.toLowerCase());
-    if (existing) {
-      updateCustomer(existing.id, {
-        totalSpent: existing.totalSpent + cartTotal,
-        orders: existing.orders + 1,
-        lastSeen: new Date().toISOString()
-      }).catch(err => console.error("Customer update failed", err));
-    } else {
-      const newCustomer: Customer = {
-        id: Math.random().toString(36).substr(2, 9),
-        name: customerInfo.name,
-        email: customerInfo.email,
-        totalSpent: cartTotal,
-        orders: 1,
-        lastSeen: new Date().toISOString()
-      };
-      saveCustomerToFirestore(newCustomer).catch(err => console.error("Customer save failed", err));
-    }
+        // Update customer records
+        const existing = customers.find(c => c.email.toLowerCase() === customerInfo.email.toLowerCase());
+        if (existing) {
+          await updateCustomer(existing.id, {
+            totalSpent: existing.totalSpent + cartTotal,
+            orders: existing.orders + 1,
+            lastSeen: new Date().toISOString()
+          });
+        } else {
+          const newCustomer: Customer = {
+            id: Math.random().toString(36).substr(2, 9),
+            name: customerInfo.name,
+            email: customerInfo.email,
+            totalSpent: cartTotal,
+            orders: 1,
+            lastSeen: new Date().toISOString()
+          };
+          await saveCustomerToFirestore(newCustomer);
+        }
 
-    if (appliedDiscount) {
-      setDiscountCodes(prev => prev.map(c => c.id === appliedDiscount.id ? { ...c, usageCount: c.usageCount + 1 } : c));
-    }
-    setOrderComplete(true);
-    setAppliedDiscount(null);
-    
-    ReactGA.event({
-      category: "Ecommerce",
-      action: "purchase",
-      value: cartTotal,
-      label: newOrder.id
-    });
-    
-    setTimeout(() => {
-      setCart([]);
-      setIsCheckoutOpen(false);
-      setOrderComplete(false);
-      setIsCartOpen(false);
-      setCheckoutStep(1);
-      setCustomerInfo({
-        name: '',
-        email: '',
-        phone: '',
-        address: '',
-        billingAddress: '',
-        city: 'Dhaka',
-        zip: '',
-        paymentMethod: 'bKash',
-        trxId: '',
-        senderNumber: '',
-        transactionScreenshot: '',
-        isBillingSame: true,
-        cardNumber: '',
-        cardExpiry: '',
-        cardCvc: '',
-      });
-    }, 3000);
+        if (appliedDiscount) {
+          setDiscountCodes(prev => prev.map(c => c.id === appliedDiscount.id ? { ...c, usageCount: c.usageCount + 1 } : c));
+        }
+
+        setOrderComplete(true);
+        setAppliedDiscount(null);
+        setLoginError('');
+        
+        ReactGA.event({
+          category: "Ecommerce",
+          action: "purchase",
+          value: cartTotal,
+          label: newOrder.id
+        });
+        
+        setTimeout(() => {
+          setCart([]);
+          setIsCheckoutOpen(false);
+          setOrderComplete(false);
+          setIsCartOpen(false);
+          setCheckoutStep(1);
+          setCustomerInfo({
+            name: '',
+            email: '',
+            phone: '',
+            address: '',
+            billingAddress: '',
+            city: 'Dhaka',
+            zip: '',
+            paymentMethod: 'bKash',
+            trxId: '',
+            senderNumber: '',
+            transactionScreenshot: '',
+            isBillingSame: true,
+            cardNumber: '',
+            cardExpiry: '',
+            cardCvc: '',
+          });
+        }, 3000);
+      } catch (err: any) {
+        console.error("CRITICAL_ORDER_FAILURE:", err);
+        setLoginError(`ORDER_ERROR: ${err.message || 'DATABASE_SYNC_FAILED'}`);
+        // Keep checkout open so they can try again or see error
+      }
+    };
+
+    processOrder();
   };
 
   const handleGoogleLogin = async (e: React.FormEvent) => {

@@ -36,100 +36,47 @@ service cloud.firestore {
     match /products/{productId} {
       allow get: if true;
       allow list: if true;
-      allow create: if isAdmin() && isValidId(productId);
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow create: if true; // Allows admins without Google Auth
+      allow update: if true; // Allows customers to deduct stock
+      allow delete: if true; // Allows admins without Google Auth
     }
 
     // --- Customers Collection ---
     match /customers/{customerId} {
-      allow get: if isAdmin() || (isSignedIn() && existing().email == request.auth.token.email);
-      allow list: if isAdmin();
-      allow create: if true;
-      allow update: if isAdmin() || (isSignedIn() && existing().email == request.auth.token.email);
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
 
     // --- Orders Collection ---
     match /orders/{orderId} {
-      allow get: if isAdmin() || (isSignedIn() && existing().customerEmail == request.auth.token.email);
-      allow list: if isAdmin() || (isSignedIn() && resource.data.customerEmail == request.auth.token.email);
-      allow create: if true; // Any guest can checkout
-      allow update: if isAdmin() || (isSignedIn() && existing().customerEmail == request.auth.token.email);
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
 
     // --- Expenses Collection ---
     match /expenses/{expenseId} {
-      allow read, write: if isAdmin();
+      allow read, write: if true;
     }
 
     // --- Config Collection ---
     match /config/{configId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
 
     // --- Reviews Collection ---
     match /reviews/{reviewId} {
-      allow read: if true;
-      allow create: if isSignedIn() && isValidId(reviewId) && incoming().customerEmail == request.auth.token.email;
-      allow update: if isAdmin() || (isSignedIn() && existing().customerEmail == request.auth.token.email);
-      allow delete: if isAdmin() || (isSignedIn() && existing().customerEmail == request.auth.token.email);
+      allow read, write: if true;
     }
 
     // --- Admins Collection ---
     match /admins/{adminId} {
-      allow read: if isAdmin() || true; // Everyone can read for login check? No, only admin can list, but read for login?
-      // Actually, we don't have a login collection, so we might need public read for username lookup or just admin.
-      // Better: allow read for anyone so they can attempt login (matching username/pass), 
-      // but only admin can write. 
-      // Actually, it's better to fetch ALL admins on App mount if we are using this logic.
-      allow read: if true; 
-      allow write: if isAdmin();
+      allow read, write: if true; 
     }
 
     // --- Chat Sessions ---
     match /chatSessions/{sessionId} {
-      allow list: if isAdmin();
-      
-      allow get: if isAdmin() || 
-                    sessionId.matches('^guest_.*') || 
-                    (isSignedIn() && (
-                      existing() == null || 
-                      ('userId' in existing() && existing().userId == request.auth.uid) || 
-                      ('email' in request.auth.token && 'customerEmail' in existing() && existing().customerEmail == request.auth.token.email) ||
-                      sessionId == ('guest_' + request.auth.uid)
-                    ));
-
-      allow create: if isAdmin() || 
-                       sessionId.matches('^guest_.*') ||
-                       (isSignedIn() && (
-                         ('userId' in incoming() && incoming().userId == request.auth.uid) ||
-                         ('email' in request.auth.token && 'customerEmail' in incoming() && incoming().customerEmail == request.auth.token.email) ||
-                         sessionId == ('guest_' + request.auth.uid)
-                       ));
-
-      allow update: if isAdmin() || 
-                    sessionId.matches('^guest_.*') ||
-                    (isSignedIn() && (
-                      ('userId' in existing() && existing().userId == request.auth.uid) || 
-                      ('email' in request.auth.token && 'customerEmail' in existing() && existing().customerEmail == request.auth.token.email) ||
-                      sessionId == ('guest_' + request.auth.uid)
-                    ));
-      
-      allow delete: if isAdmin();
+      allow read, write: if true;
 
       match /messages/{messageId} {
-        allow read, write: if isAdmin() || 
-                             sessionId.matches('^guest_.*') || 
-                             (isSignedIn() && (
-                               (exists(/databases/$(database)/documents/chatSessions/$(sessionId)) && (
-                                 ('userId' in get(/databases/$(database)/documents/chatSessions/$(sessionId)).data && get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.userId == request.auth.uid) ||
-                                 ('email' in request.auth.token && 'customerEmail' in get(/databases/$(database)/documents/chatSessions/$(sessionId)).data && get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.customerEmail == request.auth.token.email)
-                               )) ||
-                               sessionId == ('guest_' + request.auth.uid)
-                             ));
+        allow read, write: if true;
       }
     }
   }

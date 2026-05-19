@@ -25,7 +25,7 @@ export const generateSEOContent = async (productName: string, description: strin
   
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: `Write an SEO meta title and meta description for this streetwear product: "${productName}". 
 Category: "${category}". 
 Tags: ${tags.join(', ')}. 
@@ -62,7 +62,7 @@ export const generateProductDescription = async (productName: string, category: 
   
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
     });
     return response.text;
@@ -189,8 +189,8 @@ export const generatePromotionalImage = async (prompt: string) => {
 
 export const generateSupportReply = async (inquiry: string, customerContext: string = 'No additional context available.') => {
   if (!ai) throw new Error("Gemini API key not configured");
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
     contents: inquiry,
     config: {
       systemInstruction: `You are the Lead Stylist for StreetThreadX—a high-performance streetwear institution.
@@ -218,7 +218,7 @@ Instructions:
 export const generateAgentMonitorReply = async (query: string, coreStats: any) => {
   if (!ai) throw new Error("Gemini API key not configured");
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-flash-preview',
     contents: `You are the StreetThreadX AI Site Monitor. 
 User query: "${query}"
 Context Stats: ${JSON.stringify(coreStats)}.
@@ -230,7 +230,7 @@ Respond concisely and professionally in 1-2 sentences. If asked to act on someth
 export const generateAnalyticsReport = async (stats: any) => {
   if (!ai) throw new Error("Gemini API key not configured");
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-flash-preview',
     contents: `Analyze these weekly Shopify stats: ${JSON.stringify(stats)}. Provide a 2-sentence insight on performance and 1 actionable tip.`,
   });
   return response.text;
@@ -314,7 +314,7 @@ ${customerContext}`;
     let contents: any[] = [{ role: 'user', parts }];
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents,
       config: {
         systemInstruction,
@@ -351,7 +351,7 @@ ${customerContext}`;
       });
 
       const secondResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3-flash-preview',
         contents,
         config: {
           systemInstruction,
@@ -378,7 +378,7 @@ export const generateResponseSuggestions = async (messages: ChatMessage[]) => {
   if (!ai) throw new Error("Gemini API key not configured");
   const chatContext = messages.slice(-5).map(m => `${m.isAdmin ? 'ADMIN' : 'CUSTOMER'}: ${m.text}`).join('\n');
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-flash-preview',
     contents: `Based on the following chat conversation, generate 3 short, professional, and helpful response suggestions for the support agent.
 Brand: StreetThreadX (Elite Streetwear).
 Tone: Efficient, minimalist, confident.
