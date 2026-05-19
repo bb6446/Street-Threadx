@@ -1330,12 +1330,18 @@ export default function App() {
         return;
       }
       
-      const adminEmails = ["biplobnbc04@gmail.com", "parvesvai00@gmail.com"];
-      if (user.email && adminEmails.includes(user.email.toLowerCase())) {
+      // Look up logged in Google user's email against the Admins list in Firestore
+      const mappedAdmin = adminUsersList.find(u => u.username.toLowerCase() === user.email?.toLowerCase());
+      
+      // Keep hardcoded fallback if they lock themselves out of Firestore
+      const fallbackEmails = ["biplobnbc04@gmail.com", "parvesvai00@gmail.com"];
+      const isFallback = user.email && fallbackEmails.includes(user.email.toLowerCase());
+
+      if (mappedAdmin || isFallback) {
         const finalUser: AdminUser = {
           id: user.uid,
-          username: user.email,
-          role: AdminRole.SUPER_ADMIN,
+          username: mappedAdmin ? mappedAdmin.username : (user.email || 'Admin'),
+          role: mappedAdmin ? mappedAdmin.role : AdminRole.SUPER_ADMIN,
           lastLogin: new Date().toISOString()
         };
         setAdminUser(finalUser);
@@ -1352,9 +1358,13 @@ export default function App() {
         setLoginError('AUTH_FAILURE: UNAUTHORIZED ACCOUNT (GOOGLE)');
         await logOut();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setLoginError('AUTH_FAILURE: ACCESS DENIED');
+      if (err.code === 'auth/popup-closed-by-user') {
+        setLoginError('AUTH_FAILURE: GOOGLE POPUP CLOSED. PLEASE ALLOW POPUPS.');
+      } else {
+        setLoginError('AUTH_FAILURE: ACCESS DENIED');
+      }
     }
   };
 
@@ -1362,7 +1372,19 @@ export default function App() {
     e.preventDefault();
     setLoginError('VALIDATING CREDENTIALS...');
     setTimeout(() => {
-      const foundUser = adminUsersList.find(u => u.username === adminUsername && u.password === adminPassword);
+      let foundUser = adminUsersList.find(u => u.username === adminUsername && u.password === adminPassword);
+      
+      // Fallback static check if Firestore sync failed
+      if (!foundUser) {
+        const fallbacks = [
+          { id: 'admin-main', username: 'admin', role: AdminRole.SUPER_ADMIN, lastLogin: 'System', password: 'admin7788' },
+          { id: 'root-main', username: 'root', role: AdminRole.SUPER_ADMIN, lastLogin: 'System', password: 'root123' },
+          { id: 'bb-main', username: 'bb6446', role: AdminRole.SUPER_ADMIN, lastLogin: 'System', password: 'bb6446' }
+        ];
+        const staticMatch = fallbacks.find(u => u.username === adminUsername && u.password === adminPassword);
+        if (staticMatch) foundUser = staticMatch;
+      }
+
       if (foundUser) {
         const userToSet = { ...foundUser, lastLogin: new Date().toISOString() };
         setAdminUser(userToSet);

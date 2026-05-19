@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { signInWithGoogle, signInWithFacebook, setupRecaptcha, signInWithPhone } from '../firebase';
+import { signInWithGoogle, signInWithFacebook, setupRecaptcha, signInWithPhone, signInWithEmail, signUpWithEmail } from '../firebase';
 import { ConfirmationResult } from 'firebase/auth';
 
 const CustomerPortal: React.FC<{
@@ -31,7 +31,7 @@ const CustomerPortal: React.FC<{
     }
   }, []);
 
-  const handleEmailSubmit = (e: React.FormEvent) => {
+  const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -43,8 +43,29 @@ const CustomerPortal: React.FC<{
       setError('ENTITY NAME REQUIRED FOR REGISTRATION.');
       return;
     }
-    // Mock successful authentication for now
-    onLoginSuccess({ email, name: isLogin ? 'User' : name });
+    
+    setIsSocialLoading(true);
+    try {
+      if (isLogin) {
+        const user = await signInWithEmail(email, password);
+        onLoginSuccess({ email: user.email || email, name: user.displayName || 'User' });
+      } else {
+        const user = await signUpWithEmail(email, password, name);
+        onLoginSuccess({ email: user.email || email, name: user.displayName || name });
+      }
+    } catch (err: any) {
+      if (err.code === 'auth/email-already-in-use') {
+        setError('EMAIL ALREADY REGISTERED - PLEASE LOGIN');
+      } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
+        setError('ACCESS DENIED - INVALID CREDENTIALS');
+      } else if (err.code === 'auth/weak-password') {
+        setError('SECURITY REQUIRED: PASSWORD TOO WEAK');
+      } else {
+        setError(err.message || 'AUTHENTICATION FAILED');
+      }
+    } finally {
+      setIsSocialLoading(false);
+    }
   };
 
   const handleSendCode = async () => {

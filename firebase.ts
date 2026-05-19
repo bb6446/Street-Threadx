@@ -14,7 +14,10 @@ import {
   setPersistence, 
   browserSessionPersistence, 
   ConfirmationResult,
-  browserPopupRedirectResolver
+  browserPopupRedirectResolver,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile
 } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
@@ -45,6 +48,19 @@ export const db = initializeFirestore(app, {
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 export const facebookProvider = new FacebookAuthProvider();
+
+export const signUpWithEmail = async (email: string, pass: string, name: string) => {
+  const result = await createUserWithEmailAndPassword(auth, email, pass);
+  if (result.user) {
+    await updateProfile(result.user, { displayName: name });
+  }
+  return result.user;
+};
+
+export const signInWithEmail = async (email: string, pass: string) => {
+  const result = await signInWithEmailAndPassword(auth, email, pass);
+  return result.user;
+};
 
 export const signInWithGoogle = async () => {
   try {
