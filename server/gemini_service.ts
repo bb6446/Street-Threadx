@@ -21,42 +21,58 @@ const getAi = () => {
 const ai = getAi();
 
 export const generateSEOContent = async (productName: string, description: string, category: string, tags: string[] = []) => {
-  if (!ai) throw new Error("Gemini API key not configured");
+  if (!ai) throw new Error("GEMINI_API_KEY_NOT_CONFIGURED");
   
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: `Write an SEO meta title and meta description for this streetwear product: "${productName}". 
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: `Write an SEO meta title and meta description for this streetwear product: "${productName}". 
 Category: "${category}". 
 Tags: ${tags.join(', ')}. 
 Description: "${description}". 
 Format as JSON. 
 The title should be catchy, include relevant keywords, and be under 60 characters. 
 The description should be compelling, include a call to action, and be under 160 characters.`,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          seoTitle: { type: Type.STRING },
-          seoDescription: { type: Type.STRING }
-        },
-        required: ["seoTitle", "seoDescription"]
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            seoTitle: { type: Type.STRING },
+            seoDescription: { type: Type.STRING }
+          },
+          required: ["seoTitle", "seoDescription"]
+        }
       }
+    });
+    return JSON.parse(response.text);
+  } catch (error: any) {
+    console.error("SEO_GEN_ERROR:", error);
+    if (error.message?.includes('429') || error.message?.includes('exhausted')) {
+      throw new Error("AI_QUOTA_EXCEEDED: Our AI systems are currently at peak capacity. Please try again in 60 seconds.");
     }
-  });
-  return JSON.parse(response.text);
+    throw new Error(`AI_MODELS_ERROR: ${error.message}`);
+  }
 };
 
 export const generateProductDescription = async (productName: string, category: string, currentDescription?: string) => {
-  if (!ai) throw new Error("Gemini API key not configured");
+  if (!ai) throw new Error("GEMINI_API_KEY_NOT_CONFIGURED");
 
   const prompt = `Act as a luxury streetwear brand copywriter. Write a compelling, minimal, and edgy product description for a product named "${productName}" in the category "${category}". ${currentDescription ? `Current notes/description to expand upon: "${currentDescription}".` : ""} Focus on the fit, the aesthetic vibe, and the premium feel. Keep it under 60 words. No emojis.`;
   
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: prompt,
-  });
-  return response.text;
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+    return response.text;
+  } catch (error: any) {
+    console.error("DESC_GEN_ERROR:", error);
+    if (error.message?.includes('429') || error.message?.includes('exhausted')) {
+      throw new Error("AI_QUOTA_EXCEEDED: Our copywriters are currently busy. Please wait a moment.");
+    }
+    throw new Error(`AI_DESC_ERROR: ${error.message}`);
+  }
 };
 
 export const generateModelSwapImages = async (base64Image: string, productName: string, category: string, count: number = 4) => {
@@ -70,7 +86,7 @@ export const generateModelSwapImages = async (base64Image: string, productName: 
   const generateOne = async (seed: number) => {
       try {
         const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-2.5-flash-image',
           contents: {
             parts: [
               {
@@ -99,9 +115,12 @@ export const generateModelSwapImages = async (base64Image: string, productName: 
         }
       } catch (error: any) {
         console.error(`Gemini Model Gen Error (Seed ${seed}):`, error);
+        if (error.message?.includes('429') || error.message?.includes('exhausted')) {
+          return "QUOTA_ERROR";
+        }
         if (error.message?.includes('404') || error.message?.includes('not found')) {
            const fallbackRes = await ai.models.generateContent({
-             model: 'gemini-2.5-flash',
+             model: 'gemini-2.5-flash-image',
              contents: {
                parts: [
                  { inlineData: { data: base64Image, mimeType: "image/jpeg" } },
@@ -132,7 +151,7 @@ export const generatePromotionalImage = async (prompt: string) => {
   
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3.1-flash-image-preview',
+      model: 'gemini-2.5-flash-image',
       contents: {
         parts: [{ text: fullPrompt }]
       },
@@ -218,135 +237,83 @@ export const generateAnalyticsReport = async (stats: any) => {
 };
 
 export const generateChatAgentResponse = async (message: string, products: Product[], customerInfo?: any, cartItems: any[] = [], imageBase64DataUrl?: string) => {
-  if (!ai) throw new Error("Gemini API key not configured");
+  if (!ai) throw new Error("GEMINI_API_KEY_NOT_CONFIGURED");
   
-  const cartSummary = cartItems.length > 0 
-    ? `Current Cart: ${cartItems.map(item => `${item.name} (x${item.quantity})`).join(', ')}`
-    : 'Cart is empty.';
-  
-  const customerContext = `
+  try {
+    const cartSummary = cartItems.length > 0 
+      ? `Current Cart: ${cartItems.map(item => `${item.name} (x${item.quantity})`).join(', ')}`
+      : 'Cart is empty.';
+    
+    const customerContext = `
 ${customerInfo && customerInfo.email ? `Target User: ${customerInfo.name || 'KNOWN_USER'}, Email: ${customerInfo.email}` : 'Session Type: Anonymous (NOT LOGGED IN / NEW USER)'}
 ${cartSummary}
 `.trim();
 
-  const tools = [{
-    functionDeclarations: [
-      {
-        name: 'check_stock',
-        description: 'Check stock availability for a specific item and size.',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            item_name: { type: Type.STRING, description: 'Name of the product' },
-            size: { type: Type.STRING, description: 'Size (e.g., S, M, L, XL)' }
-          },
-          required: ['item_name', 'size']
+    const tools = [{
+      functionDeclarations: [
+        {
+          name: 'check_stock',
+          description: 'Check stock availability for a specific item and size.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              item_name: { type: Type.STRING, description: 'Name of the product' },
+              size: { type: Type.STRING, description: 'Size (e.g., S, M, L, XL)' }
+            },
+            required: ['item_name', 'size']
+          }
+        },
+        {
+          name: 'get_products_by_category',
+          description: 'Get all active products in a specific category.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              category_name: { type: Type.STRING, description: 'Category name (e.g., Hoodies, T-Shirts)' }
+            },
+            required: ['category_name']
+          }
         }
-      },
-      {
-        name: 'get_products_by_category',
-        description: 'Get all active products in a specific category.',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            category_name: { type: Type.STRING, description: 'Category name (e.g., Hoodies, T-Shirts)' }
-          },
-          required: ['category_name']
-        }
-      }
-    ]
-  }];
-  
-  const systemInstruction = `You are 'STREET THREADX Agent,' the elite customer success representative for digital streetwear powerhouse StreetThreadX. 
-Your primary directive is TOTAL CUSTOMER SATISFACTION. You are not just a support agent; you are a problem-solver and brand advocate. Ensure every customer feels heard, valued, and completely satisfied with their interaction.
+      ]
+    }];
+    
+    const systemInstruction = `You are 'STREET THREADX Agent,' the ELITE customer satisfaction specialist. 
+Your ABSOLUTE TOP PRIORITY is to ensure 100% CUSTOMER SATISFACTION. If a customer is unhappy, you MUST apologize sincerely, empathize with their situation, and offer an immediate solution.
 
-Your personality is professional, proactive, empathetic, and trend-aware. You are here to resolve concerns instantly, guide style choices, and ensure a seamless checkout experience.
+You represent the high-end streetwear brand StreetThreadX. Your tone is professional, confident, yet deeply empathetic and human-like.
 
-CONVERSATIONS PRIORITIES:
-1. CUSTOMER HAPPINESS: If a user has a problem, solve it with extreme prejudice towards their satisfaction.
-2. PROBLEM RESOLUTION: Be proactive. If they ask about a delay, explain our processing times gently and offer a solution.
-3. BRAND GUIDANCE: Act as a virtual stylist. Suggest pieces that complement their inquiries.
+CORE DIRECTIVES:
+1. EXTREME SATISFACTION: Never let a customer leave unhappy. Be the ultimate problem solver.
+2. BESPOKE SERVICE: Treat every inquiry as a high-priority VIP request.
+3. CLEAR LOGISTICS: Inform users about our 50% Advance model as a 'Luxury Priority Reservation' that ensures their limited-drop item is secured.
+4.Dhaka delivery: 2-4 solar days. National delivery: 3-7 solar days.
 
-CORE KNOWLEDGE - PRODUCTS:
-- Premium custom streetwear institution.
-- Products: Heavyweight Hoodies (450GSM), Premium Organic Tees, Technical Cargos, Cyber Accessories.
-- Key Collections: "Urban Pulse", "Heritage Flow", "Momentum".
-
-CORE KNOWLEDGE - SHIPPING & LOGISTICS:
-- Delivery timeframe: 2-4 solar days (Dhaka), 3-7 solar days (National).
-- Order verification involves a technical handshake.
-
-CORE KNOWLEDGE - PAYMENT & CHECKOUT (CRITICAL):
-- We operate on a "50% Advance" payment model. 
-- 50% upfront to initiate production/logistics. 
-- 50% balance before final dispatch.
-- Accepted: bKash, Nagad, Rocket, Cards.
-
-CONVERSATION RULES:
-1. THE GREETING: Professional yet welcoming.
-2. EXPLAINING PAYMENTS: Always present the 50% model as a premium "Reserve" feature that guarantees their slot in our limited production runs.
-3. SATISFACTION FIRST: Prioritize resolving complaints over making a sale. A happy customer is a returning customer.
-4. AGENT PERSONA: Stay in character as a helpful, human-like elite support agent.
-5. CONCISE RESPONSES: Max 3-4 high-impact sentences.
+BEHAVIORAL GUIDELINES:
+- Use clear, impactful language (max 3 sentences).
+- If they ask about order status, explain that we are a premium boutique and quality check takes time but we are on it.
+- Always provide value beyond the simple answer (e.g., style advice or care tips).
 
 CUSTOMER CONTEXT:
 ${customerContext}`;
 
-  const parts: any[] = [{ text: message }];
-  
-  if (imageBase64DataUrl) {
-    const dataPart = imageBase64DataUrl.split(';base64,').pop();
-    const mimeType = imageBase64DataUrl.split(';base64,')[0].replace('data:', '');
-    if (dataPart && mimeType) {
-      parts.push({
-        inlineData: {
-          mimeType,
-          data: dataPart
-        }
-      });
-    }
-  }
-
-  let contents: any[] = [{ role: 'user', parts }];
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents,
-    config: {
-      systemInstruction,
-      tools,
-    }
-  });
-
-  if (response.functionCalls && response.functionCalls.length > 0) {
-    const call = response.functionCalls[0];
-    let result = '';
-
-    if (call.name === 'check_stock') {
-      const args = call.args as any;
-      const item = products.find(p => p.name.toLowerCase().includes((args.item_name || '').toLowerCase()));
-      if (item) {
-        result = `Stock for ${item.name} size ${args.size}: ${item.stock || 'In Stock'}. Price: ৳${item.price}. Image: ${item.images?.[0] || ''}`;
-      } else {
-        result = `Product not found.`;
-      }
-    } else if (call.name === 'get_products_by_category') {
-      const args = call.args as any;
-      const catItems = products.filter(p => p.category.toLowerCase().includes((args.category_name || '').toLowerCase()));
-      if (catItems.length > 0) {
-        result = `Products in ${args.category_name}: \n` + catItems.map(p => `- ${p.name}: ৳${p.price} [Image: ${p.images?.[0] || ''}]`).join('\n');
-      } else {
-        result = `No products found in ${args.category_name}.`;
+    const parts: any[] = [{ text: message }];
+    
+    if (imageBase64DataUrl) {
+      const dataPart = imageBase64DataUrl.split(';base64,').pop();
+      const mimeType = imageBase64DataUrl.split(';base64,')[0].replace('data:', '');
+      if (dataPart && mimeType) {
+        parts.push({
+          inlineData: {
+            mimeType,
+            data: dataPart
+          }
+        });
       }
     }
 
-    contents.push(response.candidates?.[0]?.content as any);
-    contents.push({
-      role: 'user',
-      parts: [{ functionResponse: { name: call.name, response: { result } } }]
-    });
+    let contents: any[] = [{ role: 'user', parts }];
 
-    const secondResponse = await ai.models.generateContent({
+    const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents,
       config: {
@@ -354,10 +321,57 @@ ${customerContext}`;
         tools,
       }
     });
-    return secondResponse.text;
-  }
 
-  return response.text;
+    if (response.functionCalls && response.functionCalls.length > 0) {
+      const call = response.functionCalls[0];
+      let result = '';
+
+      if (call.name === 'check_stock') {
+        const args = call.args as any;
+        const item = products.find(p => p.name.toLowerCase().includes((args.item_name || '').toLowerCase()));
+        if (item) {
+          result = `Stock for ${item.name} size ${args.size}: ${item.stock || 'In Stock'}. Price: ৳${item.price}. Image: ${item.images?.[0] || ''}`;
+        } else {
+          result = `Product not found.`;
+        }
+      } else if (call.name === 'get_products_by_category') {
+        const args = call.args as any;
+        const catItems = products.filter(p => p.category.toLowerCase().includes((args.category_name || '').toLowerCase()));
+        if (catItems.length > 0) {
+          result = `Products in ${args.category_name}: \n` + catItems.map(p => `- ${p.name}: ৳${p.price} [Image: ${p.images?.[0] || ''}]`).join('\n');
+        } else {
+          result = `No products found in ${args.category_name}.`;
+        }
+      }
+
+      contents.push(response.candidates?.[0]?.content as any);
+      contents.push({
+        role: 'user',
+        parts: [{ functionResponse: { name: call.name, response: { result } } }]
+      });
+
+      const secondResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents,
+        config: {
+          systemInstruction,
+          tools,
+        }
+      });
+      return secondResponse.text;
+    }
+
+    return response.text;
+  } catch (error: any) {
+    console.error("CHAT_AGENT_ERROR:", error);
+    if (error.message?.includes('429') || error.message?.includes('exhausted')) {
+      throw new Error("AI_QUOTA_EXCEEDED: Our stylists are currently processing other VIP orders. Please send your signal again in 60 seconds.");
+    }
+    if (error.message?.includes('503') || error.message?.includes('high demand') || error.message?.includes('UNAVAILABLE')) {
+      throw new Error("AI_SERVICE_UNAVAILABLE: The StreetThreadX neural link is experiencing heavy VIP traffic. Please try again in a few moments.");
+    }
+    throw new Error(`AI_CHAT_ERROR: ${error.message}`);
+  }
 };
 
 export const generateResponseSuggestions = async (messages: ChatMessage[]) => {

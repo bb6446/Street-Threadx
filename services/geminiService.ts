@@ -87,12 +87,37 @@ export const generateChatAgentResponse = async (message: string, products: Produ
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, products, customerInfo, cartItems, imageBase64DataUrl }),
     });
-    if (!response.ok) throw new Error("Failed to generate chat response");
+    
+    if (!response.ok) {
+      let errorMessage = `AI_UPLINK_FAILURE: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        if (errorData.error) errorMessage = errorData.error;
+        else if (errorData.message) errorMessage = errorData.message;
+      } catch (e) {
+        // Fallback if not JSON
+      }
+      console.error("AI Server Error:", response.status, errorMessage);
+      throw new Error(errorMessage);
+    }
+    
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      console.error("AI Response not JSON:", contentType);
+      throw new Error("AI_INVALID_RESPONSE_FORMAT");
+    }
+
     const data = await response.json();
     return data.response;
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error generating chat response:", error);
-    return "Aura is currently refining her technical insights. Please try again in a moment.";
+    if (error.message?.includes('AI_QUOTA_EXCEEDED') || error.message?.includes('RESOURCE_EXHAUSTED')) {
+      return "The STREET THREADX AI stylists are currently highly oversubscribed with VIP orders. Please wait approximately 60 seconds for your reserved neural slot to open up.";
+    }
+    if (error.message?.includes('AI_SERVICE_UNAVAILABLE') || error.message?.includes('UNAVAILABLE')) {
+      return "The STREET THREADX neural link is experiencing extremely high demand. Spikes in traffic are temporary. Please try again in a moment.";
+    }
+    return "The STREET THREADX neural link is currently under maintenance or the backend server is unreachable. Please ensure you are using a platform that supports Node.js backends (like Cloud Run). Our support agents are still standing by.";
   }
 };
 

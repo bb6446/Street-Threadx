@@ -3144,7 +3144,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
             {activeTab === 'support' && (
               <div className="space-y-6 animate-in fade-in duration-500">
                 <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-sm font-black uppercase tracking-widest">Support Inquiries</h3>
+                  <h3 className="text-sm font-black uppercase tracking-widest text-[#0055ff]">STREET THREADX SUPPORT RELAY</h3>
                 </div>
                 
                 <div className="grid grid-cols-1 gap-6">

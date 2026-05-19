@@ -99,7 +99,7 @@ const StoreManager: React.FC = () => {
 
             <div className="pt-4 border-t border-zinc-800 space-y-4">
               <div className="flex justify-between items-center">
-                <h3 className="font-bold">Customer Support</h3>
+                <h3 className="font-bold">STREET THREADX Customer Service</h3>
                 <button 
                   onClick={handleSupport}
                   disabled={loading === 'support'}

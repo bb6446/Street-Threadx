@@ -189,8 +189,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSend
                   <button
                     key={idx}
                     onClick={() => handleQuickReply(reply.text)}
-                    className="flex-shrink-0 px-4 py-2 bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs font-semibold rounded-full hover:bg-[#0084ff]/10 hover:border-[#0084ff]/50 hover:text-[#0084ff] transition-all whitespace-nowrap active:scale-95"
+                    className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800/80 border border-zinc-700/80 text-zinc-300 text-[11px] font-bold rounded-full hover:bg-[#0084ff]/15 hover:border-[#0084ff]/40 hover:text-[#0084ff] hover:shadow-[0_0_10px_rgba(0,132,255,0.15)] transition-all whitespace-nowrap active:scale-95"
                   >
+                    {reply.icon && <span className="opacity-80">{reply.icon}</span>}
                     {reply.text}
                   </button>
                 ))}

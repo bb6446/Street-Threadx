@@ -1316,6 +1316,25 @@ export default function App() {
     }
   };
 
+  const handleAdminLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('VALIDATING CREDENTIALS...');
+    setTimeout(() => {
+      const foundUser = adminUsersList.find(u => u.username === adminUsername && u.password === adminPassword);
+      if (foundUser) {
+        const userToSet = { ...foundUser, lastLogin: new Date().toISOString() };
+        setAdminUser(userToSet);
+        setCurrentView(ViewState.ADMIN_DASHBOARD);
+        setLoginError('');
+        setAdminUsername('');
+        setAdminPassword('');
+        setAdminLogs(p => [{ id: Math.random().toString(36).substr(2, 9), timestamp: new Date().toLocaleTimeString(), user: userToSet.username, action: 'SESSION_INIT', role: userToSet.role }, ...p]);
+      } else {
+        setLoginError('ACCESS DENIED: INVALID CREDENTIALS');
+      }
+    }, 500);
+  };
+
 
 
   const handleReviewSubmit = (e: React.FormEvent) => {
@@ -1967,6 +1986,30 @@ export default function App() {
                           <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
                         </svg>
                         Authenticate via Google
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Standard Auth for Staff */}
+                  <div className="space-y-4 pt-6 border-t border-zinc-800">
+                    <p className="text-[8px] font-black uppercase tracking-[0.2em] text-zinc-500">Standard_Relay</p>
+                    <form onSubmit={handleAdminLogin} className="space-y-4">
+                      <input 
+                        type="text" 
+                        value={adminUsername}
+                        onChange={(e) => setAdminUsername(e.target.value)}
+                        placeholder="USERNAME" 
+                        className="w-full bg-black border border-zinc-800 p-4 text-[10px] font-black uppercase tracking-widest text-white placeholder-zinc-700 outline-none focus:border-zinc-500 transition-colors"
+                      />
+                      <input 
+                        type="password" 
+                        value={adminPassword}
+                        onChange={(e) => setAdminPassword(e.target.value)}
+                        placeholder="ACCESS_CODE" 
+                        className="w-full bg-black border border-zinc-800 p-4 text-[10px] font-black uppercase tracking-widest text-white placeholder-zinc-700 outline-none focus:border-zinc-500 transition-colors"
+                      />
+                      <button type="submit" className="w-full bg-zinc-900 border border-zinc-800 text-white py-4 font-black uppercase text-[10px] tracking-[0.3em] hover:bg-white hover:text-black transition-all">
+                        Initialize Uplink
                       </button>
                     </form>
                   </div>
