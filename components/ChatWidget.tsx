@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
-import { Facebook, Instagram, Twitter, HelpCircle, Package, Truck, Paperclip, X } from 'lucide-react';
+import { Facebook, Instagram, Twitter, HelpCircle, Package, Truck, Paperclip, X, Zap } from 'lucide-react';
 import { ChatMessage, ChatSession } from '../types';
 
 interface ChatWidgetProps {
@@ -20,10 +20,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSend
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const quickReplies = [
-    { text: 'Check Order Status', icon: <Truck className="w-4 h-4" /> },
-    { text: 'Latest Products', icon: <Package className="w-4 h-4" /> },
-    { text: 'Return Policy', icon: <HelpCircle className="w-4 h-4" /> },
-    { text: 'Social Media', icon: <Instagram className="w-4 h-4" /> },
+    { id: 'track', text: 'Track Order', icon: <Truck className="w-4 h-4" /> },
+    { id: 'stock', text: 'Check Availability', icon: <Package className="w-4 h-4" /> },
+    { id: 'return', text: 'Quick Returns', icon: <HelpCircle className="w-4 h-4" /> },
+    { id: 'promo', text: 'Active Offers', icon: <Zap className="w-4 h-4" /> },
   ];
 
   useEffect(() => {
@@ -42,6 +42,15 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSend
 
   const handleQuickReply = (text: string) => {
     onSendMessage(text);
+    // Smoothly scroll to bottom after an interaction
+    setTimeout(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTo({
+          top: scrollRef.current.scrollHeight,
+          behavior: 'smooth'
+        });
+      }
+    }, 100);
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

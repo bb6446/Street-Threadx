@@ -199,10 +199,19 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   // Chat Management State
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [adminChatInput, setAdminChatInput] = useState('');
+  const [chatSearch, setChatSearch] = useState('');
   const [activeSessionMessages, setActiveSessionMessages] = useState<ChatMessage[]>([]);
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
   const messageScrollRef = useRef<HTMLDivElement>(null);
+
+  const cannedResponses = [
+    { title: 'Welcome', text: 'Welcome to StreetThreadX. How can we assist with your fashion transformation today?' },
+    { title: 'Payment', text: 'To secure your limited-edition items, a 50% advance via bKash/Nagad/Rocket (01929667716) is required.' },
+    { title: 'Shipping', text: 'Standard delivery takes 2-4 days in Dhaka and 3-7 days nationwide. Quality verification is our priority.' },
+    { title: 'Stock', text: 'Checking the vault for availability. One moment please.' },
+    { title: 'Order Status', text: 'We are currently processing your order metadata. You will receive a signal once it clears verification.' },
+  ];
 
   useEffect(() => {
     if (messageScrollRef.current) {
@@ -2778,12 +2787,30 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
               <div className="h-[calc(100vh-12rem)] flex gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans">
                 {/* Chat List */}
                 <div className={`w-80 border flex flex-col rounded-xl overflow-hidden ${cardClasses}`}>
-                  <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
-                    <h3 className="text-xs font-bold uppercase tracking-widest text-[#0084ff]">Chats</h3>
-                    <span className="text-[10px] px-2 py-0.5 bg-[#0084ff]/20 text-[#0084ff] rounded-full font-bold">{chatSessions.length}</span>
+                  <div className="p-4 border-b border-zinc-800 space-y-4 bg-zinc-900/50">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-[#0084ff]">Chats</h3>
+                      <span className="text-[10px] px-2 py-0.5 bg-[#0084ff]/20 text-[#0084ff] rounded-full font-bold">{chatSessions.length}</span>
+                    </div>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-500" />
+                      <input 
+                        type="text" 
+                        value={chatSearch}
+                        onChange={(e) => setChatSearch(e.target.value)}
+                        placeholder="Search sessions..." 
+                        className="w-full bg-[#1c1c1c] border border-zinc-800 pl-8 pr-4 py-2 text-[10px] uppercase font-bold tracking-widest text-white placeholder:text-zinc-700 focus:border-[#0084ff]/50 outline-none transition-all rounded-lg"
+                      />
+                    </div>
                   </div>
                   <div className="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar">
-                    {chatSessions.map((session) => (
+                    {chatSessions
+                      .filter(s => 
+                        s.customerName.toLowerCase().includes(chatSearch.toLowerCase()) || 
+                        s.customerEmail.toLowerCase().includes(chatSearch.toLowerCase()) ||
+                        s.lastMessage.toLowerCase().includes(chatSearch.toLowerCase())
+                      )
+                      .map((session) => (
                       <button
                         key={session.id}
                         onClick={() => setSelectedChatId(session.id)}
@@ -2880,30 +2907,58 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                       </div>
 
                       {selectedChatId && (
-                        <div className="px-6 py-3 bg-zinc-900/60 border-t border-zinc-800 flex flex-wrap gap-3 items-center">
-                          <div className="flex items-center gap-2">
-                            <div className={`p-1 rounded-full ${isGeneratingSuggestions ? 'bg-[#0084ff]/20 animate-pulse' : 'bg-zinc-800'}`}>
-                              <Zap className={`w-3 h-3 ${isGeneratingSuggestions ? 'text-[#0084ff]' : 'text-zinc-500'}`} />
+                        <div className="px-6 py-3 bg-zinc-900/60 border-t border-zinc-800 space-y-4">
+                          {/* AI Suggestions */}
+                          <div className="flex flex-wrap gap-3 items-center">
+                            <div className="flex items-center gap-2">
+                              <div className={`p-1 rounded-full ${isGeneratingSuggestions ? 'bg-[#0084ff]/20 animate-pulse' : 'bg-zinc-800'}`}>
+                                <Zap className={`w-3 h-3 ${isGeneratingSuggestions ? 'text-[#0084ff]' : 'text-zinc-500'}`} />
+                              </div>
+                              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500">
+                                {isGeneratingSuggestions ? 'Aura_Thinking...' : 'AI_Suggestions'}
+                              </span>
                             </div>
-                            <span className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500">
-                              {isGeneratingSuggestions ? 'Aura_Thinking...' : 'AI_Ready'}
-                            </span>
+                            
+                            {aiSuggestions.length > 0 && (
+                              <div className="flex flex-wrap gap-2 animate-in fade-in slide-in-from-left-2 duration-500">
+                                {aiSuggestions.map((suggestion, idx) => (
+                                  <button
+                                    key={idx}
+                                    onClick={() => setAdminChatInput(suggestion)}
+                                    disabled={!canReplyToChat}
+                                    className={`text-[10px] px-3 py-1 bg-zinc-800/40 border border-zinc-700/30 transition-all font-bold uppercase tracking-tight ${canReplyToChat ? 'hover:border-[#0084ff]/50 hover:bg-[#0084ff]/5 text-zinc-400 hover:text-white' : 'text-zinc-600 cursor-not-allowed hidden'}`}
+                                  >
+                                    {suggestion}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                          
-                          {aiSuggestions.length > 0 && (
-                            <div className="flex flex-wrap gap-2 animate-in fade-in slide-in-from-left-2 duration-500">
-                              {aiSuggestions.map((suggestion, idx) => (
+
+                          {/* Canned Responses (Fast Message System) */}
+                          <div className="flex flex-wrap gap-3 items-center pb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="p-1 rounded-full bg-zinc-800">
+                                <ListIcon className="w-3 h-3 text-zinc-500" />
+                              </div>
+                              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500">
+                                Canned_Replies
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {cannedResponses.map((res, idx) => (
                                 <button
                                   key={idx}
-                                  onClick={() => setAdminChatInput(suggestion)}
+                                  onClick={() => setAdminChatInput(res.text)}
                                   disabled={!canReplyToChat}
-                                  className={`text-[10px] px-3 py-1 bg-zinc-800/40 border border-zinc-700/30 transition-all font-bold uppercase tracking-tight ${canReplyToChat ? 'hover:border-[#0084ff]/50 hover:bg-[#0084ff]/5 text-zinc-400 hover:text-white' : 'text-zinc-600 cursor-not-allowed hidden'}`}
+                                  className={`text-[9px] px-2.5 py-1 border border-zinc-800 bg-zinc-950 text-zinc-500 hover:text-[#0084ff] hover:border-[#0084ff]/50 transition-all uppercase font-black tracking-widest ${!canReplyToChat && 'hidden'}`}
+                                  title={res.text}
                                 >
-                                  {suggestion}
+                                  {res.title}
                                 </button>
                               ))}
                             </div>
-                          )}
+                          </div>
                         </div>
                       )}
 
