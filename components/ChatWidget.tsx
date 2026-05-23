@@ -59,6 +59,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSend
       const reader = new FileReader();
       reader.onloadend = () => {
         setAttachedImage(reader.result as string);
+        if (e.target) e.target.value = '';
       };
       reader.readAsDataURL(file);
     }

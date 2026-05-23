@@ -230,22 +230,6 @@ export const chatService = {
   subscribeToSessions(callback: (sessions: ChatSession[]) => void) {
     let unsubscribe = () => {};
     ensureAuth().then(() => {
-      const adminEmails = ['biplobnbc04@gmail.com', 'parvesvai00@gmail.com'];
-      const userEmail = auth.currentUser?.email;
-      
-      // In a real app, we would use custom claims or a database check.
-      // For this app, we check against the known admin emails or if NOT anonymous.
-      // However, Firestore rules will ultimately decide.
-      const isClearlyNotAdmin = !auth.currentUser || 
-                                (auth.currentUser.isAnonymous) || 
-                                (userEmail && !adminEmails.includes(userEmail));
-
-      if (isClearlyNotAdmin) {
-        console.warn("StreetThreadX: Admin list attempt by non-admin. Showing empty.");
-        callback([]);
-        return;
-      }
-      
       const sessionsRef = collection(db, 'chatSessions');
       const q = query(sessionsRef, orderBy('lastTimestamp', 'desc'));
 

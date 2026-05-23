@@ -158,6 +158,10 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   const [promoPrompt, setPromoPrompt] = useState('');
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
 
+  // Accounting Date State
+  const [accountingStartDate, setAccountingStartDate] = useState<string>('');
+  const [accountingEndDate, setAccountingEndDate] = useState<string>('');
+
   // Discount Management State
   const [managedDiscount, setManagedDiscount] = useState<Partial<DiscountCode> | null>(null);
 
@@ -552,21 +556,32 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
       alert('Please provide title and amount');
       return;
     }
+    
+    const isNew = !managedExpense.id;
+    const tempExpense = {
+      ...managedExpense,
+      id: managedExpense.id || `temp-${Date.now()}`,
+      createdAt: new Date().toISOString()
+    } as Expense;
+    
+    if (isNew) {
+      setExpenses(prev => [tempExpense, ...prev]);
+      addLog(`EXPENSE_CREATE: ${tempExpense.title}`);
+    } else {
+      setExpenses(prev => prev.map(e => e.id === tempExpense.id ? tempExpense : e));
+      addLog(`EXPENSE_UPDATE: ${tempExpense.title}`);
+    }
+    
+    setIsExpenseModalOpen(false);
+    setManagedExpense(null);
+
     try {
-      if (managedExpense.id) {
-        await expenseService.saveExpense(managedExpense as Expense);
-        setExpenses(prev => prev.map(e => e.id === managedExpense.id ? (managedExpense as Expense) : e));
-        addLog(`EXPENSE_UPDATE: ${managedExpense.title}`);
+      if (isNew) {
+        const saved = await expenseService.saveExpense(tempExpense);
+        setExpenses(prev => prev.map(e => e.id === tempExpense.id ? saved : e));
       } else {
-        const newExpense = await expenseService.saveExpense({
-          ...managedExpense,
-          createdAt: new Date().toISOString()
-        } as Expense);
-        setExpenses(prev => [newExpense, ...prev]);
-        addLog(`EXPENSE_CREATE: ${managedExpense.title}`);
+        await expenseService.saveExpense(tempExpense);
       }
-      setIsExpenseModalOpen(false);
-      setManagedExpense(null);
     } catch (error) {
       console.error('Error saving expense:', error);
     }
@@ -1341,46 +1356,71 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     setNewImageUrl('');
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || !managedProduct) return;
+  const handleFileUpload = async (filesToUpload: FileList | File[] | null) => {
+    if (!filesToUpload || !managedProduct) return;
 
-    for (const file of Array.from(files)) {
-      if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+    for (const file of Array.from(filesToUpload)) {
+      const isMedia = file.type.startsWith('image/') || file.type.startsWith('video/') || file.name.match(/\.(jpg|jpeg|png|gif|mp4|webm|mov|webp)$/i);
+      if (isMedia) {
         try {
           const storageRef = ref(storage, `products/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9]/g, '_')}`);
           await uploadBytes(storageRef, file);
           const url = await getDownloadURL(storageRef);
           
           setManagedProduct(prev => ({
-            ...prev,
+            ...prev!,
             images: [...(prev?.images || []), url]
           }));
         } catch (error) {
-          console.error("Error uploading file:", error);
-          alert('Failed to upload file via server proxy. Please check connection.');
+          console.warn("Error uploading file to storage, falling back to local FileReader:", error);
+          // Wait for FileReader to complete correctly for multiple files
+          await new Promise<void>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const dataUrl = reader.result as string;
+              setManagedProduct(prev => ({
+                ...prev!,
+                images: [...(prev?.images || []), dataUrl]
+              }));
+              resolve();
+            };
+            reader.readAsDataURL(file);
+          });
         }
       } else {
         alert('Only Image (PNG/JPG/WEBP) and Video (MP4/WEBM) files are supported.');
       }
     }
+    
+    // Allow re-uploading same file by clearing input value
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
-  const handleHeroImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
+  const handleHeroImageUpload = async (filesToUpload: FileList | File[] | null) => {
+    if (!filesToUpload) return;
 
     const newImageUrls: string[] = [];
-    for (const file of Array.from(files)) {
-      if (file.type.startsWith('image/')) {
+    for (const file of Array.from(filesToUpload)) {
+      const isMedia = file.type.startsWith('image/') || file.type.startsWith('video/') || file.name.match(/\.(jpg|jpeg|png|gif|mp4|webm|mov|webp)$/i);
+      if (isMedia) {
         try {
           const storageRef = ref(storage, `hero/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9]/g, '_')}`);
           await uploadBytes(storageRef, file);
           const url = await getDownloadURL(storageRef);
           newImageUrls.push(url);
         } catch (error) {
-          console.error("Error uploading file:", error);
-          alert('Failed to upload hero image.');
+          console.warn("Error uploading hero file to storage, falling back to local FileReader:", error);
+          await new Promise<void>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const dataUrl = reader.result as string;
+              newImageUrls.push(dataUrl);
+              resolve();
+            };
+            reader.readAsDataURL(file);
+          });
         }
       }
     }
@@ -1933,6 +1973,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                       </svg>
                                     </button>
                                     <button onClick={() => setManagedProduct(p)} className="px-4 py-2 border border-zinc-500/30 hover:border-white uppercase text-[9px] font-black transition-all">Edit</button>
+                                    <button onClick={() => window.open(`/#product=${p.id}`, '_blank')} className="px-4 py-2 border border-zinc-500/30 hover:border-[#0055ff] hover:text-[#0055ff] uppercase text-[9px] font-black transition-all" title="View product in storefront">Preview</button>
                                     <button onClick={() => handleDeleteProduct(p.id)} className="p-2 border border-zinc-500/30 hover:border-rose-500 group transition-all" title="Delete">
                                       <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 group-hover:text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -2268,9 +2309,33 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                             </div>
                                           )}
                                           {o.transactionScreenshot && (
-                                            <div className="flex justify-between border-b border-zinc-800/50 pb-1 pt-2">
-                                              <span className="opacity-50">Proof</span>
-                                              <a href={o.transactionScreenshot} target="_blank" rel="noopener noreferrer" className="font-bold text-[#0055ff] hover:underline underline-offset-2">View Screenshot</a>
+                                            <div className="flex flex-col gap-2 border-b border-zinc-800/50 pb-2 pt-2">
+                                              <div className="flex justify-between items-center text-xs">
+                                                <span className="opacity-50">Proof of Payment</span>
+                                                <a 
+                                                  href={o.transactionScreenshot} 
+                                                  target="_blank" 
+                                                  rel="noopener noreferrer" 
+                                                  className="font-bold text-[#0055ff] hover:underline hover:text-[#3377ff] flex items-center gap-1 transition-colors uppercase text-[9px] tracking-widest font-mono"
+                                                >
+                                                  open link ↗
+                                                </a>
+                                              </div>
+                                              <div className="relative w-full h-36 border border-zinc-800 bg-zinc-950/80 overflow-hidden cursor-pointer group flex items-center justify-center rounded-sm">
+                                                <img 
+                                                  src={o.transactionScreenshot} 
+                                                  alt="Payment Proof" 
+                                                  className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
+                                                  referrerPolicy="no-referrer"
+                                                  onClick={() => window.open(o.transactionScreenshot, '_blank')}
+                                                />
+                                                <div 
+                                                  onClick={() => window.open(o.transactionScreenshot, '_blank')}
+                                                  className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-200"
+                                                >
+                                                  <span className="text-[9px] font-black uppercase text-white tracking-widest font-mono border border-white/20 px-2.5 py-1 bg-zinc-900">View Fullscreen</span>
+                                                </div>
+                                              </div>
                                             </div>
                                           )}
                                         </div>
@@ -2493,7 +2558,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                             setTimeout(() => setCrmProcessing(false), 1500);
                           }
                         }}
-                        className={`w-full bg-transparent text-sm font-bold uppercase tracking-widest outline-none border-b border-zinc-800 focus:border-[#0055ff] pb-2 transition-colors ${crmProcessing ? 'animate-pulse text-[#0055ff]' : isDarkMode ? 'text-white' : 'text-black'}`}
+                        className={`w-full bg-transparent text-sm font-bold tracking-widest outline-none border-b border-zinc-800 focus:border-[#0055ff] pb-2 transition-colors ${crmProcessing ? 'animate-pulse text-[#0055ff]' : isDarkMode ? 'text-white' : 'text-black'}`}
                       />
                       {crmProcessing && <span className="absolute right-0 top-0 text-[10px] font-black uppercase text-[#0055ff] animate-pulse">Processing...</span>}
                     </div>
@@ -2789,7 +2854,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                 <div className={`w-80 border flex flex-col rounded-xl overflow-hidden ${cardClasses}`}>
                   <div className="p-4 border-b border-zinc-800 space-y-4 bg-zinc-900/50">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-xs font-bold uppercase tracking-widest text-[#0084ff]">Chats</h3>
+                      <h3 className="text-xs font-bold tracking-widest text-[#0084ff]">Chats</h3>
                       <span className="text-[10px] px-2 py-0.5 bg-[#0084ff]/20 text-[#0084ff] rounded-full font-bold">{chatSessions.length}</span>
                     </div>
                     <div className="relative">
@@ -2838,7 +2903,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                          <div className="w-12 h-12 rounded-full bg-zinc-900 flex items-center justify-center text-zinc-700 border border-zinc-800">
                            <MessageSquare className="w-6 h-6" />
                          </div>
-                         <p className="text-xs text-zinc-600 font-bold uppercase tracking-widest">No active messages</p>
+                         <p className="text-xs text-zinc-600 font-bold tracking-widest">No active messages</p>
                       </div>
                     )}
                   </div>
@@ -2864,7 +2929,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                 {chatSessions.find(s => s.id === selectedChatId)?.customerName}
                               </h4>
                               {chatSessions.find(s => s.id === selectedChatId)?.isPresenceActive && (
-                                <span className="text-[9px] text-emerald-500 font-bold uppercase tracking-tight flex items-center gap-1">
+                                <span className="text-[9px] text-emerald-500 font-bold tracking-tight flex items-center gap-1">
                                   <span className="w-1 h-1 bg-emerald-500 rounded-full"></span> Active now
                                 </span>
                               )}
@@ -2926,7 +2991,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                     key={idx}
                                     onClick={() => setAdminChatInput(suggestion)}
                                     disabled={!canReplyToChat}
-                                    className={`text-[10px] px-3 py-1 bg-zinc-800/40 border border-zinc-700/30 transition-all font-bold uppercase tracking-tight ${canReplyToChat ? 'hover:border-[#0084ff]/50 hover:bg-[#0084ff]/5 text-zinc-400 hover:text-white' : 'text-zinc-600 cursor-not-allowed hidden'}`}
+                                    className={`text-[10px] px-3 py-1 bg-zinc-800/40 border border-zinc-700/30 transition-all font-bold tracking-tight ${canReplyToChat ? 'hover:border-[#0084ff]/50 hover:bg-[#0084ff]/5 text-zinc-400 hover:text-white' : 'text-zinc-600 cursor-not-allowed hidden'}`}
                                   >
                                     {suggestion}
                                   </button>
@@ -3014,14 +3079,69 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
             )}
 
             {activeTab === 'accounting' && (
-              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500" id="accounting-summary-print-area">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-zinc-800 pb-4">
+                  <div className="flex flex-wrap items-end gap-4">
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-widest block mb-1">Start Date</label>
+                      <input type="date" value={accountingStartDate} onChange={e => setAccountingStartDate(e.target.value)} className={`px-4 py-2 border ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-transparent border-black'} outline-none text-sm focus:border-[#0055ff]`} />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-widest block mb-1">End Date</label>
+                      <input type="date" value={accountingEndDate} onChange={e => setAccountingEndDate(e.target.value)} className={`px-4 py-2 border ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-transparent border-black'} outline-none text-sm focus:border-[#0055ff]`} />
+                    </div>
+                    <button onClick={() => { setAccountingStartDate(''); setAccountingEndDate(''); }} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white text-[10px] font-black uppercase tracking-widest h-10">Clear Filter</button>
+                  </div>
+                  <button onClick={() => {
+                    const printWindow = window.open('', '', 'height=800,width=1000');
+                    const printContents = document.getElementById('accounting-summary-print-area')?.innerHTML;
+                    if(printWindow && printContents) {
+                      printWindow.document.write(`<html><head><title>Profit Summary</title>
+                        <script src="https://cdn.tailwindcss.com"></script>
+                        <style>
+                          body { padding: 40px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; background: white; color: black; }
+                          button, input, select, label { display: none !important; }
+                          * { border-color: #e5e7eb !important; color: black !important; background: transparent !important; }
+                          table { border-collapse: collapse; width: 100%; mt-4; }
+                          th, td { border-bottom: 1px solid #e5e7eb; padding: 12px; text-align: left; }
+                          .text-rose-500 { color: #ef4444 !important; }
+                          .text-emerald-500 { color: #10b981 !important; }
+                          canvas, svg { opacity: 0.5; }
+                        </style>
+                      </head><body>
+                        <h1 class="text-2xl font-black mb-8 border-b pb-4">Profit Summary ${accountingStartDate ? 'from ' + accountingStartDate : ''} ${accountingEndDate ? 'to ' + accountingEndDate : ''}</h1>
+                        ${printContents}
+                      </body></html>`);
+                      printWindow.document.close();
+                      printWindow.focus();
+                      setTimeout(() => {
+                        printWindow.print();
+                        printWindow.close();
+                      }, 1000);
+                    }
+                  }} className="px-6 py-2 bg-[#0055ff] hover:bg-[#0044cc] text-white text-[10px] font-black uppercase tracking-widest gap-2 flex items-center h-10 shadow-lg">
+                    <Download className="w-4 h-4" /> Download / Print Profit
+                  </button>
+                </div>
                 {/* Financial Overview Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   {(() => {
-                    const activeOrders = orders.filter(o => o.status !== 'CANCELLED');
+                    let filteredOrders = orders.filter(o => o.status !== 'CANCELLED');
+                    let filteredExpenses = expenses;
+                    
+                    if (accountingStartDate) {
+                      filteredOrders = filteredOrders.filter(o => o.date >= accountingStartDate);
+                      filteredExpenses = filteredExpenses.filter(e => e.date >= accountingStartDate);
+                    }
+                    if (accountingEndDate) {
+                      filteredOrders = filteredOrders.filter(o => o.date <= accountingEndDate);
+                      filteredExpenses = filteredExpenses.filter(e => e.date <= accountingEndDate);
+                    }
+
+                    const activeOrders = filteredOrders;
                     const revenue = activeOrders.reduce((sum, o) => sum + o.total, 0);
                     const cogs = activeOrders.reduce((itemSum, o) => itemSum + (o.orderItems?.reduce((acc, item) => acc + (products.find(p => p.id === item.productId)?.cost || 0) * item.quantity, 0) || 0), 0);
-                    const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+                    const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
                     const grossProfit = revenue - cogs;
                     const netProfit = grossProfit - totalExpenses;
 
@@ -3035,7 +3155,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                             </div>
                           </div>
                           <div className="text-2xl font-black mb-1">৳{revenue.toLocaleString()}</div>
-                          <div className="text-[10px] opacity-40 font-bold uppercase tracking-tight">Net_Sales_Volume</div>
+                          <div className="text-[10px] opacity-40 font-bold tracking-tight">Net_Sales_Volume</div>
                         </div>
                         <div className={`p-6 border ${cardClasses} shadow-sm group hover:border-amber-500 transition-all`}>
                           <div className="flex justify-between items-start mb-4">
@@ -3045,7 +3165,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                             </div>
                           </div>
                           <div className="text-2xl font-black mb-1">৳{cogs.toLocaleString()}</div>
-                          <div className="text-[10px] opacity-40 font-bold uppercase tracking-tight">Cost_of_Goods_Sold</div>
+                          <div className="text-[10px] opacity-40 font-bold tracking-tight">Cost_of_Goods_Sold</div>
                         </div>
                         <div className={`p-6 border ${cardClasses} shadow-sm group hover:border-rose-500 transition-all`}>
                           <div className="flex justify-between items-start mb-4">
@@ -3055,7 +3175,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                             </div>
                           </div>
                           <div className="text-2xl font-black mb-1">৳{totalExpenses.toLocaleString()}</div>
-                          <div className="text-[10px] opacity-40 font-bold uppercase tracking-tight">Operating_Expenditure</div>
+                          <div className="text-[10px] opacity-40 font-bold tracking-tight">Operating_Expenditure</div>
                         </div>
                         <div className={`p-6 border border-[#0055ff] ${isDarkMode ? 'bg-[#0055ff]/5' : 'bg-[#0055ff]/10'} shadow-sm group transition-all`}>
                           <div className="flex justify-between items-start mb-4">
@@ -3065,7 +3185,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                             </div>
                           </div>
                           <div className={`text-2xl font-black mb-1 ${netProfit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>৳{netProfit.toLocaleString()}</div>
-                          <div className="text-[10px] opacity-40 font-bold uppercase tracking-tight">Bottom_Line_Earnings</div>
+                          <div className="text-[10px] opacity-40 font-bold tracking-tight">Bottom_Line_Earnings</div>
                         </div>
                       </>
                     );
@@ -3107,13 +3227,17 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-800/30">
-                        {expenses.length > 0 ? (
-                          expenses.sort((a, b) => b.date.localeCompare(a.date)).map((expense) => (
+                        {expenses
+                          .filter(e => (!accountingStartDate || e.date >= accountingStartDate) && (!accountingEndDate || e.date <= accountingEndDate))
+                          .length > 0 ? (
+                          expenses
+                            .filter(e => (!accountingStartDate || e.date >= accountingStartDate) && (!accountingEndDate || e.date <= accountingEndDate))
+                            .sort((a, b) => b.date.localeCompare(a.date)).map((expense) => (
                             <tr key={expense.id} className={`transition-colors ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}>
                               <td className="px-6 py-4 opacity-60 font-mono">{new Date(expense.date).toLocaleDateString()}</td>
                               <td className="px-6 py-4">
                                 <div className="font-bold">{expense.title}</div>
-                                {expense.notes && <div className="text-[9px] opacity-40 normal-case font-medium">{expense.notes}</div>}
+                                {expense.notes && <div className="text-[9px] opacity-40 uppercase font-medium">{expense.notes}</div>}
                               </td>
                               <td className="px-6 py-4">
                                 <span className={`px-2 py-0.5 border text-[8px] tracking-tighter ${isDarkMode ? 'bg-zinc-900 border-zinc-700' : 'bg-zinc-100 border-zinc-300'}`}>
@@ -3428,12 +3552,51 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                   </div>
                   
                   <div className="space-y-6">
-                    <div className="flex gap-4 items-center">
-                      <label className="bg-[#0055ff] hover:bg-[#0044cc] text-white px-4 py-2 text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px]">
-                        Upload_Image
-                        <input type="file" multiple accept="image/*" className="hidden" onChange={handleHeroImageUpload} />
+                    <div 
+                      onDragOver={(e) => { e.preventDefault(); setDragOverStatus('hero'); }}
+                      onDragLeave={() => setDragOverStatus(null)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragOverStatus(null);
+                        if (e.dataTransfer.files?.length > 0) {
+                          handleHeroImageUpload(e.dataTransfer.files);
+                        }
+                      }}
+                      className={`border-2 border-dashed p-8 flex flex-col justify-center items-center gap-3 transition-colors ${dragOverStatus === 'hero' ? 'border-[#0055ff] bg-[#0055ff]/10' : 'border-zinc-800 hover:border-zinc-600'}`}
+                    >
+                      <label className="text-center cursor-pointer flex flex-col items-center gap-3 w-full">
+                        <div className="bg-[#0055ff] hover:bg-[#0044cc] text-white px-6 py-3 text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px]">
+                          Upload_Image
+                        </div>
+                        <span className="text-[9px] font-black uppercase tracking-widest opacity-40">Or drag and drop files here</span>
+                        <input type="file" multiple accept="image/*" className="hidden" onChange={(e) => {
+                          handleHeroImageUpload(e.target.files);
+                          if (e.target) e.target.value = '';
+                        }} />
                       </label>
                     </div>
+
+                    {socialSettings.heroImages && socialSettings.heroImages.length > 0 && (
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pt-4 border-t border-zinc-800">
+                        {socialSettings.heroImages.map((img, idx) => (
+                           <div key={idx} className="aspect-video relative group border border-zinc-800 bg-black">
+                             <img src={img} className="w-full h-full object-cover" alt="Hero Banner Preview" />
+                             <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-center items-center gap-2">
+                               <button onClick={() => window.open(img, '_blank')} className="w-24 text-[9px] font-black uppercase px-2 py-1.5 bg-[#0055ff] text-white tracking-widest border border-transparent hover:border-white transition-all">Preview</button>
+                               <button 
+                                 onClick={() => setSocialSettings(prev => ({
+                                   ...prev,
+                                   heroImages: prev.heroImages?.filter((_, i) => i !== idx)
+                                 }))}
+                                 className="w-24 text-[9px] font-black uppercase px-2 py-1.5 bg-rose-500 text-white tracking-widest border border-transparent hover:border-white transition-all"
+                               >
+                                 Remove
+                               </button>
+                             </div>
+                           </div>
+                        ))}
+                      </div>
+                    )}
 
                     <div className="space-y-3">
                       <label className="text-[10px] font-black uppercase opacity-40">Banner_Image_URLs</label>
@@ -3452,15 +3615,23 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                  <div className={`border p-8 rounded-none space-y-8 ${cardClasses}`}>
-                    <h3 className="text-zinc-500 text-[9px] font-black uppercase tracking-widest">Platform_Connections</h3>
+                  <div className={`border p-8 rounded-none space-y-8 relative ${cardClasses}`}>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-zinc-500 text-[9px] font-black uppercase tracking-widest">Platform_Connections</h3>
+                      {user.role !== AdminRole.SUPER_ADMIN && (
+                        <span className="text-[8px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-0.5 uppercase font-black tracking-widest">
+                          Super Admin Controlled
+                        </span>
+                      )}
+                    </div>
                     
                     <div className="space-y-6">
-                      {['facebook', 'instagram', 'linkedin', 'x'].map((platform) => (
+                      {['facebook', 'instagram', 'linkedin', 'x', 'behance'].map((platform) => (
                         <div key={platform} className="space-y-3">
                           <div className="flex items-center justify-between">
                             <label className="text-[10px] font-black uppercase opacity-40">{platform}_URL</label>
                             <button 
+                              disabled={user.role !== AdminRole.SUPER_ADMIN}
                               onClick={() => setSocialSettings({
                                 ...socialSettings,
                                 visibility: {
@@ -3468,26 +3639,28 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                   [platform]: !socialSettings.visibility[platform as keyof typeof socialSettings.visibility]
                                 }
                               })}
-                              className={`text-[8px] font-black uppercase px-2 py-1 rounded-none border transition-all ${socialSettings.visibility[platform as keyof typeof socialSettings.visibility] ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' : 'bg-zinc-500/10 text-zinc-500 border-zinc-500/30'}`}
+                              className={`text-[8px] font-black uppercase px-2 py-1 rounded-none border transition-all ${socialSettings.visibility[platform as keyof typeof socialSettings.visibility] ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' : 'bg-zinc-500/10 text-zinc-500 border-zinc-500/30'} ${user.role !== AdminRole.SUPER_ADMIN ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
                               {socialSettings.visibility[platform as keyof typeof socialSettings.visibility] ? 'VISIBLE' : 'HIDDEN'}
                             </button>
                           </div>
                           <input 
                             type="text" 
-                            value={socialSettings[platform as keyof Omit<SocialSettings, 'visibility' | 'announcementBanner' | 'merchantNumbers'>] as string} 
+                            disabled={user.role !== AdminRole.SUPER_ADMIN}
+                            value={(socialSettings[platform as keyof Omit<SocialSettings, 'visibility' | 'announcementBanner' | 'merchantNumbers'>] as string) || ''} 
                             onChange={(e) => setSocialSettings({ ...socialSettings, [platform]: e.target.value })}
-                            className={`w-full px-4 py-3 text-xs font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
+                            className={`w-full px-4 py-3 text-xs font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'} ${user.role !== AdminRole.SUPER_ADMIN ? 'opacity-50 cursor-not-allowed border-zinc-800/20' : ''}`}
                           />
                         </div>
                       ))}
                     </div>
                     
                     <button 
+                      disabled={user.role !== AdminRole.SUPER_ADMIN}
                       onClick={handleSaveSocialSettings}
-                      className="w-full py-4 bg-[#0055ff] text-white text-[10px] font-black uppercase tracking-[0.3em] hover:scale-[1.02] transition-transform"
+                      className={`w-full py-4 text-white text-[10px] font-black uppercase tracking-[0.3em] ${user.role !== AdminRole.SUPER_ADMIN ? 'bg-zinc-800/50 text-zinc-500 cursor-not-allowed border border-zinc-800/20' : 'bg-[#0055ff] hover:scale-[1.02] transition-transform'}`}
                     >
-                      Sync_Global_Settings
+                      {user.role === AdminRole.SUPER_ADMIN ? 'Sync_Global_Settings' : 'Requires_Super_Admin_Role'}
                     </button>
                   </div>
 
@@ -3527,7 +3700,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                           </div>
                           <div>
                             <div className="text-[10px] font-black uppercase tracking-widest mb-1">Night_Protocol</div>
-                            <div className="text-[8px] opacity-40 font-bold uppercase">Deep black palette for low light operations.</div>
+                            <div className="text-[8px] opacity-40 font-bold">Deep black palette for low light operations.</div>
                           </div>
                         </button>
                         <button 
@@ -3539,7 +3712,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                           </div>
                           <div>
                             <div className="text-[10px] font-black uppercase tracking-widest mb-1">Day_Luminance</div>
-                            <div className="text-[8px] opacity-40 font-bold uppercase">High-contrast white for peak visibility.</div>
+                            <div className="text-[8px] opacity-40 font-bold">High-contrast white for peak visibility.</div>
                           </div>
                         </button>
                       </div>
@@ -3916,11 +4089,11 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                               </div>
                             </td>
                             <td className="px-6 py-4 max-w-xs">
-                              <p className="line-clamp-2 text-[10px] leading-relaxed opacity-70 normal-case">{r.comment}</p>
+                              <p className="line-clamp-2 text-[10px] leading-relaxed opacity-70 uppercase">{r.comment}</p>
                               {r.reply && (
                                 <div className="mt-2 p-2 bg-[#0055ff]/5 border-l-2 border-[#0055ff]">
                                   <div className="text-[8px] font-black text-[#0055ff] mb-1">REPLY:</div>
-                                  <p className="text-[9px] italic opacity-60 normal-case">{r.reply}</p>
+                                  <p className="text-[9px] italic opacity-60 uppercase">{r.reply}</p>
                                 </div>
                               )}
                             </td>
@@ -4047,7 +4220,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                           type="text"
                           value={newUser.username || ''}
                           onChange={(e) => setNewUser({...newUser, username: e.target.value})}
-                          className={`w-full p-4 border text-[10px] font-bold uppercase outline-none focus:border-[#0055ff] transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-300'}`}
+                          className={`w-full p-4 border text-[10px] font-bold outline-none focus:border-[#0055ff] transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-300'}`}
                           placeholder="OPERATOR_CODE"
                         />
                       </div>
@@ -4066,7 +4239,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         <select
                           value={newUser.role || AdminRole.SUPPORT}
                           onChange={(e) => setNewUser({...newUser, role: e.target.value as AdminRole})}
-                          className={`w-full p-4 border text-[10px] font-bold uppercase outline-none focus:border-[#0055ff] transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-300'}`}
+                          className={`w-full p-4 border text-[10px] font-bold outline-none focus:border-[#0055ff] transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-300'}`}
                         >
                           <option value={AdminRole.SUPER_ADMIN}>SUPER_ADMIN // OVERRIDE</option>
                           <option value={AdminRole.EDITOR}>EDITOR // CATALOG</option>
@@ -4499,18 +4672,32 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         </div>
                         <div className="flex flex-col gap-1 text-[10px] uppercase opacity-60">
                           <span>Shipping Address</span>
-                          <span className="font-black text-white normal-case">{managedOrder.shippingAddress || 'N/A'}</span>
+                          <span className="font-black text-white uppercase">{managedOrder.shippingAddress || 'N/A'}</span>
                         </div>
                         {managedOrder.billingAddress && (
                           <div className="flex flex-col gap-1 text-[10px] uppercase opacity-60">
                             <span>Billing Address</span>
-                            <span className="font-black text-white normal-case">{managedOrder.billingAddress}</span>
+                            <span className="font-black text-white uppercase">{managedOrder.billingAddress}</span>
                           </div>
                         )}
                         {managedOrder.trackingNumber && (
                           <div className="flex flex-col gap-1 text-[10px] uppercase opacity-60">
                             <span>Tracking Info</span>
                             <span className="font-black text-white">{managedOrder.trackingProvider || 'PROVIDER'}: {managedOrder.trackingNumber}</span>
+                          </div>
+                        )}
+                        {managedOrder.transactionScreenshot && (
+                          <div className="flex flex-col gap-1 text-[10px] uppercase opacity-80 pt-2 border-t border-zinc-800/30 mt-2">
+                            <span className="text-zinc-500 font-bold mb-1">Payment Proof Screenshot</span>
+                            <div className="relative w-full h-28 border border-zinc-800 bg-zinc-950/80 overflow-hidden cursor-pointer group flex items-center justify-center rounded-sm">
+                              <img 
+                                src={managedOrder.transactionScreenshot} 
+                                alt="Payment Proof" 
+                                className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
+                                referrerPolicy="no-referrer"
+                                onClick={() => window.open(managedOrder.transactionScreenshot, '_blank')}
+                              />
+                            </div>
                           </div>
                         )}
                       </div>
@@ -5193,6 +5380,9 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                   →
                                 </button>
                              </div>
+                             <div className="flex gap-1 mb-1">
+                                <button onClick={() => window.open(img, '_blank')} className="w-full text-[8px] font-black uppercase bg-zinc-800 text-white px-2 py-1 hover:bg-[#0055ff] transition-colors">Preview</button>
+                             </div>
                              <button onClick={() => setPrimaryImage(idx)} className="w-full text-[8px] font-black uppercase bg-white text-black px-2 py-1 hover:bg-[#0055ff] hover:text-white transition-colors">Set Primary</button>
                              {!img.includes('.mp4') && !img.includes('.webm') && (
                                <div className="w-full space-y-1">
@@ -5220,7 +5410,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                       <input 
                         type="file" 
                         ref={fileInputRef} 
-                        onChange={handleFileUpload} 
+                        onChange={(e) => handleFileUpload(e.target.files)} 
                         accept="image/*,video/mp4,video/webm" 
                         multiple 
                         className="hidden" 
@@ -5233,11 +5423,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                           e.preventDefault();
                           setDragOverStatus(null);
                           if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                            // Create a synthetic event
-                            const syntheticEvent = {
-                              target: { files: e.dataTransfer.files }
-                            } as any;
-                            handleFileUpload(syntheticEvent);
+                            handleFileUpload(e.dataTransfer.files);
                           }
                         }}
                         className={`aspect-[3/4] border-2 border-dashed flex flex-col items-center justify-center p-4 text-center cursor-pointer transition-all ${dragOverStatus === 'active' ? 'border-[#0055ff] bg-[#0055ff]/10' : 'hover:border-[#0055ff]'} ${isDarkMode ? 'border-zinc-800 bg-zinc-900/20' : 'border-zinc-200 bg-zinc-50'}`}
@@ -5969,7 +6155,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         <h4 className="text-[10px] font-black uppercase text-[#0055ff] tracking-widest">Realtime_Network_Status</h4>
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                          <span className="text-[9px] font-bold uppercase opacity-60">Connected</span>
+                          <span className="text-[9px] font-bold opacity-60">Connected</span>
                         </div>
                       </div>
                       <div className={`p-6 border border-dashed ${isDarkMode ? 'border-zinc-800' : 'border-zinc-200'} space-y-4`}>

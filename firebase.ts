@@ -99,14 +99,26 @@ export const signInWithFacebook = async () => {
 };
 
 export const setupRecaptcha = (containerId: string) => {
-  if (!(window as any).recaptchaVerifier) {
-    (window as any).recaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
-      'size': 'invisible',
-      'callback': () => {
-        // reCAPTCHA solved
-      }
-    });
+  if ((window as any).recaptchaVerifier) {
+    try {
+      (window as any).recaptchaVerifier.clear();
+    } catch (e) {
+      console.warn("Error clearing old recaptcha verifier", e);
+    }
+    (window as any).recaptchaVerifier = null;
   }
+
+  const container = document.getElementById(containerId);
+  if (container) {
+    container.innerHTML = '';
+  }
+
+  (window as any).recaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
+    'size': 'invisible',
+    'callback': () => {
+      // reCAPTCHA solved
+    }
+  });
   return (window as any).recaptchaVerifier;
 };
 

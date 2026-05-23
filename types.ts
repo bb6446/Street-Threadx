@@ -162,11 +162,13 @@ export interface SocialSettings {
   instagram: string;
   linkedin: string;
   x: string;
+  behance?: string;
   visibility: {
     facebook: boolean;
     instagram: boolean;
     linkedin: boolean;
     x: boolean;
+    behance?: boolean;
   };
   announcementBanner?: {
     enabled: boolean;

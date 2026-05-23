@@ -1,15 +1,115 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Customer, Order, Product, ViewState } from '../types';
+import { collection, query, where, getDocs, doc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 
 interface Props {
-  customerInfo: { name: string; email: string; phone?: string; address?: string };
+  customerInfo: { 
+    name: string; 
+    email: string; 
+    phone?: string; 
+    address?: string;
+    city?: string;
+    zip?: string;
+    notes?: string;
+  };
   orders: Order[];
   products: Product[];
   onNavigateBack: () => void;
   isDarkMode: boolean;
+  onUpdateCustomerInfo?: (updatedData: any) => void;
 }
 
-const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNavigateBack, isDarkMode }) => {
+const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNavigateBack, isDarkMode, onUpdateCustomerInfo }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(customerInfo.name || '');
+  const [editEmail, setEditEmail] = useState(customerInfo.email || '');
+  const [editPhone, setEditPhone] = useState(customerInfo.phone || '');
+  const [editAddress, setEditAddress] = useState(customerInfo.address || '');
+  const [editCity, setEditCity] = useState(customerInfo.city || 'Dhaka');
+  const [editZip, setEditZip] = useState(customerInfo.zip || '');
+  const [editNotes, setEditNotes] = useState(customerInfo.notes || '');
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    if (customerInfo) {
+      setEditName(customerInfo.name || '');
+      setEditEmail(customerInfo.email || '');
+      setEditPhone(customerInfo.phone || '');
+      setEditAddress(customerInfo.address || '');
+      setEditCity(customerInfo.city || 'Dhaka');
+      setEditZip(customerInfo.zip || '');
+      setEditNotes(customerInfo.notes || '');
+    }
+  }, [customerInfo, isEditing]);
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editName.trim()) {
+      setErrorMsg('Entity Name is required.');
+      return;
+    }
+    if (!editEmail.trim()) {
+      setErrorMsg('Email Address is required.');
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    try {
+      const updatedFields = {
+        name: editName.trim(),
+        email: editEmail.trim(),
+        phone: editPhone.trim(),
+        address: editAddress.trim(),
+        city: editCity.trim(),
+        zip: editZip.trim(),
+        notes: editNotes.trim(),
+      };
+
+      // 1. Locate/Update customer doc in Firestore by email identifier
+      const customersRef = collection(db, 'customers');
+      const q = query(customersRef, where('email', '==', customerInfo.email));
+      const querySnapshot = await getDocs(q);
+
+      let customerId = '';
+      if (!querySnapshot.empty) {
+        const firstDoc = querySnapshot.docs[0];
+        customerId = firstDoc.id;
+        await setDoc(doc(db, 'customers', customerId), updatedFields, { merge: true });
+      } else {
+        customerId = Math.random().toString(36).substr(2, 9);
+        const newCustomerData = {
+          id: customerId,
+          totalSpent: 0,
+          orders: 0,
+          lastSeen: new Date().toISOString(),
+          ...updatedFields
+        };
+        await setDoc(doc(db, 'customers', customerId), newCustomerData);
+      }
+
+      // 2. Propagate state back to the root component
+      if (onUpdateCustomerInfo) {
+        onUpdateCustomerInfo(updatedFields);
+      }
+
+      setSuccessMsg('IDENTITY RECORDS SAVED SUCCESSFULLY.');
+      setIsEditing(false);
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } catch (err: any) {
+      console.error('Error saving customer changes:', err);
+      setErrorMsg(err.message || 'FAILED TO ESTABLISH SECURITY RECORD UPDATE.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const customerOrders = useMemo(() => {
     return [...orders]
       .filter(o => o.customerEmail.toLowerCase() === customerInfo.email.toLowerCase())
@@ -37,8 +137,14 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
           Identity_Records
         </h1>
         <p className="text-zinc-500 font-mono text-xs mb-12 uppercase">
-          Welcome back, {customerInfo.name.split(' ')[0]}
+          Welcome back, {customerInfo.name ? customerInfo.name.split(' ')[0] : 'User'}
         </p>
+
+        {successMsg && (
+          <div className="mb-6 bg-emerald-500/10 border border-emerald-500/30 p-4 text-emerald-500 text-[10px] font-black uppercase tracking-widest text-center animate-pulse">
+            {successMsg}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
           {/* Profile Sidebar */}
@@ -47,28 +153,160 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
               <h2 className="text-sm font-black uppercase tracking-widest border-b border-zinc-800 pb-4 mb-4">
                 Profile_Data
               </h2>
-              <div className="space-y-4">
-                <div>
-                  <div className="text-[9px] font-black uppercase text-zinc-500">Name</div>
-                  <div className="text-xs font-bold mt-1">{customerInfo.name}</div>
-                </div>
-                <div>
-                  <div className="text-[9px] font-black uppercase text-zinc-500">Email</div>
-                  <div className="text-xs font-bold mt-1 max-w-full break-all">{customerInfo.email}</div>
-                </div>
-                {customerInfo.phone && (
-                  <div>
-                    <div className="text-[9px] font-black uppercase text-zinc-500">Phone</div>
-                    <div className="text-xs font-bold mt-1">{customerInfo.phone}</div>
+              
+              {!isEditing ? (
+                <>
+                  <div className="space-y-4">
+                    <div>
+                      <div className="text-[9px] font-black uppercase text-zinc-500">Name</div>
+                      <div className="text-xs font-bold mt-1 uppercase">{customerInfo.name || 'UNESTABLISHED'}</div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] font-black uppercase text-zinc-500">Email Address</div>
+                      <div className="text-xs font-bold mt-1 max-w-full break-all uppercase">{customerInfo.email}</div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] font-black uppercase text-zinc-500">Phone Contact</div>
+                      <div className="text-xs font-bold mt-1 uppercase">{customerInfo.phone || 'NOT SET'}</div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] font-black uppercase text-zinc-500">Shipping Address</div>
+                      <div className="text-xs font-bold mt-1 leading-relaxed uppercase">{customerInfo.address || 'NOT SET'}</div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] font-black uppercase text-zinc-500">City / District</div>
+                      <div className="text-xs font-bold mt-1 uppercase">{customerInfo.city || 'Dhaka'}</div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] font-black uppercase text-zinc-500">ZIP / Postal Code</div>
+                      <div className="text-xs font-bold mt-1 uppercase">{customerInfo.zip || 'NOT SET'}</div>
+                    </div>
+                    {customerInfo.notes && (
+                      <div>
+                        <div className="text-[9px] font-black uppercase text-zinc-500">Other Details / Prefs</div>
+                        <div className="text-xs font-bold mt-1 leading-relaxed uppercase">{customerInfo.notes}</div>
+                      </div>
+                    )}
                   </div>
-                )}
-                {customerInfo.address && (
-                  <div>
-                    <div className="text-[9px] font-black uppercase text-zinc-500">Primary_Address</div>
-                    <div className="text-xs font-bold mt-1 leading-relaxed">{customerInfo.address}</div>
+                  
+                  <div className="pt-6 mt-6 border-t border-zinc-800">
+                    <button 
+                      onClick={() => {
+                        setErrorMsg('');
+                        setIsEditing(true);
+                      }}
+                      className="w-full bg-[#0055ff] hover:bg-white hover:text-black text-white text-[10px] font-black uppercase tracking-[0.2em] py-4 transition-all"
+                    >
+                      Edit_Identity_Details
+                    </button>
                   </div>
-                )}
-              </div>
+                </>
+              ) : (
+                <form onSubmit={handleSaveProfile} className="space-y-4">
+                  {errorMsg && (
+                    <div className="bg-rose-500/10 border border-rose-500/30 p-3 text-rose-500 text-[9px] font-black uppercase tracking-widest text-center">
+                      {errorMsg}
+                    </div>
+                  )}
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase text-zinc-500">Legal Entity Name</label>
+                    <input 
+                      type="text"
+                      className="w-full bg-zinc-900/50 border border-zinc-800 px-3 py-2 text-xs font-bold text-white outline-none focus:border-[#0055ff] transition-all uppercase"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      placeholder="FULL NAME"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase text-zinc-500">Network Email (Gmail)</label>
+                    <input 
+                      type="email"
+                      className="w-full bg-zinc-900/50 border border-zinc-800 px-3 py-2 text-xs font-bold text-white outline-none focus:border-[#0055ff] transition-all uppercase opacity-60"
+                      value={editEmail}
+                      disabled
+                      placeholder="EMAIL@DOMAIN.COM"
+                    />
+                    <span className="text-[8px] text-zinc-600 block lowercase">authenticated email is readonly</span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase text-zinc-500">Phone Contact</label>
+                    <input 
+                      type="tel"
+                      className="w-full bg-zinc-900/50 border border-zinc-800 px-3 py-2 text-xs font-bold text-white outline-none focus:border-[#0055ff] transition-all uppercase"
+                      value={editPhone}
+                      onChange={(e) => setEditPhone(e.target.value)}
+                      placeholder="+8801XXXXXXXXX"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase text-zinc-500">Shipping Address</label>
+                    <textarea 
+                      rows={2}
+                      className="w-full bg-zinc-900/50 border border-zinc-800 px-3 py-2 text-xs font-bold text-white outline-none focus:border-[#0055ff] transition-all uppercase resize-none"
+                      value={editAddress}
+                      onChange={(e) => setEditAddress(e.target.value)}
+                      placeholder="STREET, SECTOR, AREA DETAILS"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black uppercase text-zinc-500">City / District</label>
+                      <input 
+                        type="text"
+                        className="w-full bg-zinc-900/50 border border-zinc-800 px-3 py-2 text-xs font-bold text-white outline-none focus:border-[#0055ff] transition-all uppercase"
+                        value={editCity}
+                        onChange={(e) => setEditCity(e.target.value)}
+                        placeholder="DHAKA"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black uppercase text-zinc-500">ZIP / Postal</label>
+                      <input 
+                        type="text"
+                        className="w-full bg-zinc-900/50 border border-zinc-800 px-3 py-2 text-xs font-bold text-white outline-none focus:border-[#0055ff] transition-all uppercase"
+                        value={editZip}
+                        onChange={(e) => setEditZip(e.target.value)}
+                        placeholder="1200"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase text-zinc-500">Other Details / Notes</label>
+                    <textarea 
+                      rows={2}
+                      className="w-full bg-zinc-900/50 border border-zinc-800 px-3 py-2 text-xs font-bold text-white outline-none focus:border-[#0055ff] transition-all uppercase resize-none"
+                      value={editNotes}
+                      onChange={(e) => setEditNotes(e.target.value)}
+                      placeholder="STYLE PREFERENCES, SIZING OR INSTR."
+                    />
+                  </div>
+
+                  <div className="pt-2 grid grid-cols-2 gap-2">
+                    <button 
+                      type="button"
+                      onClick={() => setIsEditing(false)}
+                      className="w-full border border-zinc-850 hover:bg-zinc-900 text-zinc-500 hover:text-white py-3 text-[10px] font-black uppercase tracking-[0.1em] transition-colors"
+                      disabled={isSaving}
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      type="submit"
+                      className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 text-[10px] font-black uppercase tracking-[0.1em] transition-colors"
+                      disabled={isSaving}
+                    >
+                      {isSaving ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
 
