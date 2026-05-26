@@ -86,7 +86,7 @@ export const generateModelSwapImages = async (base64Image: string, productName: 
   const generateOne = async (seed: number) => {
       try {
         const response = await ai.models.generateContent({
-          model: 'imagen-3.0-generate-002',
+          model: 'gemini-3.1-flash-image-preview',
           contents: {
             parts: [
               {
@@ -120,7 +120,7 @@ export const generateModelSwapImages = async (base64Image: string, productName: 
         }
         if (error.message?.includes('404') || error.message?.includes('not found')) {
            const fallbackRes = await ai.models.generateContent({
-             model: 'imagen-3.0-generate-002',
+             model: 'gemini-3.1-flash-image-preview',
              contents: {
                parts: [
                  { inlineData: { data: base64Image, mimeType: "image/jpeg" } },
@@ -151,7 +151,7 @@ export const generatePromotionalImage = async (prompt: string) => {
   
   try {
     const response = await ai.models.generateContent({
-      model: 'imagen-3.0-generate-002',
+      model: 'gemini-3.1-flash-image-preview',
       contents: {
         parts: [{ text: fullPrompt }]
       },
@@ -173,7 +173,7 @@ export const generatePromotionalImage = async (prompt: string) => {
     if (error.message?.includes('404') || error.message?.includes('not found') || error.message?.includes('INVALID_ARGUMENT')) {
        console.log("Falling back from failed model...");
        const fallbackRes = await ai.models.generateContent({
-         model: 'imagen-3.0-generate-002',
+         model: 'gemini-3.1-flash-image-preview',
          contents: { parts: [{ text: fullPrompt }] },
          config: { imageConfig: { aspectRatio: "1:1" } }
        });

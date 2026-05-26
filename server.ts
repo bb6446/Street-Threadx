@@ -63,7 +63,7 @@ async function startServer() {
       if (errMsg.includes('bucket does not exist')) {
         console.warn("Storage upload skipped: Bucket does not exist. Frontend will fallback to local base64 compression.");
       } else {
-        console.warn("Upload fallback triggered:", errMsg);
+        console.warn("Upload fallback triggered");
       }
       // Detailed fallback for iframe issues or if IAM fails
       res.status(500).json({ error: "Storage upload failed. Fallback triggered." });
