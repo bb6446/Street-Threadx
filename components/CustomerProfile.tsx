@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Customer, Order, Product, ViewState } from '../types';
 import { collection, query, where, getDocs, doc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '../firebase';
 
 interface Props {
   customerInfo: { 
@@ -12,6 +13,7 @@ interface Props {
     city?: string;
     zip?: string;
     notes?: string;
+    profileImage?: string;
   };
   orders: Order[];
   products: Product[];
@@ -29,8 +31,10 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
   const [editCity, setEditCity] = useState(customerInfo.city || 'Dhaka');
   const [editZip, setEditZip] = useState(customerInfo.zip || '');
   const [editNotes, setEditNotes] = useState(customerInfo.notes || '');
+  const [editProfileImage, setEditProfileImage] = useState(customerInfo.profileImage || '');
 
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -43,8 +47,33 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
       setEditCity(customerInfo.city || 'Dhaka');
       setEditZip(customerInfo.zip || '');
       setEditNotes(customerInfo.notes || '');
+      setEditProfileImage(customerInfo.profileImage || '');
     }
   }, [customerInfo, isEditing]);
+
+  const handleProfileImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setErrorMsg('Please upload a valid image file');
+      return;
+    }
+
+    setIsUploadingImage(true);
+    setErrorMsg('');
+    try {
+      const storageRef = ref(storage, `profiles/${customerInfo.email}_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9]/g, '_')}`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      setEditProfileImage(url);
+    } catch (err: any) {
+      console.error('Error uploading profile image:', err);
+      setErrorMsg('Failed to upload image. Please try again.');
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,6 +99,7 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
         city: editCity.trim(),
         zip: editZip.trim(),
         notes: editNotes.trim(),
+        profileImage: editProfileImage,
       };
 
       // 1. Locate/Update customer doc in Firestore by email identifier
@@ -156,6 +186,20 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
               
               {!isEditing ? (
                 <>
+                  <div className="flex justify-center mb-6">
+                    {customerInfo.profileImage ? (
+                      <img 
+                        src={customerInfo.profileImage} 
+                        alt="Profile" 
+                        className="w-24 h-24 rounded-full object-cover border-2 border-zinc-800"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-24 h-24 rounded-full bg-zinc-900 border-2 border-zinc-800 flex items-center justify-center text-zinc-500 text-2xl font-bold uppercase">
+                        {customerInfo.name ? customerInfo.name.charAt(0) : 'U'}
+                      </div>
+                    )}
+                  </div>
                   <div className="space-y-4">
                     <div>
                       <div className="text-[9px] font-black uppercase text-zinc-500">Name</div>
@@ -208,6 +252,31 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
                       {errorMsg}
                     </div>
                   )}
+
+                  <div className="flex flex-col items-center justify-center space-y-4 mb-4">
+                    {editProfileImage ? (
+                      <img 
+                        src={editProfileImage} 
+                        alt="Profile Preview" 
+                        className="w-24 h-24 rounded-full object-cover border-2 border-zinc-800"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-24 h-24 rounded-full bg-zinc-900 border-2 border-zinc-800 flex items-center justify-center text-zinc-500 text-2xl font-bold uppercase">
+                        {editName ? editName.charAt(0) : 'U'}
+                      </div>
+                    )}
+                    <label className="cursor-pointer text-[#0055ff] hover:text-white text-[10px] font-black uppercase tracking-widest transition-colors">
+                      {isUploadingImage ? 'Uploading...' : 'Update Image'}
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        className="hidden" 
+                        onChange={handleProfileImageUpload}
+                        disabled={isUploadingImage}
+                      />
+                    </label>
+                  </div>
 
                   <div className="space-y-1">
                     <label className="text-[9px] font-black uppercase text-zinc-500">Legal Entity Name</label>

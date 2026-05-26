@@ -921,6 +921,17 @@ export default function App() {
       showToast('Please select a size first.');
       return;
     }
+
+    const variant = product.variants?.find(v => v.size === size && (color ? v.color === color : true));
+    const maxStock = variant ? variant.stock : product.stock;
+
+    const existingInCart = cart.find(item => item.id === product.id && item.selectedSize === size && item.selectedColor === color);
+    const requestedQty = (existingInCart ? existingInCart.quantity : 0) + quantity;
+
+    if (requestedQty > maxStock) {
+      showToast(`Cannot add to cart. Only ${maxStock} items available in stock.`);
+      return;
+    }
     
     ReactGA.event({
       category: "Ecommerce",
@@ -1321,15 +1332,15 @@ export default function App() {
       try {
         setLoginError('UPLINK_STABLE: SUBMITTING ORDER...'); // Reusing login error as a status indicator briefly
         
-        // Save order to Firestore (Wait for it!)
-        await saveOrderToFirestore(newOrder);
-        
-        // Atomic stock deduction (Wait for it!)
+        // Atomic stock deduction (Wait for it! MUST be done before creating order to prevent overselling on failed db commits)
         const itemsToDeduct = cart.map(item => ({
           productId: item.id,
           quantity: item.quantity
         }));
         await deductStockFirebase(itemsToDeduct);
+
+        // Save order to Firestore (Wait for it!)
+        await saveOrderToFirestore(newOrder);
 
         // Update customer records
         const existing = customers.find(c => c.email.toLowerCase() === customerInfo.email.toLowerCase());
@@ -2072,7 +2083,19 @@ export default function App() {
                 const existing = customers.find(c => c.email.toLowerCase() === user.email.toLowerCase());
                 const resolvedName = existing ? existing.name : user.name;
                 
-                setCustomerInfo(prev => ({ ...prev, name: resolvedName, email: user.email }));
+                setCustomerInfo(prev => ({ 
+                  ...prev, 
+                  name: resolvedName, 
+                  email: user.email,
+                  ...(existing ? {
+                    phone: existing.phone || '',
+                    address: existing.address || '',
+                    city: existing.city || '',
+                    zip: existing.zip || '',
+                    notes: existing.notes || '',
+                    profileImage: existing.profileImage || '',
+                  } : {})
+                }));
                 
                 // Ensure user is added to customers state if new
                 setCustomers(prev => {
@@ -2966,46 +2989,49 @@ export default function App() {
 
       {/* Product Modal (Amazon-style Layout) */}
       {selectedProduct && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6 lg:p-10">
-          <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" onClick={() => { setSelectedProduct(null); setSelectedImageIndex(0); setZoomStyle({}); }}></div>
-          <div className="relative w-full max-w-[1400px] h-full max-h-[95vh] bg-[#020816] text-white overflow-hidden flex flex-col shadow-[0_0_50px_rgba(0,50,200,0.3)] rounded-3xl border border-[#0044cc]/40 font-sans">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 md:p-6 lg:p-10">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setSelectedProduct(null); setSelectedImageIndex(0); setZoomStyle({}); }}></div>
+          <div className="relative w-full max-w-[1500px] h-full max-h-[100vh] md:max-h-[95vh] bg-[#0A192F] text-gray-100 overflow-hidden flex flex-col md:rounded-xl shadow-2xl font-sans border border-[#1C3A6E]/30">
             
             {/* Header with close button */}
-            <div className="flex justify-between items-center p-4 md:p-6 border-b border-[#0033aa]/30 bg-[#01050e] shrink-0">
-              <div className="font-bold text-xl tracking-tighter uppercase text-white">STREET<span className="text-[#0066ff] drop-shadow-[0_0_10px_rgba(0,100,255,0.5)]">THREADX</span></div>
-              <button onClick={() => { setSelectedProduct(null); setSelectedImageIndex(0); setZoomStyle({}); }} className="text-zinc-400 hover:text-white transition-colors bg-white/5 p-2 rounded-full hover:bg-[#0055ff]/20">
+            <div className="flex justify-between items-center p-3 md:p-4 border-b border-[#1C3A6E] bg-[#071324] shrink-0">
+              <div className="font-bold text-xl tracking-tighter uppercase text-white">STREET<span className="text-[#4da6ff]">THREADX</span></div>
+              <button onClick={() => { setSelectedProduct(null); setSelectedImageIndex(0); setZoomStyle({}); }} className="text-gray-400 hover:text-white transition-colors p-2 rounded-full hover:bg-[#152B4E]">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            <div className="flex flex-col lg:flex-row overflow-y-auto no-scrollbar p-6 gap-8 bg-[#020816] flex-1">
+            <div className="flex flex-col overflow-y-auto no-scrollbar bg-[#0A192F] flex-1">
               
-              {/* Left Column: Images */}
-              <div className="w-full lg:w-[40%] flex gap-4">
+              {/* TOP LAYOUT container for Amazon style columns */}
+              <div className="flex flex-col lg:flex-row p-4 md:p-6 lg:p-8 gap-6 md:gap-10 w-full max-w-[1400px] mx-auto">
+                
+                {/* Left Column: Images */}
+                <div className="w-full lg:w-[45%] flex flex-col-reverse md:flex-row gap-4 lg:sticky lg:top-0 h-fit">
                 {/* Thumbnails */}
-                <div className="flex flex-col gap-2 w-16 md:w-20 shrink-0">
+                <div className="flex flex-row md:flex-col gap-3 w-full md:w-16 shrink-0 md:pt-2 overflow-x-auto overflow-y-hidden md:overflow-visible no-scrollbar">
                   {(selectedProduct.images || []).map((img, idx) => (
                     <button 
                       key={idx} 
                       onMouseEnter={() => setSelectedImageIndex(idx)}
                       onClick={() => setSelectedImageIndex(idx)}
-                      className={`border-2 rounded-xl overflow-hidden transition-all bg-[#001433] ${selectedImageIndex === idx ? 'border-[#0088ff] shadow-[0_0_15px_rgba(0,100,255,0.6)] scale-105' : 'border-[#0033aa]/30 hover:border-[#0055ff]/60 opacity-60 hover:opacity-100'}`}
+                      className={`w-14 h-14 md:w-full md:h-auto flex-shrink-0 rounded-lg overflow-hidden transition-all bg-[#0d0d0d] box-border ${selectedImageIndex === idx ? 'ring-2 ring-white shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'ring-1 ring-zinc-800 hover:ring-white/50'}`}
                     >
-                      <img loading="lazy" src={img} className="w-full aspect-[1/1] object-contain" alt="" referrerPolicy="no-referrer" />
+                      <img loading="lazy" src={img} className="w-full aspect-[3/4] object-contain bg-[#0d0d0d]" alt="" referrerPolicy="no-referrer" />
                     </button>
                   ))}
                 </div>
                 {/* Main Image */}
                 <div 
-                  className="flex-1 flex items-start justify-center overflow-hidden cursor-zoom-in group/zoom bg-[#010a1f] border border-[#0033aa]/40 rounded-2xl shadow-[inset_0_0_50px_rgba(0,50,255,0.1)] relative"
+                  className="flex-1 flex items-center justify-center overflow-hidden cursor-zoom-in group/zoom bg-[#0d0d0d] rounded relative min-h-[300px] sm:min-h-[400px] lg:min-h-[500px]"
                   onMouseMove={handleMouseMove}
                   onMouseLeave={handleMouseLeaveZoom}
                 >
                   <img loading="lazy" 
                     src={selectedProduct.images?.[selectedImageIndex] || selectedProduct.images?.[0] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800'} 
-                    className="w-full h-full max-w-[600px] object-contain transition-transform duration-300 ease-out p-4" 
+                    className="w-full max-w-[80vw] sm:max-w-[400px] md:max-w-[500px] lg:max-w-[650px] max-h-[50vh] sm:max-h-[400px] md:max-h-[500px] lg:max-h-[650px] object-contain flex-shrink transition-transform duration-300 ease-out p-2 sm:p-4" 
                     style={zoomStyle}
                     alt="" 
                     referrerPolicy="no-referrer" 
@@ -3014,27 +3040,27 @@ export default function App() {
               </div>
 
               {/* Middle Column: Details */}
-              <div className="w-full lg:w-[40%] flex flex-col space-y-6">
+              <div className="w-full lg:w-[35%] flex flex-col space-y-4">
                 <div>
-                  <a href="#" className="text-[#0055ff] hover:text-[#4da6ff] hover:underline text-sm">Visit the STREET THREADX Store</a>
-                  <h1 className="text-2xl font-medium text-white leading-tight mt-1">{selectedProduct.name}</h1>
+                  <a href="#" className="text-[#4da6ff] hover:text-[#99ccff] hover:underline text-sm tracking-wide">Visit the STREET THREADX Store</a>
+                  <h1 className="text-2xl sm:text-[28px] font-normal text-white leading-tight mt-1">{selectedProduct.name}</h1>
                   
                   {/* Ratings */}
-                  <div className="flex items-center gap-4 mt-2 border-b border-[#0033aa]/30 pb-2">
-                    <div className="flex items-center text-[#ff9900]">
+                  <div className="flex items-center gap-4 mt-2 border-b border-[#1C3A6E] pb-2">
+                    <div className="flex items-center text-[#FFA41C]">
                       {[1,2,3,4,5].map(star => (
-                        <svg key={star} className={`w-4 h-4 ${star <= Math.round(averageRating) ? 'fill-current' : 'text-zinc-600 fill-current'}`} viewBox="0 0 20 20">
+                        <svg key={star} className={`w-4 h-4 ${star <= Math.round(averageRating) ? 'fill-current' : 'text-[#2D4A80] fill-current'}`} viewBox="0 0 20 20">
                           <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                         </svg>
                       ))}
-                      <span className="text-[#0066ff] hover:text-[#4da6ff] hover:underline text-sm ml-2 cursor-pointer">{filteredReviews.length} ratings</span>
+                      <span className="text-[#4da6ff] hover:text-[#99ccff] hover:underline text-sm ml-2 cursor-pointer">{filteredReviews.length} ratings</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Price */}
-                <div className="flex items-start gap-1">
-                  <span className="text-sm mt-1 text-zinc-400">৳</span>
+                <div className="flex items-start gap-1 py-1">
+                  <span className="text-sm mt-1.5 text-gray-300 font-medium">৳</span>
                   <span className="text-3xl font-medium text-white">{selectedProduct.price.toLocaleString()}</span>
                 </div>
 
@@ -3042,13 +3068,13 @@ export default function App() {
                 <div className="space-y-4 pt-2">
                   {selectedProduct.colors && selectedProduct.colors.length > 0 && (
                     <div>
-                      <p className="text-sm text-zinc-400 mb-2">Color: <span className="font-bold text-white">{selectedColor || selectedProduct.colors[0]}</span></p>
-                      <div className="flex gap-2">
+                      <p className="text-sm text-gray-400 mb-2">Color: <span className="font-bold text-white">{selectedColor || selectedProduct.colors[0]}</span></p>
+                      <div className="flex flex-wrap gap-3">
                         {selectedProduct.colors.map(color => (
                           <button 
                             key={color} 
                             onClick={() => setSelectedColor(color)}
-                            className={`w-10 h-10 rounded-full border transition-all overflow-hidden ${selectedColor === color ? 'border-[#0088ff] shadow-[0_0_8px_#0088ff] scale-110' : 'border-zinc-700 hover:border-zinc-500'}`} 
+                            className={`w-12 h-12 rounded border transition-all overflow-hidden ${selectedColor === color ? 'ring-2 ring-offset-1 ring-offset-[#0A192F] ring-[#e77600] border-transparent' : 'border-[#1C3A6E] hover:border-[#4da6ff]'}`} 
                             title={color}
                           >
                             <div className="w-full h-full" style={{ backgroundColor: getColorHex(color) }}></div>
@@ -3060,15 +3086,15 @@ export default function App() {
 
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <p className="text-sm text-white font-bold">Size:</p>
-                      <a href="#" className="text-sm text-[#0066ff] hover:text-[#4da6ff] hover:underline">Size Chart</a>
+                      <p className="text-sm text-gray-400 font-bold">Size:</p>
+                      <a href="#" className="text-sm text-[#4da6ff] hover:text-[#99ccff] hover:underline">Size Chart</a>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {selectedProduct.sizes.map(size => (
                         <button 
                           key={size} 
                           onClick={() => setSelectedSize(size)} 
-                          className={`min-w-[3rem] px-3 py-1.5 text-sm border-2 rounded-xl text-white transition-all ${selectedSize === size ? 'border-[#0088ff] bg-[#0055ff]/20 shadow-[0_0_10px_rgba(0,100,255,0.4)] font-bold' : 'border-zinc-700 bg-zinc-900/50 hover:bg-zinc-800'}`}
+                          className={`min-w-[3rem] px-3 py-1.5 text-sm border bg-[#08172D] rounded text-gray-100 transition-all ${selectedSize === size ? 'border-[#e77600] bg-[#1a110a] ring-1 ring-[#e77600]' : 'border-[#1C3A6E] hover:bg-[#112A4A]'}`}
                         >
                           {size}
                         </button>
@@ -3077,37 +3103,83 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Description / About this item */}
-                <div className="pt-4 border-t border-[#0033aa]/30">
-                  <h3 className="font-bold text-base mb-2 text-white">About this item</h3>
-                  <ul className="list-disc pl-5 space-y-1 text-sm text-zinc-300">
-                    <li>{selectedProduct.description}</li>
-                    {selectedProduct.materialComposition && (
-                      <li><span className="font-bold text-white">Composition:</span> {selectedProduct.materialComposition}</li>
-                    )}
-                    {selectedProduct.careInstructions && (
-                      <li><span className="font-bold text-white">Care:</span> {selectedProduct.careInstructions}</li>
-                    )}
-                    <li>Premium quality materials for maximum comfort and durability.</li>
-                    <li>Signature STREET THREADX brutalist aesthetic.</li>
-                    <li>Category: {selectedProduct.category}</li>
-                  </ul>
+                <div className="pt-4 border-t border-[#1C3A6E] mt-4">
+                  <h3 className="font-bold text-base mb-3 text-white">Product Details</h3>
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-300 leading-relaxed">{selectedProduct.description}</p>
+                    
+                    <ul className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-300">
+                      {selectedProduct.materialComposition && (
+                        <li className="flex items-start gap-2">
+                          <span className="font-bold text-white min-w-[90px]">Material:</span> 
+                          <span className="flex-1">{selectedProduct.materialComposition}</span>
+                        </li>
+                      )}
+                      {selectedProduct.careInstructions && (
+                        <li className="flex items-start gap-2">
+                          <span className="font-bold text-white min-w-[90px]">Care:</span> 
+                          <span className="flex-1">{selectedProduct.careInstructions}</span>
+                        </li>
+                      )}
+                      <li className="flex items-start gap-2">
+                        <span className="font-bold text-white min-w-[90px]">Category:</span> 
+                        <span className="flex-1">{selectedProduct.category}</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="font-bold text-white min-w-[90px]">Brand:</span> 
+                        <span className="flex-1">{selectedProduct.brand || 'STREET THREADX'}</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="font-bold text-white min-w-[90px]">Quality:</span> 
+                        <span className="flex-1">100% Authentic Premium Grade</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="font-bold text-white min-w-[90px]">Origin:</span> 
+                        <span className="flex-1">Exclusive Original Design</span>
+                      </li>
+                    </ul>
+                  </div>
+                  
+                  <div className="mt-6 pt-4 border-t border-[#1C3A6E] grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-[#0B1A2F] rounded-lg text-[#4da6ff]">
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h4 className="text-white text-sm font-bold">Secure Delivery</h4>
+                        <p className="text-xs text-gray-400 mt-0.5">Nationwide shipping with tracking</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-[#0B1A2F] rounded-lg text-[#4da6ff]">
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h4 className="text-white text-sm font-bold">Quality Guarantee</h4>
+                        <p className="text-xs text-gray-400 mt-0.5">Premium materials & craftsmanship</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               {/* Right Column: Buy Box */}
-              <div className="w-full lg:w-[20%]">
-                <div className="border-2 border-[#0033aa]/40 bg-[#010a1f] rounded-2xl p-4 shadow-[0_10px_30px_rgba(0,50,200,0.2)] space-y-4">
+              <div className="w-full lg:w-[20%] mt-6 lg:mt-0">
+                <div className="border border-[#1C3A6E] rounded-lg p-4 space-y-4 shadow-sm bg-[#061122]">
                   <div className="flex items-start gap-1">
-                    <span className="text-sm mt-1 text-zinc-400">৳</span>
+                    <span className="text-sm mt-1 text-gray-300">৳</span>
                     <span className="text-3xl font-medium text-white">{selectedProduct.price.toLocaleString()}</span>
                   </div>
                   
-                  <div className="text-sm text-zinc-300">
-                    <span className="text-[#0066ff] hover:text-[#4da6ff] hover:underline cursor-pointer">FREE delivery</span> <strong>Tomorrow</strong>.<br/>Order within <span className="text-green-500 font-bold">2 hrs 30 mins</span>
+                  <div className="text-sm text-gray-300">
+                    <span className="text-[#4da6ff] hover:text-[#99ccff] hover:underline cursor-pointer">FREE delivery</span> <strong>Tomorrow</strong>.<br/>Order within <span className="text-emerald-400 font-bold">2 hrs 30 mins</span>
                   </div>
                   
-                  <div className="flex items-center gap-2 text-[#0066ff] hover:text-[#4da6ff] hover:underline cursor-pointer text-sm">
+                  <div className="flex items-center gap-2 text-[#4da6ff] hover:text-[#99ccff] hover:underline cursor-pointer text-sm font-medium">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -3115,31 +3187,35 @@ export default function App() {
                     Deliver to Dhaka
                   </div>
 
-                  <div className="text-lg text-green-700 font-medium">
-                    In Stock
+                  <div className="text-lg text-emerald-400 font-medium">
+                    {(() => {
+                      const maxStock = selectedProduct.variants && selectedSize ? (selectedProduct.variants.find(v => v.size === selectedSize && (selectedColor ? v.color === selectedColor : true))?.stock ?? selectedProduct.stock) : selectedProduct.stock;
+                      return maxStock > 0 ? (maxStock < 5 ? `Only ${maxStock} left in stock - order soon.` : 'In Stock') : <span className="text-rose-500">Out of Stock</span>;
+                    })()}
                   </div>
 
                   <div className="flex items-center gap-2 mb-4 mt-2">
-                    <label className="text-sm font-bold text-gray-900 border border-gray-300 rounded-none overflow-hidden hover:border-[#0055ff] transition-colors flex items-center bg-gray-50 relative">
-                      <span className="px-3 text-gray-600 bg-gray-100 border-r border-gray-300 py-1.5 text-[10px] uppercase tracking-widest font-black">Qty:</span>
+                    <label className={`text-sm font-bold text-gray-100 border border-[#1C3A6E] rounded-md overflow-hidden hover:border-[#4da6ff] hover:bg-[#112A4A] transition-colors flex items-center bg-[#0B1A2F] relative w-full shadow-sm hover:shadow ${((selectedProduct.variants && selectedSize ? (selectedProduct.variants.find(v => v.size === selectedSize && (selectedColor ? v.color === selectedColor : true))?.stock ?? selectedProduct.stock) : selectedProduct.stock) === 0) ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <span className="px-3 text-gray-400 bg-[#071324] py-2 border-r border-[#1C3A6E] text-xs">Qty:</span>
                       <select 
                         value={selectedQuantity}
                         onChange={(e) => setSelectedQuantity(parseInt(e.target.value))}
-                        className="pl-2 pr-8 py-1.5 bg-transparent outline-none text-sm cursor-pointer appearance-none text-gray-900 font-bold"
+                        className="w-full pl-3 pr-8 py-2 bg-transparent outline-none text-sm cursor-pointer appearance-none text-white focus:ring-2 focus:ring-[#4da6ff]"
+                        disabled={(selectedProduct.variants && selectedSize ? (selectedProduct.variants.find(v => v.size === selectedSize && (selectedColor ? v.color === selectedColor : true))?.stock ?? selectedProduct.stock) : selectedProduct.stock) === 0}
                       >
-                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
-                          <option key={n} value={n} className="bg-white text-black">{n}</option>
+                        {Array.from({ length: Math.min(10, Math.max(1, (selectedProduct.variants && selectedSize ? (selectedProduct.variants.find(v => v.size === selectedSize && (selectedColor ? v.color === selectedColor : true))?.stock ?? selectedProduct.stock) : selectedProduct.stock))) }, (_, i) => i + 1).map(n => (
+                          <option key={n} value={n} className="bg-[#0A192F] text-white">{n}</option>
                         ))}
                       </select>
-                      <div className="pointer-events-none absolute right-2 flex items-center px-1 text-[#0055ff]">
-                        <svg className="fill-current h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                      <div className="pointer-events-none absolute right-3 flex items-center px-1 text-gray-400">
+                        <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
                       </div>
                     </label>
                   </div>
 
-                  <div className="space-y-4">
+                  <div className="space-y-2">
                     <button 
-                      disabled={addToCartState !== 'idle'}
+                      disabled={addToCartState !== 'idle' || ((selectedProduct.variants && selectedSize ? (selectedProduct.variants.find(v => v.size === selectedSize && (selectedColor ? v.color === selectedColor : true))?.stock ?? selectedProduct.stock) : selectedProduct.stock) === 0)}
                       onClick={() => {
                         if (!selectedSize) {
                           showToast('Please select a size first.');
@@ -3147,23 +3223,25 @@ export default function App() {
                         }
                         addToCart(selectedProduct, selectedSize, selectedColor || selectedProduct.colors?.[0], selectedQuantity, false);
                       }} 
-                      className={`w-full py-4 font-black uppercase tracking-widest text-sm shadow-sm transition-all flex items-center justify-center gap-2 ${
-                        addToCartState === 'success' ? 'bg-emerald-500 hover:bg-emerald-400 border border-emerald-400 text-white' 
-                        : addToCartState === 'adding' ? 'bg-zinc-800 border border-zinc-700 text-white opacity-80 cursor-wait'
-                        : 'bg-[#0055ff] hover:bg-[#0044cc] border border-[#003399] text-white'
+                      className={`w-full py-2.5 rounded-full text-sm font-medium shadow-sm transition-all flex items-center justify-center gap-2
+                        ${addToCartState === 'success' ? 'bg-emerald-500 hover:bg-emerald-400 text-white' 
+                        : addToCartState === 'adding' ? 'bg-gray-300 text-gray-600 cursor-wait'
+                        : ((selectedProduct.variants && selectedSize ? (selectedProduct.variants.find(v => v.size === selectedSize && (selectedColor ? v.color === selectedColor : true))?.stock ?? selectedProduct.stock) : selectedProduct.stock) === 0) ? 'bg-gray-600 text-gray-400 cursor-not-allowed opacity-50'
+                        : 'bg-[#ffd814] hover:bg-[#f7ca00] text-gray-900 border border-[#FCD200]'
                       }`}
                     >
                       {addToCartState === 'adding' && (
-                        <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <svg className="animate-spin h-4 w-4 text-gray-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                       )}
                       {addToCartState === 'success' && (
                         <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
                       )}
-                      {addToCartState === 'idle' && 'Add to Vault'}
-                      {addToCartState === 'adding' && 'Processing...'}
-                      {addToCartState === 'success' && 'Added'}
+                      {addToCartState === 'idle' && 'Add to Cart'}
+                      {addToCartState === 'adding' && 'Adding...'}
+                      {addToCartState === 'success' && 'Added to Cart'}
                     </button>
                     <button 
+                      disabled={((selectedProduct.variants && selectedSize ? (selectedProduct.variants.find(v => v.size === selectedSize && (selectedColor ? v.color === selectedColor : true))?.stock ?? selectedProduct.stock) : selectedProduct.stock) === 0)}
                       onClick={() => {
                         if (!selectedSize) {
                           showToast('Please select a size first.');
@@ -3175,203 +3253,207 @@ export default function App() {
                         setIsCartOpen(true);
                         setIsCheckoutOpen(true);
                       }} 
-                      className="w-full py-4 bg-zinc-900 border border-zinc-700 hover:border-zinc-500 text-white font-black uppercase tracking-widest text-sm transition-colors"
+                      className={`w-full py-2.5 rounded-full text-sm font-medium transition-all flex items-center justify-center gap-2 ${((selectedProduct.variants && selectedSize ? (selectedProduct.variants.find(v => v.size === selectedSize && (selectedColor ? v.color === selectedColor : true))?.stock ?? selectedProduct.stock) : selectedProduct.stock) === 0) ? 'bg-gray-600 text-gray-400 cursor-not-allowed opacity-50' : 'bg-[#ffa41c] hover:bg-[#fa8900] text-gray-900 border border-[#FF8F00] shadow-sm'}`}
                     >
-                      Instant Checkout
+                      Buy Now
                     </button>
+                  </div>
+
+                  <div className="text-xs text-gray-400 space-y-1.5 pt-4 text-left">
+                    <div className="flex justify-between">
+                      <span className="w-24 text-gray-500">Ships from</span>
+                      <span className="text-white flex-1 ml-2 truncate">streetthreadx.store</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="w-24 text-gray-500">Sold by</span>
+                      <span className="text-[#4da6ff] hover:text-[#99ccff] hover:underline cursor-pointer flex-1 ml-2 truncate">streetthreadx.store</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="w-24 text-gray-500">Returns</span>
+                      <span className="text-[#4da6ff] hover:text-[#99ccff] hover:underline cursor-pointer flex-1 ml-2">30-day refund/replacement</span>
+                    </div>
+                    <div className="flex justify-between pt-1">
+                      <span className="w-24 text-gray-500">Payment</span>
+                      <span className="text-[#4da6ff] hover:text-[#99ccff] hover:underline cursor-pointer flex-1 ml-2">Secure transaction</span>
+                    </div>
+                  </div>
+                  
+                  <div className="pt-2 border-t border-[#1C3A6E] mt-2">
                     <button 
                       onClick={() => toggleWishlist(selectedProduct)} 
-                      className="w-full py-4 bg-transparent border border-gray-300 hover:border-black text-black font-black uppercase tracking-widest text-sm transition-colors flex items-center justify-center gap-2"
+                      className="w-full py-1.5 bg-[#0B1A2F] border border-[#1C3A6E] rounded shadow-sm hover:bg-[#112A4A] text-white text-xs font-medium transition-colors flex items-center justify-center gap-2"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${wishlist.some(p => p.id === selectedProduct.id) ? 'fill-black text-black' : 'fill-transparent text-black'}`} viewBox="0 0 24 24" stroke="currentColor">
+                      <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${wishlist.some(p => p.id === selectedProduct.id) ? 'fill-red-500 text-red-500' : 'fill-transparent text-[#2D4A80]'}`} viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
                       </svg>
-                      {wishlist.some(p => p.id === selectedProduct.id) ? 'Remove from Wishlist' : 'Add to Wishlist'}
+                      {wishlist.some(p => p.id === selectedProduct.id) ? 'Remove from List' : 'Add to List'}
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
 
-                  <div className="text-xs text-zinc-400 space-y-1 pt-2">
-                    <div className="flex justify-between">
-                      <span>Ships from</span>
-                      <span className="text-white">STREET THREADX</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Sold by</span>
-                      <span className="text-[#0066ff] hover:text-[#4da6ff] hover:underline cursor-pointer">STREET THREADX</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Returns</span>
-                      <span className="text-[#0066ff] hover:text-[#4da6ff] hover:underline cursor-pointer">30-day refund/replacement</span>
-                    </div>
+              {/* BOTTOM LAYOUT container for Related and Reviews */}
+              <div className="w-full max-w-[1400px] mx-auto p-4 md:p-6 lg:p-8 space-y-12">
+                {/* Related Products Section */}
+                <div className="w-full border-t border-[#1C3A6E] pt-8">
+                  <h2 className="text-xl font-bold mb-6 text-[#4da6ff]">Customers also viewed</h2>
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                    {products
+                      .filter(p => p.category === selectedProduct.category && p.id !== selectedProduct.id)
+                      .slice(0, 5)
+                      .map(relProduct => (
+                        <div 
+                          key={relProduct.id} 
+                          className="group relative flex flex-col cursor-pointer p-3 bg-[#061122] hover:shadow-lg transition-shadow duration-200 border border-transparent hover:border-[#1C3A6E] rounded-lg"
+                          onClick={() => {
+                            setSelectedProduct(relProduct);
+                            setSelectedImageIndex(0);
+                            const modalEl = document.querySelector('.overflow-y-auto.no-scrollbar');
+                            if (modalEl) modalEl.scrollTo({ top: 0, behavior: 'smooth' });
+                          }}
+                        >
+                          <div className="relative w-full aspect-[3/4] object-contain overflow-hidden bg-[#0d0d0d] mb-3 border border-zinc-800 p-2">
+                            <img loading="lazy" src={relProduct.images[0]} alt={relProduct.name} className="w-full h-full object-contain" />
+                          </div>
+                          <div className="space-y-1">
+                            <a className="text-sm text-[#4da6ff] group-hover:text-[#99ccff] group-hover:underline line-clamp-2 leading-tight">{relProduct.name}</a>
+                            <div className="flex items-center text-[#FFA41C]">
+                              {[1,2,3,4,5].map(star => (
+                                <svg key={star} className={`w-3 h-3 ${star <= 4 ? 'fill-current' : 'text-[#2D4A80] fill-current'}`} viewBox="0 0 20 20">
+                                  <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                </svg>
+                              ))}
+                              <span className="text-[#4da6ff] text-xs ml-1 font-normal">{(Math.random() * 1000).toFixed(0)}</span>
+                            </div>
+                            <p className="text-base font-medium text-emerald-400 mt-1">৳{relProduct.price.toLocaleString()}</p>
+                          </div>
+                        </div>
+                      ))
+                    }
                   </div>
                 </div>
-              </div>
 
-              {/* Related Products Section */}
-              <div className="w-full border-t border-[#0033aa]/30 pt-10 mt-10">
-                <h3 className="text-xl font-bold mb-6 text-white">Customers also viewed</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8 lg:gap-10">
-                  {products
-                    .filter(p => p.category === selectedProduct.category && p.id !== selectedProduct.id)
-                    .slice(0, 4)
-                    .map(relProduct => (
-                      <div 
-                        key={relProduct.id} 
-                        className="group relative flex flex-col cursor-pointer p-4 md:p-5 bg-[#010816] md:bg-gradient-to-b md:from-[#030b1c] md:to-[#01050e] border border-[#0033aa]/50 rounded-[2rem] shadow-[0_10px_30px_-10px_rgba(0,50,200,0.2)] hover:shadow-[0_20px_40px_-10px_rgba(0,100,255,0.4)] transform hover:-translate-y-2 transition-all duration-500"
-                        onClick={() => {
-                          setSelectedProduct(relProduct);
-                          setSelectedImageIndex(0);
-                          const modalEl = document.querySelector('.overflow-y-auto.no-scrollbar');
-                          if (modalEl) modalEl.scrollTo({ top: 0, behavior: 'smooth' });
-                        }}
-                      >
-                        <div className="relative w-full aspect-[1/1] sm:aspect-[4/5] object-contain overflow-hidden rounded-xl bg-[#001433] mb-4 border border-[#0044cc]/40 shadow-[inset_0_0_25px_rgba(0,60,255,0.1)] transition-all duration-300 group-hover:border-[#0066ff]">
-                          <img loading="lazy" src={relProduct.images[0]} alt={relProduct.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 ease-out" />
+                {/* Customer Reviews Section */}
+                <div className="w-full border-t border-[#1C3A6E] pt-8 pb-12">
+                  <div className="flex flex-col lg:flex-row gap-12">
+                    {/* Review Summary */}
+                    <div className="w-full lg:w-1/3 space-y-6">
+                      <h2 className="text-xl font-bold text-white">Customer reviews</h2>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center text-[#FFA41C]">
+                          {[1, 2, 3, 4, 5].map(star => (
+                            <svg key={star} className={`w-5 h-5 ${star <= Math.round(averageRating) ? 'fill-current' : 'text-[#2D4A80] fill-current'}`} viewBox="0 0 20 20">
+                              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                            </svg>
+                          ))}
                         </div>
-                        <div className="px-2 space-y-1">
-                          <h4 className="text-sm font-bold text-white group-hover:text-[#4da6ff] drop-shadow-[0_0_10px_rgba(0,100,255,0.3)] transition-colors line-clamp-1">{relProduct.name}</h4>
-                          <p className="text-sm font-black text-[#3399ff] drop-shadow-[0_2px_15px_rgba(0,150,255,0.5)] mt-1">৳{relProduct.price.toLocaleString()}</p>
-                        </div>
+                        <span className="text-lg font-bold text-white">{averageRating.toFixed(1)} out of 5</span>
                       </div>
-                    ))
-                  }
-                </div>
-              </div>
-
-              {/* Customer Reviews Section */}
-              <div className="w-full border-t border-[#0033aa]/30 pt-10 mt-10">
-                <div className="flex flex-col lg:flex-row gap-12">
-                  {/* Review Summary */}
-                  <div className="w-full lg:w-1/3 space-y-6">
-                    <h2 className="text-2xl font-bold text-white">Customer Reviews</h2>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center text-[#ff9900]">
-                        {[1, 2, 3, 4, 5].map(star => (
-                          <svg key={star} className={`w-6 h-6 ${star <= Math.round(averageRating) ? 'fill-current' : 'text-zinc-600 fill-current'}`} viewBox="0 0 20 20">
-                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                          </svg>
-                        ))}
-                      </div>
-                      <span className="text-lg font-medium">{averageRating.toFixed(1)} out of 5</span>
-                    </div>
-                    <p className="text-sm text-gray-500">{filteredReviews.length} global ratings</p>
-                    
-                    {/* Review Form */}
-                    <div className="bg-gray-50 p-6 rounded-none border border-gray-200 space-y-4">
-                      <h3 className="font-bold text-lg">Write a Review</h3>
+                      <p className="text-sm text-gray-400">{filteredReviews.length} global ratings</p>
                       
-                      {customerInfo?.email ? (
-                        <form onSubmit={handleReviewSubmit} className="space-y-4">
-                          <div>
-                            <label className="block text-sm font-bold mb-1">Overall Rating</label>
-                            <div className="flex items-center gap-2">
-                              <div className="flex gap-1">
+                      <div className="space-y-3 pt-4 border-t border-[#1C3A6E] text-sm">
+                        {[5, 4, 3, 2, 1].map(stars => {
+                          const count = filteredReviews.filter(r => r.rating === stars).length;
+                          const percentage = filteredReviews.length > 0 ? (count / filteredReviews.length) * 100 : 0;
+                          return (
+                            <div key={stars} className="flex items-center gap-3 cursor-pointer hover:opacity-80 group text-[#4da6ff] hover:text-[#99ccff] hover:underline">
+                              <span className="w-12 whitespace-nowrap">{stars} star</span>
+                              <div className="flex-1 h-5 bg-[#061122] border border-[#1C3A6E] rounded overflow-hidden">
+                                <div className="h-full bg-[#FFA41C] border border-[#DE7921] rounded-l" style={{ width: `${percentage}%` }}></div>
+                              </div>
+                              <span className="w-10 text-right text-gray-300">{Math.round(percentage)}%</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="pt-6 border-t border-[#1C3A6E]">
+                        <h3 className="font-bold text-lg mb-2 text-white">Review this product</h3>
+                        <p className="text-sm text-gray-400 mb-4">Share your thoughts with other customers</p>
+                        
+                        {customerInfo?.email ? (
+                          <form onSubmit={handleReviewSubmit} className="space-y-4">
+                            <div>
+                              <div className="flex gap-1 mb-2">
                                 {[1, 2, 3, 4, 5].map(star => (
                                   <button
                                     key={star}
                                     type="button"
                                     onClick={() => setNewReviewRating(star)}
-                                    className={`transition-all transform hover:scale-110 ${star <= newReviewRating ? 'text-[#0055ff]' : 'text-gray-300'}`}
+                                    className={`transition-all ${star <= newReviewRating ? 'text-[#FFA41C]' : 'text-[#2D4A80]'}`}
                                   >
-                                    <svg className="w-8 h-8 fill-current" viewBox="0 0 20 20">
+                                    <svg className="w-6 h-6 fill-current" viewBox="0 0 20 20">
                                       <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                                     </svg>
                                   </button>
                                 ))}
                               </div>
-                              <span className={`text-sm font-black uppercase italic tracking-tighter animate-in fade-in slide-in-from-left-2 duration-300 ${getRatingLabel(newReviewRating).color}`}>
-                                {getRatingLabel(newReviewRating).text}
-                              </span>
+                              <textarea 
+                                value={newReviewComment}
+                                onChange={(e) => setNewReviewComment(e.target.value)}
+                                maxLength={COMMENT_LIMIT}
+                                placeholder="What did you like or dislike?"
+                                className="w-full p-3 border border-[#1C3A6E] rounded focus:border-[#4da6ff] focus:ring-1 focus:ring-[#4da6ff] outline-none text-sm min-h-[100px] bg-[#061122] text-white transition-all"
+                                required
+                              />
                             </div>
-                          </div>
-                          
-                          <div>
-                            <label className="block text-sm font-bold mb-1">Display Name</label>
-                            <input 
-                              type="text"
-                              value={customerInfo.name}
-                              disabled
-                              className="w-full p-2 border border-gray-300 bg-gray-100 rounded-none text-gray-500 text-sm cursor-not-allowed"
-                            />
-                            <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-wider font-bold">Posting publicly as this name.</p>
-                          </div>
-
-                          <div>
-                            <div className="flex justify-between items-end mb-1">
-                              <label className="block text-sm font-bold">Add a written review</label>
-                              <span className={`text-[10px] font-mono ${newReviewComment.length > COMMENT_LIMIT ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
-                                {newReviewComment.length}/{COMMENT_LIMIT}
-                              </span>
-                            </div>
-                            <textarea 
-                              value={newReviewComment}
-                              onChange={(e) => setNewReviewComment(e.target.value)}
-                              maxLength={COMMENT_LIMIT}
-                              placeholder="What did you like or dislike?"
-                              className={`w-full p-3 border rounded-none focus:ring-1 outline-none text-sm min-h-[120px] transition-all ${newReviewComment.length >= COMMENT_LIMIT ? 'border-orange-500 focus:ring-orange-500' : 'border-gray-300 focus:border-[#0055ff] focus:ring-[#0055ff]'}`}
-                              required
-                            />
-                            {newReviewComment.length > COMMENT_LIMIT && (
-                              <p className="text-red-500 text-[10px] mt-1 font-bold tracking-tighter">Character limit exceeded</p>
-                            )}
-                          </div>
-
-                          <button 
-                            type="submit"
-                            disabled={isSubmittingReview || newReviewComment.length > COMMENT_LIMIT || !newReviewComment}
-                            className="w-full py-2 bg-[#0055ff] hover:bg-[#0044cc] border border-[#003399] rounded-none shadow-sm text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-white"
-                          >
-                            {isSubmittingReview ? 'Submitting...' : 'Submit Review'}
-                          </button>
-                        </form>
-                      ) : (
-                        <div className="space-y-4">
-                          <p className="text-sm text-gray-600">Please log in to share your thoughts with the community.</p>
+                            <button 
+                              type="submit"
+                              disabled={isSubmittingReview || !newReviewComment}
+                              className="w-full py-2 bg-[#0B1A2F] hover:bg-[#112A4A] border border-[#1C3A6E] rounded shadow-sm text-sm font-medium transition-colors disabled:opacity-50 text-white"
+                            >
+                              {isSubmittingReview ? 'Submitting...' : 'Write a customer review'}
+                            </button>
+                          </form>
+                        ) : (
                           <button 
                             onClick={() => {
                               setSelectedProduct(null);
                               setCurrentView(ViewState.CUSTOMER_LOGIN);
                             }}
-                            className="w-full py-2 bg-[#0055ff] hover:bg-[#0044cc] border border-[#003399] rounded-none shadow-sm text-sm font-medium transition-colors text-white uppercase tracking-widest font-black"
+                            className="w-full py-2 bg-[#0B1A2F] hover:bg-[#112A4A] border border-[#1C3A6E] rounded shadow-sm text-sm font-medium transition-colors text-white"
                           >
-                            Log in to Review
+                            Write a customer review
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Reviews List */}
-                  <div className="flex-1 space-y-8">
-                    <h3 className="text-xl font-bold border-b border-gray-200 pb-4">Top reviews from Bangladesh</h3>
-                    {filteredReviews.length === 0 ? (
-                      <div className="text-center py-10 text-gray-500 italic">No reviews yet. Be the first to review this item!</div>
-                    ) : (
-                      <div className="space-y-8">
-                        {filteredReviews.map(review => (
-                          <div key={review.id} className="space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                            <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 rounded-none bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-500">
+                    {/* Review List */}
+                    <div className="w-full lg:w-2/3 space-y-6">
+                       <h3 className="font-bold text-white text-lg">Top reviews from Bangladesh</h3>
+                      {filteredReviews.length > 0 ? (
+                        filteredReviews.map(review => (
+                          <div key={review.id} className="border-b border-[#1C3A6E] pb-6">
+                            <div className="flex items-center gap-2 mb-1">
+                              <div className="w-8 h-8 rounded-full bg-[#112A4A] text-[#4da6ff] flex items-center justify-center font-medium">
                                 {review.author[0]}
                               </div>
-                              <span className="text-sm font-medium">{review.author}</span>
+                              <span className="font-medium text-white">{review.author}</span>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <div className="flex items-center text-[#0055ff]">
+                            <div className="flex items-center gap-2 mb-1">
+                              <div className="flex text-[#FFA41C]">
                                 {[1, 2, 3, 4, 5].map(star => (
-                                  <svg key={star} className={`w-3 h-3 ${star <= review.rating ? 'fill-current' : 'text-gray-300 fill-current'}`} viewBox="0 0 20 20">
+                                  <svg key={star} className={`w-4 h-4 ${star <= review.rating ? 'fill-current' : 'text-[#2D4A80] fill-current'}`} viewBox="0 0 20 20">
                                     <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                                   </svg>
                                 ))}
                               </div>
-                              <span className="text-xs font-bold text-gray-900">Verified Purchase</span>
+                              <span className="font-bold text-white text-sm">Verified Purchase</span>
                             </div>
-                            <p className="text-xs text-gray-500">Reviewed on {review.date}</p>
-                            <p className="text-sm text-gray-900 leading-relaxed whitespace-pre-wrap">{review.comment}</p>
+                            <p className="text-xs text-gray-400 mb-2">Reviewed on {review.date}</p>
+                            <p className="text-gray-300 text-sm whitespace-pre-line">{review.comment}</p>
+                            <div className="mt-3 flex gap-4 text-xs text-gray-400 items-center">
+                              <button className="border border-[#1C3A6E] bg-[#061122] px-3 py-1.5 rounded-full hover:bg-[#112A4A] transition-colors shadow-sm">Helpful</button>
+                              <span className="cursor-pointer hover:underline text-[#4da6ff]">Report abuse</span>
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
+                        ))
+                      ) : (
+                        <p className="text-gray-400 text-sm">No reviews yet for this product.</p>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

@@ -264,7 +264,7 @@ const PosSystem: React.FC<PosSystemProps> = ({ products, onTransactionSuccess, o
                 
                 <div className={`w-full aspect-square mb-3 bg-zinc-100 dark:bg-zinc-950 flex items-center justify-center p-2`}>
                    {p.images && p.images[0] ? (
-                       <img src={p.images[0]} alt={p.name} className="object-cover w-full h-full mix-blend-multiply dark:mix-blend-normal" />
+                       <img src={p.images[0]} alt={p.name} className="object-cover w-full h-full" />
                    ) : (
                        <div className="text-[8px] font-black uppercase opacity-30 text-center">NO IMAGE</div>
                    )}

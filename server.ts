@@ -35,6 +35,41 @@ async function startServer() {
   // Removed file upload route as it's fully client-side now
 
 
+  app.post("/api/upload", multer().single("file"), async (req, res) => {
+    try {
+      if (!req.file) throw new Error("No file uploaded");
+      const { adminStorage } = await import('./firebase-admin');
+      
+      if (!adminStorage) {
+         throw new Error("Admin SDK or storage not initialized");
+      }
+
+      const fileBuffer = req.file.buffer;
+      const originalName = req.file.originalname;
+      const blobName = `uploads/${Date.now()}_${originalName.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+      
+      const bucket = adminStorage.bucket();
+      const file = bucket.file(blobName);
+      
+      await file.save(fileBuffer, {
+        metadata: { contentType: req.file.mimetype },
+        public: true,
+      });
+
+      const url = `https://storage.googleapis.com/${bucket.name}/${blobName}`;
+      res.json({ url });
+    } catch (error: any) {
+      const errMsg = error.message || String(error);
+      if (errMsg.includes('bucket does not exist')) {
+        console.warn("Storage upload skipped: Bucket does not exist. Frontend will fallback to local base64 compression.");
+      } else {
+        console.warn("Upload fallback triggered:", errMsg);
+      }
+      // Detailed fallback for iframe issues or if IAM fails
+      res.status(500).json({ error: "Storage upload failed. Fallback triggered." });
+    }
+  });
+
   // AI Image Routes
   app.post("/api/ai/generate-seo", async (req, res) => {
     try {

@@ -144,7 +144,10 @@ export interface Customer {
   lastSeen: string;
   phone?: string;
   address?: string;
+  city?: string;
+  zip?: string;
   notes?: string;
+  profileImage?: string;
 }
 
 export enum ViewState {

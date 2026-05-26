@@ -18,7 +18,7 @@ try {
     const config = getConfig();
 
     // Attempt to initialize using default credentials (works nicely in GCP/Cloud Run if properly authorized)
-    const bucketName = config.storageBucket || `${config.projectId}.appspot.com`;
+    const bucketName = (config.storageBucket || `${config.projectId}.appspot.com`).replace('.firebasestorage.app', '.appspot.com');
     console.log("Initializing Firebase Admin with bucket:", bucketName);
     
     app = initializeApp({

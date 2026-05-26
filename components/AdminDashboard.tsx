@@ -17,7 +17,7 @@ import { adminService } from '../services/adminService';
 import PosSystem from './PosSystem';
 import Markdown from 'react-markdown';
 import * as XLSX from 'xlsx';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
 import { storage, signInWithGoogle, auth } from '../firebase';
 import { MOCK_PRODUCTS } from '../constants';
 import { AdminRole, AdminUser, LogEntry, Order, Customer, Product, ProductVariant, SocialSettings, SocialReferral, DiscountCode, Review, ChatSession, ChatMessage, SecretValues, Expense } from '../types';
@@ -157,6 +157,8 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   const [isGeneratingPromo, setIsGeneratingPromo] = useState(false);
   const [promoPrompt, setPromoPrompt] = useState('');
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
+  const [heroUploadProgress, setHeroUploadProgress] = useState<{[fileName: string]: { progress: number, size: number }}>({});
+  const [productUploadProgress, setProductUploadProgress] = useState<{[fileName: string]: { progress: number, size: number }}>({});
 
   // Accounting Date State
   const [accountingStartDate, setAccountingStartDate] = useState<string>('');
@@ -1363,26 +1365,73 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
       const isMedia = file.type.startsWith('image/') || file.type.startsWith('video/') || file.name.match(/\.(jpg|jpeg|png|gif|mp4|webm|mov|webp)$/i);
       if (isMedia) {
         try {
-          const storageRef = ref(storage, `products/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9]/g, '_')}`);
-          await uploadBytes(storageRef, file);
-          const url = await getDownloadURL(storageRef);
+          setProductUploadProgress(prev => ({...prev, [file.name]: { progress: 0, size: file.size }}));
+          
+          const formData = new FormData();
+          formData.append('file', file);
+          
+          const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+          });
+          
+          if (!response.ok) throw new Error('Upload failed');
+          const data = await response.json();
           
           setManagedProduct(prev => ({
-            ...prev!,
-            images: [...(prev?.images || []), url]
+             ...prev!,
+             images: [...(prev?.images || []), data.url]
           }));
+          
+          setProductUploadProgress(prev => ({...prev, [file.name]: { progress: 100, size: file.size }}));
+          
+          setTimeout(() => {
+            setProductUploadProgress(prev => {
+              const newProgress = {...prev};
+              delete newProgress[file.name];
+              return newProgress;
+            });
+          }, 1000);
+          
         } catch (error) {
-          console.warn("Error uploading file to storage, falling back to local FileReader:", error);
-          // Wait for FileReader to complete correctly for multiple files
+          console.warn("Upload to server failed, falling back to FileReader with compression:", error);
           await new Promise<void>((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => {
-              const dataUrl = reader.result as string;
-              setManagedProduct(prev => ({
-                ...prev!,
-                images: [...(prev?.images || []), dataUrl]
-              }));
-              resolve();
+              const img = new Image();
+              img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+                const maxSize = 800;
+                
+                if (width > height && width > maxSize) {
+                  height *= maxSize / width;
+                  width = maxSize;
+                } else if (height > maxSize) {
+                  width *= maxSize / height;
+                  height = maxSize;
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                  ctx.drawImage(img, 0, 0, width, height);
+                  const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.6);
+                  setManagedProduct(prev => ({
+                    ...prev!,
+                    images: [...(prev?.images || []), compressedDataUrl]
+                  }));
+                }
+                setProductUploadProgress(prev => {
+                  const newProgress = {...prev};
+                  delete newProgress[file.name];
+                  return newProgress;
+                });
+                resolve();
+              };
+              img.src = reader.result as string;
             };
             reader.readAsDataURL(file);
           });
@@ -1402,28 +1451,73 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     if (!filesToUpload) return;
 
     const newImageUrls: string[] = [];
-    for (const file of Array.from(filesToUpload)) {
+    const uploadPromises = Array.from(filesToUpload).map(async (file) => {
       const isMedia = file.type.startsWith('image/') || file.type.startsWith('video/') || file.name.match(/\.(jpg|jpeg|png|gif|mp4|webm|mov|webp)$/i);
       if (isMedia) {
         try {
-          const storageRef = ref(storage, `hero/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9]/g, '_')}`);
-          await uploadBytes(storageRef, file);
-          const url = await getDownloadURL(storageRef);
-          newImageUrls.push(url);
+          setHeroUploadProgress(prev => ({...prev, [file.name]: { progress: 0, size: file.size }}));
+          
+          const formData = new FormData();
+          formData.append('file', file);
+          
+          const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+          });
+          
+          if (!response.ok) throw new Error('Upload failed');
+          const data = await response.json();
+          
+          newImageUrls.push(data.url);
+          setHeroUploadProgress(prev => {
+            const curr = {...prev};
+            delete curr[file.name];
+            return curr;
+          });
         } catch (error) {
-          console.warn("Error uploading hero file to storage, falling back to local FileReader:", error);
+          console.warn("Upload to server failed, falling back to FileReader with compression:", error);
           await new Promise<void>((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => {
-              const dataUrl = reader.result as string;
-              newImageUrls.push(dataUrl);
-              resolve();
+              const img = new Image();
+              img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+                const maxSize = 1200; // Hero image can be larger
+                
+                if (width > height && width > maxSize) {
+                  height *= maxSize / width;
+                  width = maxSize;
+                } else if (height > maxSize) {
+                  width *= maxSize / height;
+                  height = maxSize;
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                  ctx.drawImage(img, 0, 0, width, height);
+                  const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                  newImageUrls.push(compressedDataUrl);
+                }
+                setHeroUploadProgress(prev => {
+                  const curr = {...prev};
+                  delete curr[file.name];
+                  return curr;
+                });
+                resolve();
+              };
+              img.src = reader.result as string;
             };
             reader.readAsDataURL(file);
           });
         }
       }
-    }
+    });
+
+    await Promise.all(uploadPromises);
     
     if (newImageUrls.length > 0) {
       setSocialSettings(prev => ({
@@ -1556,16 +1650,14 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   const availableTabs = [
     { id: 'dashboard', label: 'Dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
     { id: 'products', label: 'Products', icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4', hidden: !canManageProducts },
-    { id: 'orders', label: 'Orders', icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z', hidden: !canManageOrders },
+    { id: 'orders', label: 'Order', icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z', hidden: false },
     { id: 'pending_verification', label: 'Payment Verification', icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z', hidden: !canManageOrders },
     { id: 'customers', label: 'Customers', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z', hidden: !canManageCustomers },
     { id: 'pos', label: 'POS Terminal', icon: 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z', hidden: !canManageOrders },
     { id: 'support', label: 'Support Inquiries', icon: 'M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z', hidden: !canManageCustomers },
     { id: 'insights', label: 'Insights', icon: 'M13 10V3L4 14h7v7l9-11h-7z', hidden: !canManageCustomers },
-    { id: 'chat', label: 'Live Chat', icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z', hidden: !canManageCustomers },
-    { id: 'discounts', label: 'Discounts', icon: 'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z', hidden: !canManageProducts },
+    { id: 'chat', label: 'Customer Chat', icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z', hidden: false },
     { id: 'reviews', label: 'Reviews', icon: 'M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z', hidden: !canManageProducts },
-    { id: 'settings', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z', hidden: !canManageProducts },
     { id: 'accounting', label: 'Accounting', icon: 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z', hidden: user.role !== AdminRole.SUPER_ADMIN },
     { id: 'user_management', label: 'Admin Users', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z', hidden: user.role !== AdminRole.SUPER_ADMIN },
     { id: 'activity_logs', label: 'Activity Logs', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', hidden: !canViewLogs },
@@ -3574,6 +3666,27 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                           if (e.target) e.target.value = '';
                         }} />
                       </label>
+
+                      {Object.keys(heroUploadProgress).length > 0 && (
+                        <div className="w-full max-w-md mt-4 space-y-3">
+                          {Object.entries(heroUploadProgress).map(([fileName, { progress, size }]) => (
+                            <div key={fileName} className="bg-black border border-zinc-800 p-3 flex flex-col gap-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-mono truncate max-w-[200px] text-zinc-300" title={fileName}>{fileName}</span>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-[9px] font-mono opacity-50 text-zinc-400">
+                                    {size < 1048576 ? (size / 1024).toFixed(1) + ' KB' : (size / 1024 / 1024).toFixed(2) + ' MB'}
+                                  </span>
+                                  <span className="text-[10px] font-black tabular-nums text-[#0055ff]">{Math.round(progress)}%</span>
+                                </div>
+                              </div>
+                              <div className="w-full bg-zinc-900 h-1">
+                                <div className="bg-[#0055ff] h-full transition-all duration-300" style={{ width: `${progress}%` }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {socialSettings.heroImages && socialSettings.heroImages.length > 0 && (
@@ -5434,6 +5547,26 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         <span className="text-[9px] font-black uppercase opacity-60">Drop_Files_Or_Click</span>
                       </div>
                     </div>
+                    {Object.keys(productUploadProgress).length > 0 && (
+                      <div className="w-full space-y-2 mt-4 col-span-full">
+                        {Object.entries(productUploadProgress).map(([fileName, { progress, size }]) => (
+                           <div key={fileName} className={`border p-2 flex flex-col gap-1 w-full ${isDarkMode ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-200 text-black'}`}>
+                             <div className="flex justify-between items-center w-full">
+                               <span className={`text-[10px] font-mono truncate max-w-[150px] ${isDarkMode ? 'text-zinc-300' : 'text-zinc-700'}`} title={fileName}>{fileName}</span>
+                               <div className="flex items-center gap-2">
+                                 <span className={`text-[8px] font-mono opacity-50 ${isDarkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                                   {size < 1048576 ? (size / 1024).toFixed(1) + ' KB' : (size / 1024 / 1024).toFixed(2) + ' MB'}
+                                 </span>
+                                 <span className="text-[9px] font-black tabular-nums text-[#0055ff]">{Math.round(progress)}%</span>
+                               </div>
+                             </div>
+                             <div className={`w-full h-1 ${isDarkMode ? 'bg-zinc-900' : 'bg-zinc-200'}`}>
+                               <div className="bg-[#0055ff] h-full transition-all duration-300" style={{ width: `${progress}%` }} />
+                             </div>
+                           </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-4 pt-4 border-t border-zinc-800">
                     <label className="text-[10px] font-black uppercase opacity-40">AI_Promotion_Generator</label>
