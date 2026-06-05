@@ -1,8 +1,22 @@
 
-import { collection, onSnapshot, doc, setDoc, query, orderBy, deleteDoc, updateDoc, where } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, getDoc, query, orderBy, deleteDoc, updateDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Order } from '../types';
 import { supabase } from '../supabase';
+
+export const fetchOrderById = async (orderId: string): Promise<Order | null> => {
+  try {
+    const orderRef = doc(db, 'orders', orderId);
+    const orderSnap = await getDoc(orderRef);
+    if (orderSnap.exists()) {
+      return { id: orderSnap.id, ...orderSnap.data() } as Order;
+    }
+    return null;
+  } catch (error) {
+    console.error("Error fetching order by ID:", error);
+    throw error;
+  }
+};
 
 export const subscribeToOrders = (callback: (orders: Order[]) => void, isAdmin: boolean = false, customerEmail: string = '') => {
   if (!isAdmin && !customerEmail) {

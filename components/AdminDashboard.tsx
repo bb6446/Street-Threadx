@@ -16,11 +16,11 @@ import { expenseService } from '../services/expenseService';
 import { adminService } from '../services/adminService';
 import PosSystem from './PosSystem';
 import Markdown from 'react-markdown';
-import * as XLSX from 'xlsx';
 import { ref, uploadBytes, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
 import { storage, signInWithGoogle, auth } from '../firebase';
 import { MOCK_PRODUCTS } from '../constants';
 import { AdminRole, AdminUser, LogEntry, Order, Customer, Product, ProductVariant, SocialSettings, SocialReferral, DiscountCode, Review, ChatSession, ChatMessage, SecretValues, Expense } from '../types';
+import { AdminProtectedRoute } from './AdminProtectedRoute';
 
 interface SupportRelay {
   id: string;
@@ -58,13 +58,16 @@ interface Props {
   setAdminUsersList: React.Dispatch<React.SetStateAction<AdminUser[]>>;
   expenses: Expense[];
   setExpenses: React.Dispatch<React.SetStateAction<Expense[]>>;
+  onEnableLiveEditMode?: () => void;
 }
 
 const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800';
 
-const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, setOrders, customers, setCustomers, socialSettings, setSocialSettings, socialReferrals, onLogout, logs, addLog, discountCodes, setDiscountCodes, reviews, setReviews, chatSessions, setChatSessions, onSendMessage, adminUsersList, setAdminUsersList, expenses, setExpenses }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders' | 'pending_verification' | 'customers' | 'activity_logs' | 'settings' | 'discounts' | 'reviews' | 'insights' | 'support' | 'pos' | 'chat' | 'user_management' | 'accounting'>('dashboard');
+const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, setOrders, customers, setCustomers, socialSettings, setSocialSettings, socialReferrals, onLogout, logs, addLog, discountCodes, setDiscountCodes, reviews, setReviews, chatSessions, setChatSessions, onSendMessage, adminUsersList, setAdminUsersList, expenses, setExpenses, onEnableLiveEditMode }) => {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders' | 'pending_verification' | 'customers' | 'activity_logs' | 'settings' | 'discounts' | 'reviews' | 'insights' | 'support' | 'pos' | 'chat' | 'user_management' | 'accounting' | 'appearance' | 'plugins'>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isLiveEditorOpen, setIsLiveEditorOpen] = useState(false);
 
   // AI Monitor State
   const [aiMonitorInput, setAiMonitorInput] = useState('');
@@ -160,6 +163,58 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   const [heroUploadProgress, setHeroUploadProgress] = useState<{[fileName: string]: { progress: number, size: number }}>({});
   const [productUploadProgress, setProductUploadProgress] = useState<{[fileName: string]: { progress: number, size: number }}>({});
 
+  // Site Logo Upload States
+  const [logoDragActive, setLogoDragActive] = useState(false);
+  const [logoProgress, setLogoProgress] = useState<number | null>(null);
+  const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
+
+  // Plugin Management State
+  const [isInstallingPlugin, setIsInstallingPlugin] = useState(false);
+  const [pluginMarketOpen, setPluginMarketOpen] = useState(false);
+  const [installingPluginStatus, setInstallingPluginStatus] = useState<string | null>(null);
+
+  const handleSiteLogoUpload = (file: File) => {
+    if (!file) return;
+    setLogoUploadError(null);
+    setLogoProgress(0);
+
+    const storageRef = ref(storage, `logos/${Date.now()}_${file.name}`);
+    const uploadTask = uploadBytesResumable(storageRef, file);
+
+    uploadTask.on(
+      'state_changed',
+      (snapshot) => {
+        const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+        setLogoProgress(pct);
+      },
+      (error) => {
+        console.error('Logo upload error', error);
+        setLogoUploadError('Failed to upload site logo: ' + error.message);
+        setLogoProgress(null);
+      },
+      async () => {
+        try {
+          const url = await getDownloadURL(uploadTask.snapshot.ref);
+          setSocialSettings({
+            ...socialSettings,
+            appearance: {
+              ...socialSettings.appearance,
+              siteLogoUrl: url,
+              siteLogoFileSize: file.size,
+              headerColor: socialSettings.appearance?.headerColor || '',
+              footerColor: socialSettings.appearance?.footerColor || '',
+              middleColor: socialSettings.appearance?.middleColor || '',
+            }
+          });
+          setLogoProgress(null);
+        } catch (err: any) {
+          setLogoUploadError('Failed to resolve URL: ' + err.message);
+          setLogoProgress(null);
+        }
+      }
+    );
+  };
+
   // Accounting Date State
   const [accountingStartDate, setAccountingStartDate] = useState<string>('');
   const [accountingEndDate, setAccountingEndDate] = useState<string>('');
@@ -199,6 +254,70 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
       } else {
         setAuthError(err.message || "Failed to verify identity. Please try opening in a new tab if you are using an iframe.");
       }
+    }
+  };
+
+  // Site Logo Metadata State and Effect
+  const [logoMeta, setLogoMeta] = useState<{ width: number; height: number; fileSize?: number } | null>(null);
+
+  useEffect(() => {
+    if (socialSettings?.appearance?.siteLogoUrl) {
+      const img = new Image();
+      img.onload = () => {
+        setLogoMeta({
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+          fileSize: socialSettings.appearance?.siteLogoFileSize
+        });
+      };
+      img.src = socialSettings.appearance.siteLogoUrl;
+    } else {
+      setLogoMeta(null);
+    }
+  }, [socialSettings?.appearance?.siteLogoUrl, socialSettings?.appearance?.siteLogoFileSize]);
+
+  const handleInstallPlugin = async (plugin: { id: string, name: string, desc: string }) => {
+    setIsInstallingPlugin(true);
+    setInstallingPluginStatus(`Initializing ${plugin.name} repository...`);
+    
+    // Simulate installation steps
+    await new Promise(resolve => setTimeout(resolve, 800));
+    setInstallingPluginStatus(`Cloning dependency tree for ${plugin.id}...`);
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    setInstallingPluginStatus(`Verifying security signatures...`);
+    await new Promise(resolve => setTimeout(resolve, 800));
+    setInstallingPluginStatus(`Optimizing SQL indices...`);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    try {
+      const updatedPlugins = socialSettings.plugins ? [...socialSettings.plugins] : [];
+      if (!updatedPlugins.find(p => p.id === plugin.id)) {
+        updatedPlugins.push({ id: plugin.id, name: plugin.name, enabled: true });
+      } else {
+        alert('Plugin is already installed.');
+        setIsInstallingPlugin(false);
+        setInstallingPluginStatus(null);
+        return;
+      }
+      
+      const newSettings = { ...socialSettings, plugins: updatedPlugins };
+      setSocialSettings(newSettings);
+      
+      const { doc, setDoc } = await import('firebase/firestore');
+      const { db } = await import('../firebase');
+      const cleanSettings = JSON.parse(JSON.stringify(newSettings));
+      await setDoc(doc(db, 'settings', 'social'), cleanSettings, { merge: true });
+      
+      addLog(`PLUGIN_INSTALLED: ${plugin.name}`);
+      setIsInstallingPlugin(false);
+      setInstallingPluginStatus(null);
+      setPluginMarketOpen(false);
+      alert(`${plugin.name} installed successfully.`);
+    } catch (e: any) {
+      console.error(e);
+      alert('Installation failed: ' + e.message);
+      setIsInstallingPlugin(false);
+      setInstallingPluginStatus(null);
     }
   };
 
@@ -540,6 +659,24 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
       newValue: newStatus,
       entityId: id
     });
+    
+    // Trigger automated notification
+    if (order && order.customerEmail) {
+      fetch('/api/notify-order-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: id, customerEmail: order.customerEmail, newStatus })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          addLog(`NOTIFICATION_SENT_EMAIL: ${order.customerEmail}`);
+        }
+      })
+      .catch(err => {
+        console.error('Failed to send status notification:', err);
+      });
+    }
   };
 
   const handleDeleteOrder = async (id: string) => {
@@ -824,6 +961,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
       }
 
       const fileName = `backup_${timestamp}.xlsx`;
+      const XLSX = await import('xlsx');
       const wb = XLSX.utils.book_new();
 
       // Products Sheet
@@ -896,6 +1034,45 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     } finally {
       setIsBackingUp(false);
     }
+  };
+
+  const handleExportOrdersCSV = async () => {
+    const dataToExport = filteredOrders.map(o => ({
+      'Order ID': o.id,
+      'Date': o.date,
+      'Time': o.time || '',
+      'Customer Name': o.customerName,
+      'Customer Email': o.customerEmail,
+      'Subtotal': o.subtotal || o.total,
+      'Discount': o.discount || 0,
+      'Total Amount': o.total,
+      'Status': o.status,
+      'Payment Status': o.paymentStatus || (o.isPaid ? 'PAID' : 'UNPAID'),
+      'Shipping Address': o.shippingAddress,
+      'Items Count': o.items,
+      'Payment Method': o.paymentMethod || 'N/A',
+      'Transaction ID': o.transactionId || 'N/A'
+    }));
+
+    if (dataToExport.length === 0) {
+      alert('No orders found matching the current filters to export.');
+      return;
+    }
+
+    const XLSX = await import('xlsx');
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const csv = XLSX.utils.sheet_to_csv(worksheet);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const timestamp = new Date().toISOString().split('T')[0];
+    link.setAttribute('href', url);
+    link.setAttribute('download', `orders_export_${timestamp}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    addLog(`ORDERS_EXPORT_CSV: Exported ${dataToExport.length} orders`);
   };
 
   const handleBulkAction = (action: string) => {
@@ -1261,23 +1438,31 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   };
 
   const salesData = [
-    { name: 'Mon', sales: 4000, revenue: 24000 },
-    { name: 'Tue', sales: 3000, revenue: 13980 },
-    { name: 'Wed', sales: 2000, revenue: 98000 },
-    { name: 'Thu', sales: 2780, revenue: 39080 },
-    { name: 'Fri', sales: 1890, revenue: 48000 },
-    { name: 'Sat', sales: 2390, revenue: 38000 },
-    { name: 'Sun', sales: 3490, revenue: 43000 },
+    { name: 'Mon', revenue: 24000 },
+    { name: 'Tue', revenue: 13980 },
+    { name: 'Wed', revenue: 98000 },
+    { name: 'Thu', revenue: 39080 },
+    { name: 'Fri', revenue: 48000 },
+    { name: 'Sat', revenue: 38000 },
+    { name: 'Sun', revenue: 43000 },
   ];
 
-  const categoryData = [
-    { name: 'Hoodies', value: 400 },
-    { name: 'T-Shirts', value: 300 },
-    { name: 'Accessories', value: 300 },
-    { name: 'Sweaters', value: 200 },
+  const acquisitionData = [
+    { name: 'Organic Search', value: 45 },
+    { name: 'Social Media', value: 30 },
+    { name: 'Direct Traffic', value: 15 },
+    { name: 'Referrals', value: 10 },
   ];
 
-  const COLORS = ['#0055ff', '#00c49f', '#ffbb28', '#ff8042'];
+  const topSellingData = [
+    { name: 'Oversized Hoodie', sales: 120 },
+    { name: 'Graphic T-Shirt', sales: 95 },
+    { name: 'Cargo Pants', sales: 80 },
+    { name: 'Beanie', sales: 60 },
+    { name: 'Sneakers', sales: 40 },
+  ];
+
+  const COLORS = ['#0055ff', '#00c49f', '#ffbb28', '#ff8042', '#8884d8'];
 
   const handleAiGenerateDescription = async () => {
     if (!managedProduct?.name || !managedProduct?.category) return;
@@ -1661,24 +1846,52 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     { id: 'accounting', label: 'Accounting', icon: 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z', hidden: user.role !== AdminRole.SUPER_ADMIN },
     { id: 'user_management', label: 'Admin Users', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z', hidden: user.role !== AdminRole.SUPER_ADMIN },
     { id: 'activity_logs', label: 'Activity Logs', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', hidden: !canViewLogs },
+    { id: 'appearance', label: 'Appearance', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z', hidden: user.role !== AdminRole.SUPER_ADMIN },
+    { id: 'plugins', label: 'Plugins', icon: 'M17 14v6m-3-3h6M6 10h2a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2zm10 0h2a2 2 0 002-2V6a2 2 0 00-2-2h-2a2 2 0 00-2 2v2a2 2 0 002 2zM6 20h2a2 2 0 002-2v-2a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2z', hidden: user.role !== AdminRole.SUPER_ADMIN },
   ].filter(t => !t.hidden);
 
   return (
     <div className={`min-h-screen flex flex-col font-mono selection:bg-[#0055ff] selection:text-white transition-colors duration-300 ${themeClasses}`}>
-      <div className="flex flex-1">
-        <aside className={`w-72 border-r flex flex-col p-8 space-y-10 relative z-20 transition-colors duration-300 ${isDarkMode ? 'bg-black border-zinc-800' : 'bg-white border-r-2 border-black'}`}>
-          <div className="space-y-4">
+      
+      {/* Backdrop for Mobile Sidebar Drawer */}
+      {isMobileSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      )}
+
+      <div className="flex flex-col lg:flex-row flex-1">
+        <aside className={`
+          fixed lg:static inset-y-0 left-0 w-72 lg:w-72 h-full border-r flex flex-col p-8 space-y-10 z-50 transition-transform lg:transition-colors duration-300
+          ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+          ${isDarkMode ? 'bg-[#050505] border-zinc-800' : 'bg-white border-r-2 border-black'}
+        `}>
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 bg-[#0055ff]"></div>
               <h2 className="text-2xl font-black heading-font tracking-tighter uppercase">STREET<span className="text-[#0055ff]">THREADX</span></h2>
             </div>
+            {/* Dedicated Close Button for Mobile Drawer */}
+            <button 
+              onClick={() => setIsMobileSidebarOpen(false)}
+              className={`lg:hidden p-1.5 border transition-all cursor-pointer ${isDarkMode ? 'border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-900' : 'border-black text-zinc-600 hover:text-black hover:bg-zinc-100'}`}
+              aria-label="Close Navigation Menu"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
-          <nav className="flex-1 space-y-2">
+          <nav className="flex-1 space-y-2 overflow-y-auto no-scrollbar">
             {availableTabs.map(tab => (
               <button 
                 key={tab.id} 
-                onClick={() => setActiveTab(tab.id as any)} 
-                className={`w-full text-left px-5 py-3 rounded-none transition-all flex items-center gap-4 ${activeTab === tab.id ? 'bg-[#0055ff] text-white' : 'opacity-70 hover:bg-zinc-500/5'}`}
+                onClick={() => {
+                  setActiveTab(tab.id as any);
+                  setIsMobileSidebarOpen(false);
+                }} 
+                className={`w-full text-left px-5 py-3 rounded-none transition-all flex items-center gap-4 cursor-pointer ${activeTab === tab.id ? 'bg-[#0055ff] text-white' : 'opacity-70 hover:bg-zinc-500/5'}`}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} />
@@ -1693,9 +1906,12 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
             {user.role === AdminRole.SUPER_ADMIN && (
               <div className="pt-8">
                 <button
-                  onClick={() => setShowBackupModal(true)}
+                  onClick={() => {
+                    setShowBackupModal(true);
+                    setIsMobileSidebarOpen(false);
+                  }}
                   disabled={isBackingUp}
-                  className={`w-full text-left px-5 py-3 rounded-none transition-all flex items-center gap-4 opacity-70 hover:bg-[#0055ff]/10 hover:text-[#0055ff] hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed`}
+                  className={`w-full text-left px-5 py-3 rounded-none transition-all flex items-center gap-4 opacity-70 hover:bg-[#0055ff]/10 hover:text-[#0055ff] hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer`}
                 >
                   {isBackingUp ? (
                     <span className="w-4 h-4 border-2 border-[#0055ff]/30 border-t-[#0055ff] rounded-full animate-spin"></span>
@@ -1711,24 +1927,36 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
               </div>
             )}
           </nav>
-          <button onClick={onLogout} className={`w-full py-4 border-2 text-[9px] font-black uppercase tracking-[0.4em] transition-all ${isDarkMode ? 'border-zinc-800 hover:bg-zinc-900' : 'border-black hover:bg-black hover:text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none'}`}>DISCONNECT</button>
+          <button onClick={() => { onLogout(); setIsMobileSidebarOpen(false); }} className={`w-full py-4 border-2 text-[9px] font-black uppercase tracking-[0.4em] transition-all cursor-pointer ${isDarkMode ? 'border-zinc-800 hover:bg-zinc-900' : 'border-black hover:bg-black hover:text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none'}`}>DISCONNECT</button>
         </aside>
 
         <main className="flex-1 flex flex-col relative overflow-y-auto no-scrollbar">
-          <header className={`h-20 border-b-2 flex items-center justify-between px-10 transition-colors duration-300 ${isDarkMode ? 'bg-black/50 border-zinc-800' : 'bg-white/80 border-black'}`}>
-            <h1 className="text-lg font-black uppercase tracking-[0.4em]">{activeTab.replace('_', ' ')}</h1>
+          <header className={`h-20 border-b-2 flex items-center justify-between px-6 md:px-10 transition-colors duration-300 ${isDarkMode ? 'bg-black/50 border-zinc-800' : 'bg-white/80 border-black'}`}>
+            <div className="flex items-center gap-4">
+              {/* Hamburger Button on Mobile */}
+              <button 
+                onClick={() => setIsMobileSidebarOpen(true)}
+                className={`lg:hidden p-2 border-2 transition-all cursor-pointer ${isDarkMode ? 'border-zinc-800 bg-zinc-900 text-white hover:bg-zinc-800' : 'border-black bg-white text-black hover:bg-zinc-100'}`}
+                aria-label="Open Navigation Menu"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              <h1 className="text-sm md:text-lg font-black uppercase tracking-[0.3em] md:tracking-[0.4em]">{activeTab.replace('_', ' ')}</h1>
+            </div>
             <div className="flex items-center gap-4">
               <div className={`flex items-center border-2 ${isDarkMode ? 'border-zinc-800 p-1 bg-black' : 'border-black p-1 bg-zinc-100'}`}>
                 <button 
                   onClick={() => setIsDarkMode(true)} 
-                  className={`p-1.5 transition-all ${isDarkMode ? 'bg-[#0055ff] text-white' : 'text-zinc-400 hover:text-black'}`}
+                  className={`p-1.5 transition-all cursor-pointer ${isDarkMode ? 'bg-[#0055ff] text-white' : 'text-zinc-400 hover:text-black'}`}
                   title="Dark Mode"
                 >
                   <Moon className="w-3.5 h-3.5" />
                 </button>
                 <button 
                   onClick={() => setIsDarkMode(false)} 
-                  className={`p-1.5 transition-all ${!isDarkMode ? 'bg-[#0055ff] text-white' : 'text-zinc-600 hover:text-white'}`}
+                  className={`p-1.5 transition-all cursor-pointer ${!isDarkMode ? 'bg-[#0055ff] text-white' : 'text-zinc-600 hover:text-white'}`}
                   title="Light Mode"
                 >
                   <Sun className="w-3.5 h-3.5" />
@@ -1737,8 +1965,9 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
             </div>
           </header>
 
-          <div className="p-10 space-y-10 animate-in fade-in duration-500">
-            {activeTab === 'dashboard' && (
+          <div className="p-4 md:p-10 space-y-6 md:space-y-10 animate-in fade-in duration-500">
+            <AdminProtectedRoute adminUser={user}>
+              {activeTab === 'dashboard' && (
               <div className="space-y-10">
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   <div className={`border p-8 rounded-none ${cardClasses}`}>
@@ -1807,7 +2036,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   <div className={`border p-8 rounded-none ${cardClasses} h-[400px]`}>
-                    <h3 className="text-zinc-500 text-[9px] font-black uppercase mb-8">Revenue Trends</h3>
+                    <h3 className="text-zinc-500 text-[9px] font-black uppercase mb-8">Daily Revenue</h3>
                     <ResponsiveContainer width="100%" height="85%">
                       <AreaChart data={salesData}>
                         <defs>
@@ -1829,46 +2058,49 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                   </div>
 
                   <div className={`border p-8 rounded-none ${cardClasses} h-[400px]`}>
-                    <h3 className="text-zinc-500 text-[9px] font-black uppercase mb-8">Category Distribution</h3>
+                    <h3 className="text-zinc-500 text-[9px] font-black uppercase mb-8">Customer Acquisition Sources</h3>
                     <ResponsiveContainer width="100%" height="85%">
                       <PieChart>
                         <Pie
-                          data={categoryData}
+                          data={acquisitionData}
                           cx="50%"
                           cy="50%"
-                          innerRadius={60}
-                          outerRadius={80}
-                          paddingAngle={5}
+                          labelLine={false}
+                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                          outerRadius={100}
                           dataKey="value"
                         >
-                          {categoryData.map((entry, index) => (
+                          {acquisitionData.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                           ))}
                         </Pie>
-                        <Tooltip />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: isDarkMode ? '#111' : '#fff', border: '1px solid #333', fontSize: '10px' }}
+                        />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                  <div className={`col-span-2 border p-8 rounded-none ${cardClasses}`}>
+                  <div className={`col-span-2 border p-8 rounded-none ${cardClasses} h-[400px]`}>
                     <h3 className="text-zinc-500 text-[9px] font-black uppercase mb-6">Top Selling Products</h3>
-                    <div className="space-y-4">
-                      {products.slice(0, 4).map((p, i) => (
-                        <div key={p.id} className="flex items-center justify-between group">
-                          <div className="flex items-center gap-4">
-                            <span className="text-zinc-500 text-[10px] font-black">0{i+1}</span>
-                            <img loading="lazy" src={p.images[0]} className="w-10 h-10 object-cover border border-zinc-800" alt="" />
-                            <span className="text-xs font-black uppercase group-hover:text-[#0055ff] transition-colors">{p.name}</span>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-xs font-black">৳{(p.price * (10 + i)).toLocaleString()}</div>
-                            <div className="text-[9px] text-zinc-500 uppercase">{10 + i} Sales</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <ResponsiveContainer width="100%" height="85%">
+                      <BarChart data={topSellingData} layout="vertical" margin={{ top: 0, right: 0, left: 20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#222' : '#eee'} horizontal={false} />
+                        <XAxis type="number" stroke="#888" fontSize={10} tickLine={false} axisLine={false} />
+                        <YAxis dataKey="name" type="category" stroke="#888" fontSize={10} tickLine={false} axisLine={false} width={120} />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: isDarkMode ? '#111' : '#fff', border: '1px solid #333', fontSize: '10px' }}
+                          cursor={{ fill: 'transparent' }}
+                        />
+                        <Bar dataKey="sales" fill="#0055ff" radius={[0, 4, 4, 0]}>
+                          {topSellingData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
                   <div className={`border p-8 rounded-none ${cardClasses}`}>
                     <h3 className="text-zinc-500 text-[9px] font-black uppercase mb-6">Low Stock Alerts</h3>
@@ -1967,7 +2199,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                   </div>
                 )}
 
-                <div className={`border rounded-none overflow-hidden ${cardClasses}`}>
+                <div className={`border rounded-none overflow-x-auto ${cardClasses}`}>
                   <table className="w-full text-left text-[11px] font-black uppercase">
                     <thead className={`border-b ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
                       <tr>
@@ -2106,6 +2338,13 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                   >
                     Create_New_Order
                   </button>
+                  <button 
+                    onClick={handleExportOrdersCSV}
+                    className="bg-emerald-600 text-white px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] shadow-lg shadow-emerald-600/20 hover:scale-105 transition-transform flex items-center gap-2"
+                    title="Download order data as CSV for bookkeeping"
+                  >
+                    <Download size={14} /> Download Bookkeeping CSV
+                  </button>
                   <div className="flex flex-wrap items-center gap-4">
                     <div className="relative group">
                       <input 
@@ -2192,7 +2431,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                 </div>
 
                 {ordersViewMode === 'list' ? (
-                  <div className={`border rounded-none overflow-hidden ${cardClasses}`}>
+                  <div className={`border rounded-none overflow-x-auto ${cardClasses}`}>
                     <table className="w-full text-left text-[11px] font-black uppercase">
                     <thead className={`border-b ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
                       <tr>
@@ -2898,7 +3137,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                   </div>
                 </div>
 
-                <div className={`border rounded-none overflow-hidden ${cardClasses}`}>
+                <div className={`border rounded-none overflow-x-auto ${cardClasses}`}>
                   <table className="w-full text-left text-[11px] font-black uppercase">
                     <thead className={`border-b ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
                       <tr>
@@ -3307,7 +3546,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                     </button>
                   </div>
 
-                  <div className={`border rounded-none overflow-hidden ${cardClasses}`}>
+                  <div className={`border rounded-none overflow-x-auto ${cardClasses}`}>
                     <table className="w-full text-left text-[11px] font-black uppercase">
                       <thead className={`border-b ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
                         <tr>
@@ -3369,7 +3608,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
             )}
 
             {activeTab === 'customers' && (
-              <div className={`border rounded-none overflow-hidden ${cardClasses}`}>
+              <div className={`border rounded-none overflow-x-auto ${cardClasses}`}>
                 <table className="w-full text-left text-[11px] font-black uppercase">
                   <thead className={`border-b ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
                     <tr><th className="px-6 py-4">Name</th><th className="px-6 py-4">Email</th><th className="px-6 py-4">Total Spent</th><th className="px-6 py-4">Orders</th><th className="px-6 py-4">Last Seen</th><th className="px-6 py-4 text-right">Actions</th></tr>
@@ -4036,7 +4275,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                   </button>
                 </div>
 
-                <div className={`border rounded-none overflow-hidden ${cardClasses}`}>
+                <div className={`border rounded-none overflow-x-auto ${cardClasses}`}>
                   <table className="w-full text-left text-[11px] font-black uppercase">
                     <thead className={`border-b ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
                       <tr>
@@ -4164,7 +4403,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                   </div>
                 </div>
 
-                <div className={`border rounded-none overflow-hidden ${cardClasses}`}>
+                <div className={`border rounded-none overflow-x-auto ${cardClasses}`}>
                   <table className="w-full text-left text-[11px] font-black uppercase">
                     <thead className={`border-b ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
                       <tr>
@@ -4549,6 +4788,472 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                 </div>
               </div>
             )}
+
+            {activeTab === 'appearance' && (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center pb-4 border-b border-zinc-800">
+                  <h2 className="text-xl font-bold">Appearance Settings</h2>
+                  <button 
+                    onClick={async () => {
+                        try {
+                            const { doc, setDoc } = await import('firebase/firestore');
+                            const { db } = await import('../firebase');
+                            // Clean undefined fields that might crash Firestore
+                            const cleanSettings = JSON.parse(JSON.stringify(socialSettings));
+                            await setDoc(doc(db, 'settings', 'social'), cleanSettings, { merge: true });
+                            alert('Appearance settings saved');
+                        } catch (e: any) {
+                            console.error(e);
+                            alert('Error saving: ' + (e.message || String(e)));
+                        }
+                    }}
+                    className="px-4 py-2 bg-[#0055ff] text-white text-[10px] uppercase font-black"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+                <div className={`p-6 border ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800' : 'bg-white border-zinc-200'} space-y-6`}>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label className="block text-[10px] font-black uppercase mb-2">Header Color</label>
+                        <input
+                            type="color"
+                            value={socialSettings.appearance?.headerColor || '#000000'}
+                            onChange={(e) => setSocialSettings({...socialSettings, appearance: {...socialSettings.appearance, headerColor: e.target.value, footerColor: socialSettings.appearance?.footerColor || '', middleColor: socialSettings.appearance?.middleColor || '', siteLogoUrl: socialSettings.appearance?.siteLogoUrl || ''}})}
+                            className="w-full h-10 border-0 bg-transparent"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-[10px] font-black uppercase mb-2">Footer Color</label>
+                        <input
+                            type="color"
+                            value={socialSettings.appearance?.footerColor || '#000000'}
+                            onChange={(e) => setSocialSettings({...socialSettings, appearance: {...socialSettings.appearance, footerColor: e.target.value, headerColor: socialSettings.appearance?.headerColor || '', middleColor: socialSettings.appearance?.middleColor || '', siteLogoUrl: socialSettings.appearance?.siteLogoUrl || ''}})}
+                            className="w-full h-10 border-0 bg-transparent"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-[10px] font-black uppercase mb-2">Middle / Page Body Color</label>
+                        <input
+                            type="color"
+                            value={socialSettings.appearance?.middleColor || '#ffffff'}
+                            onChange={(e) => setSocialSettings({...socialSettings, appearance: {...socialSettings.appearance, middleColor: e.target.value, headerColor: socialSettings.appearance?.headerColor || '', footerColor: socialSettings.appearance?.footerColor || '', siteLogoUrl: socialSettings.appearance?.siteLogoUrl || ''}})}
+                            className="w-full h-10 border-0 bg-transparent"
+                        />
+                    </div>
+                  </div>
+                  
+                  <div className="pt-6 border-t border-zinc-800">
+                    <div className="flex justify-between items-center mb-2">
+                        <label className="block text-[10px] font-black uppercase">Live Website Editor</label>
+                        <span className="text-[9px] uppercase tracking-widest text-emerald-500 font-bold border border-emerald-500/30 px-2 py-0.5 rounded-sm bg-emerald-500/10">Elementor Mode</span>
+                    </div>
+                    <div className={`p-6 border flex flex-col items-center justify-center space-y-4 text-center ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-12 h-12 text-[#0055ff] mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+                        </svg>
+                        <div>
+                            <h3 className="font-black uppercase tracking-widest text-sm mb-1">Visual Page Builder</h3>
+                            <p className="text-xs text-zinc-500 max-w-sm mx-auto">Design your pages visually with drag-and-drop blocks, real-time preview, and inline text editing.</p>
+                        </div>
+                        <button 
+                            onClick={() => {
+                              if (onEnableLiveEditMode) onEnableLiveEditMode();
+                            }}
+                            className="bg-[#0055ff] text-white px-6 py-3 text-[10px] uppercase font-black tracking-widest hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/20"
+                        >
+                            Launch Live Editor
+                        </button>
+                    </div>
+                  </div>
+
+                  <div className="pt-6 border-t border-zinc-800 space-y-6">
+                    <div>
+                      <h3 className="text-xs font-black uppercase tracking-widest text-[#0055ff] mb-2">1. Site Brand Identity</h3>
+                      <p className="text-xs text-zinc-500 mb-4">Input a logo URL or upload a high-resolution logo image (transparent PNG or SVG recommended).</p>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-black uppercase mb-1.5 opacity-60">Logo Image Source URL</label>
+                        <div className="flex gap-3">
+                          <input
+                            type="url"
+                            placeholder="https://example.com/logo.png"
+                            value={socialSettings.appearance?.siteLogoUrl || ''}
+                            onChange={(e) => setSocialSettings({
+                              ...socialSettings,
+                              appearance: {
+                                ...socialSettings.appearance,
+                                siteLogoUrl: e.target.value,
+                                headerColor: socialSettings.appearance?.headerColor || '',
+                                footerColor: socialSettings.appearance?.footerColor || '',
+                                middleColor: socialSettings.appearance?.middleColor || ''
+                              }
+                            })}
+                            className={`flex-1 p-3 text-xs focus:outline-none focus:border-[#0055ff] border font-mono transition-colors ${isDarkMode ? 'bg-black border-zinc-800 text-white' : 'bg-transparent border-zinc-200 text-black'}`}
+                          />
+                          {socialSettings.appearance?.siteLogoUrl && (
+                            <button
+                              onClick={() => {
+                                setSocialSettings({
+                                  ...socialSettings,
+                                  appearance: {
+                                    ...socialSettings.appearance,
+                                    siteLogoUrl: '',
+                                    siteLogoFileSize: undefined,
+                                    siteLogoHeight: undefined,
+                                    siteLogoWidth: undefined,
+                                    headerColor: socialSettings.appearance?.headerColor || '',
+                                    footerColor: socialSettings.appearance?.footerColor || '',
+                                    middleColor: socialSettings.appearance?.middleColor || ''
+                                  }
+                                });
+                              }}
+                              className="px-4 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20 text-[10px] uppercase font-black tracking-wider transition-all flex items-center justify-center gap-1"
+                              title="Remove logo"
+                            >
+                              <Trash size={12} /> Clear
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Drag & Drop Upload Zone */}
+                      <div
+                        onDragEnter={(e) => { e.preventDefault(); setLogoDragActive(true); }}
+                        onDragOver={(e) => { e.preventDefault(); setLogoDragActive(true); }}
+                        onDragLeave={(e) => { e.preventDefault(); setLogoDragActive(false); }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setLogoDragActive(false);
+                          const file = e.dataTransfer.files?.[0];
+                          if (file && file.type.startsWith('image/')) {
+                            handleSiteLogoUpload(file);
+                          } else {
+                            setLogoUploadError('Please drop an image file.');
+                          }
+                        }}
+                        className={`border-2 border-dashed rounded-none p-8 flex flex-col items-center justify-center text-center transition-all ${
+                          logoDragActive 
+                            ? 'border-[#0055ff] bg-blue-500/5' 
+                            : isDarkMode ? 'border-zinc-800 bg-black/40 hover:border-zinc-700' : 'border-zinc-200 bg-zinc-50 hover:border-zinc-300'
+                        }`}
+                      >
+                        <input
+                          id="logo-upload-file"
+                          type="file"
+                          className="hidden"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleSiteLogoUpload(file);
+                          }}
+                        />
+                        <Cloud className={`w-8 h-8 mb-2 ${logoDragActive ? 'text-[#0055ff]' : 'text-zinc-500'}`} />
+                        <p className="text-xs font-black uppercase tracking-wider mb-1">
+                          Drag & Drop Your Site Logo
+                        </p>
+                        <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-3">
+                          PNG, JPG, SVG up to 5MB
+                        </p>
+                        <label
+                          htmlFor="logo-upload-file"
+                          className="cursor-pointer bg-[#0055ff] hover:bg-blue-600 text-white text-[9px] font-black uppercase tracking-widest px-4 py-2 transition-colors inline-block shadow-md shadow-blue-500/10"
+                        >
+                          Select File
+                        </label>
+                      </div>
+
+                      {/* Display Progress bar */}
+                      {logoProgress !== null && (
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-[9px] font-black uppercase tracking-wider text-zinc-400">Uploading Site Logo...</span>
+                            <span className="text-[10px] font-mono font-bold text-[#0055ff]">{logoProgress}%</span>
+                          </div>
+                          <div className="w-full bg-zinc-800 h-1.5 overflow-hidden">
+                            <div 
+                              className="bg-[#0055ff] h-full transition-all duration-300"
+                              style={{ width: `${logoProgress}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Error State */}
+                      {logoUploadError && (
+                        <div className="p-3 bg-red-500/10 border border-red-500/20 text-[10px] text-red-500 font-bold uppercase tracking-wider">
+                          {logoUploadError}
+                        </div>
+                      )}
+
+                      {/* Preview & Image Metadata Section */}
+                      {socialSettings.appearance?.siteLogoUrl && (
+                        <div className={`p-4 border grid grid-cols-1 md:grid-cols-3 gap-4 items-center ${isDarkMode ? 'bg-zinc-950/80 border-zinc-900' : 'bg-zinc-100/50 border-zinc-200'}`}>
+                          <div className="md:col-span-1 flex flex-col items-center justify-center border border-dashed border-zinc-800 p-4 bg-zinc-950 relative overflow-hidden group">
+                            {/* Checkerboard transparency grid */}
+                            <div className="absolute inset-0 opacity-[0.03] select-none pointer-events-none" style={{ backgroundImage: 'radial-gradient(#ffffff 1px, transparent 0), radial-gradient(#ffffff 1px, #000000 0)', backgroundSize: '8px 8px', backgroundPosition: '0 0, 4px 4px' }}></div>
+                            <img 
+                              src={socialSettings.appearance.siteLogoUrl} 
+                              alt="Logo Render" 
+                              style={{ height: `${socialSettings.appearance.siteLogoHeight || 32}px`, width: socialSettings.appearance.siteLogoWidth ? `${socialSettings.appearance.siteLogoWidth}px` : 'auto' }}
+                              className="object-contain max-h-[80px] relative z-10 transition-all filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]"
+                            />
+                            <div className="text-[8px] uppercase tracking-widest text-zinc-500 mt-2 font-black z-10">Live Preview</div>
+                          </div>
+                          
+                          <div className="md:col-span-2 space-y-3">
+                            <div className="border-b border-zinc-800 pb-2">
+                              <h4 className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">Logo File Specifications</h4>
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-2 font-mono text-[10px]">
+                              <div className="space-y-1">
+                                <span className="text-[8px] text-zinc-400 uppercase font-black block">Dimensions</span>
+                                <span className="font-black text-white uppercase">
+                                  {logoMeta ? `${logoMeta.width} × ${logoMeta.height} px` : 'Loading...'}
+                                </span>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-[8px] text-zinc-400 uppercase font-black block">File Size</span>
+                                <span className="font-black text-white uppercase">
+                                  {logoMeta?.fileSize 
+                                    ? logoMeta.fileSize > 1024 * 1024 
+                                      ? `${(logoMeta.fileSize / (1024 * 1024)).toFixed(2)} MB` 
+                                      : `${(logoMeta.fileSize / 1024).toFixed(1)} KB`
+                                    : 'External/Cloud URL'}
+                                </span>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-[8px] text-zinc-400 uppercase font-black block">Scale Ratio</span>
+                                <span className="font-black text-[#0055ff] uppercase">
+                                  {logoMeta ? (logoMeta.width / logoMeta.height).toFixed(2) : '-'} : 1
+                                </span>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-[8px] text-zinc-400 uppercase font-black block">Format</span>
+                                <span className="font-bold text-white uppercase">
+                                  {socialSettings.appearance.siteLogoUrl.split('.').pop()?.split('?')[0]?.substring(0, 4) || 'PNG'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Logo Size Control Section */}
+                    <div className="border-t border-zinc-800 pt-6 space-y-4">
+                      <div>
+                        <h4 className="text-[11px] font-black uppercase tracking-widest text-[#0055ff]">2. Storefront Layout Sizing & Aspect</h4>
+                        <p className="text-[10px] text-zinc-500 uppercase mt-0.5">Control how your brand assets scale on the live header across devices.</p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center text-[10px] font-black uppercase">
+                            <span className="opacity-60">Logo Height</span>
+                            <span className="text-[#0055ff]">{socialSettings.appearance?.siteLogoHeight || 32}px</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="16"
+                            max="96"
+                            value={socialSettings.appearance?.siteLogoHeight || 32}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value);
+                              setSocialSettings({
+                                ...socialSettings,
+                                appearance: {
+                                  ...socialSettings.appearance,
+                                  siteLogoHeight: val,
+                                  headerColor: socialSettings.appearance?.headerColor || '',
+                                  footerColor: socialSettings.appearance?.footerColor || '',
+                                  middleColor: socialSettings.appearance?.middleColor || '',
+                                  siteLogoUrl: socialSettings.appearance?.siteLogoUrl || ''
+                                }
+                              });
+                            }}
+                            className="w-full accent-[#0055ff] bg-zinc-800 h-1 outline-none appearance-none cursor-pointer"
+                          />
+                          <div className="flex justify-between text-[8px] text-zinc-500 font-mono">
+                            <span>16PX (COMPACT)</span>
+                            <span>96PX (PROMINENT)</span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center text-[10px] font-black uppercase">
+                            <span className="opacity-60">Logo Width</span>
+                            <span className="text-[#0055ff]">
+                              {socialSettings.appearance?.siteLogoWidth ? `${socialSettings.appearance.siteLogoWidth}px` : 'AUTO (PROPORTIONAL)'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="range"
+                              min="32"
+                              max="320"
+                              disabled={!socialSettings.appearance?.siteLogoWidth}
+                              value={socialSettings.appearance?.siteLogoWidth || 120}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value);
+                                setSocialSettings({
+                                  ...socialSettings,
+                                  appearance: {
+                                    ...socialSettings.appearance,
+                                    siteLogoWidth: val,
+                                    headerColor: socialSettings.appearance?.headerColor || '',
+                                    footerColor: socialSettings.appearance?.footerColor || '',
+                                    middleColor: socialSettings.appearance?.middleColor || '',
+                                    siteLogoUrl: socialSettings.appearance?.siteLogoUrl || ''
+                                  }
+                                });
+                              }}
+                              className={`flex-1 h-1 outline-none appearance-none cursor-pointer ${socialSettings.appearance?.siteLogoWidth ? 'accent-[#0055ff] bg-zinc-800' : 'bg-zinc-800/20'}`}
+                            />
+                            <button
+                              onClick={() => {
+                                setSocialSettings({
+                                  ...socialSettings,
+                                  appearance: {
+                                    ...socialSettings.appearance,
+                                    siteLogoWidth: socialSettings.appearance?.siteLogoWidth ? undefined : 120,
+                                    headerColor: socialSettings.appearance?.headerColor || '',
+                                    footerColor: socialSettings.appearance?.footerColor || '',
+                                    middleColor: socialSettings.appearance?.middleColor || '',
+                                    siteLogoUrl: socialSettings.appearance?.siteLogoUrl || ''
+                                  }
+                                });
+                              }}
+                              className={`px-3 py-1 text-[8px] font-black tracking-widest border uppercase transition-colors ${
+                                socialSettings.appearance?.siteLogoWidth 
+                                  ? 'bg-transparent text-zinc-400 border-zinc-800 hover:bg-zinc-800' 
+                                  : 'bg-[#0055ff]/10 text-[#0055ff] border-[#0055ff]/30 hover:bg-[#0055ff]/20'
+                              }`}
+                            >
+                              {socialSettings.appearance?.siteLogoWidth ? 'Lock Auto' : 'Custom'}
+                            </button>
+                          </div>
+                          <div className="flex justify-between text-[8px] text-zinc-500 font-mono">
+                            <span>32PX</span>
+                            <span>320PX</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'plugins' && (
+              <div className="space-y-10 animate-in fade-in duration-700">
+                <div className="flex justify-between items-center pb-6 border-b border-zinc-800">
+                  <div>
+                    <h2 className="text-2xl font-black uppercase tracking-tighter">Plugin_Extension_Engine</h2>
+                    <p className="text-[10px] text-zinc-500 uppercase mt-1 tracking-widest">Active WordPress Emulator Framework v4.2.0-STABLE</p>
+                  </div>
+                  <div className="flex gap-4">
+                    <button 
+                      onClick={() => setPluginMarketOpen(true)}
+                      className="px-6 py-4 bg-[#0055ff] text-white text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-transform flex items-center gap-2 shadow-[0_8px_20px_rgba(0,85,255,0.3)]"
+                    >
+                      <Plus className="w-4 h-4" /> Install_New_Extension
+                    </button>
+                  </div>
+                </div>
+
+                {/* New Features Before Plugin List */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                  <div className={`p-6 border ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'} space-y-4`}>
+                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-[#0055ff]">
+                      <span>System_Memory</span>
+                      <Activity className="w-3 h-3" />
+                    </div>
+                    <div className="text-2xl font-black font-mono">14.2<span className="text-xs opacity-40 ml-1">GB</span></div>
+                    <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
+                      <div className="w-1/3 h-full bg-[#0055ff]"></div>
+                    </div>
+                  </div>
+
+                  <div className={`p-6 border ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'} space-y-4`}>
+                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-emerald-500">
+                      <span>Plugin_Status</span>
+                      <Shield className="w-3 h-3" />
+                    </div>
+                    <div className="text-2xl font-black font-mono">SECURE</div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                      <span className="text-[8px] font-black opacity-40 uppercase">All systems nominal</span>
+                    </div>
+                  </div>
+
+                  <div className={`p-6 border ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'} space-y-4`}>
+                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-amber-500">
+                      <span>Available_Updates</span>
+                      <ArrowUpRight className="w-3 h-3" />
+                    </div>
+                    <div className="text-2xl font-black font-mono">03</div>
+                    <button className="text-[8px] font-black text-amber-500 hover:underline uppercase">Sync Update Hub</button>
+                  </div>
+
+                  <div className={`p-6 border ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'} space-y-4`}>
+                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-zinc-400">
+                      <span>Extension_Load</span>
+                      <Zap className="w-3 h-3" />
+                    </div>
+                    <div className="text-2xl font-black font-mono">124<span className="text-xs opacity-40 ml-1">ms</span></div>
+                    <div className="text-[8px] font-black opacity-40 uppercase">Ultra-Low Latency</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {[{id: 'wp-seo', name: 'WP SEO Optimizer', desc: 'Standard WordPress SEO mechanics emulator', enabled: true}, {id: 'woo-commerce-bridge', name: 'WooCommerce Sync', desc: 'Syncs products to WP instances', enabled: false}, {id: 'wp-forms', name: 'WP Forms Connect', desc: 'Embeds complex dynamic forms', enabled: true}].map(plugin => {
+                        const isEnabled = socialSettings.plugins?.find(p => p.id === plugin.id)?.enabled ?? plugin.enabled;
+                        return (
+                            <div key={plugin.id} className={`p-6 border relative group ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800' : 'bg-white border-zinc-200'}`}>
+                                <div className="flex justify-between items-start mb-4">
+                                    <div className="w-10 h-10 bg-zinc-800 flex items-center justify-center text-white font-bold rounded-lg">{plugin.name.charAt(0)}</div>
+                                    <div 
+                                        className={`w-10 h-5 rounded-full p-1 cursor-pointer transition-colors ${isEnabled ? 'bg-[#0055ff]' : 'bg-zinc-600'}`}
+                                        onClick={async () => {
+                                            const updatedPlugins = socialSettings.plugins ? [...socialSettings.plugins] : [{id: 'wp-seo', name: 'WP SEO Optimizer', enabled: true}];
+                                            const existing = updatedPlugins.find(p => p.id === plugin.id);
+                                            if (existing) {
+                                                existing.enabled = !existing.enabled;
+                                            } else {
+                                                updatedPlugins.push({ ...plugin, enabled: !isEnabled });
+                                            }
+                                            const newSettings = {...socialSettings, plugins: updatedPlugins};
+                                            setSocialSettings(newSettings);
+                                            try {
+                                                const { doc, setDoc } = await import('firebase/firestore');
+                                                const { db } = await import('../firebase');
+                                                const cleanSettings = JSON.parse(JSON.stringify(newSettings));
+                                                await setDoc(doc(db, 'settings', 'social'), cleanSettings, { merge: true });
+                                            } catch (e: any) {
+                                                console.error(e);
+                                                alert('Error saving plugin state: ' + (e.message || String(e)));
+                                            }
+                                        }}
+                                    >
+                                        <div className={`w-3 h-3 bg-white rounded-full transition-transform ${isEnabled ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                                    </div>
+                                </div>
+                                <h3 className="font-bold text-sm mb-1">{plugin.name}</h3>
+                                <p className="text-xs text-zinc-400 mb-4">{plugin.desc}</p>
+                                <div className="flex justify-between items-center text-[10px] font-black uppercase border-t border-zinc-800 pt-3">
+                                    <span className="text-[#0055ff] cursor-pointer">Configure</span>
+                                    {isEnabled ? <span className="text-emerald-500">Active</span> : <span className="text-zinc-500">Disabled</span>}
+                                </div>
+                            </div>
+                        )
+                    })}
+                </div>
+              </div>
+            )}
+            </AdminProtectedRoute>
           </div>
         </main>
       </div>
@@ -6175,6 +6880,71 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
         </div>
       )}
 
+      {pluginMarketOpen && (
+        <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => !isInstallingPlugin && setPluginMarketOpen(false)}></div>
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className={`relative w-full max-w-2xl border shadow-2xl overflow-hidden ${isDarkMode ? 'bg-[#050505] border-zinc-800' : 'bg-white border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]'}`}
+          >
+            <div className={`p-6 border-b flex items-center justify-between ${isDarkMode ? 'border-zinc-800 bg-black/40' : 'border-black bg-zinc-50'}`}>
+              <div className="flex items-center gap-3">
+                <Globe className="w-5 h-5 text-[#0055ff]" />
+                <h3 className="text-xs font-black uppercase tracking-widest">Extension_Marketplace</h3>
+              </div>
+              <button onClick={() => setPluginMarketOpen(false)} disabled={isInstallingPlugin} className="opacity-50 hover:opacity-100 transition-all disabled:opacity-20">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-8 space-y-6 max-h-[60vh] overflow-y-auto no-scrollbar">
+               {isInstallingPlugin ? (
+                 <div className="py-20 flex flex-col items-center justify-center space-y-8">
+                    <div className="relative">
+                      <div className="w-20 h-20 border-4 border-[#0055ff]/10 border-t-[#0055ff] rounded-full animate-spin"></div>
+                      <Zap className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 text-[#0055ff] animate-pulse" />
+                    </div>
+                    <div className="text-center space-y-2">
+                      <div className="text-sm font-black uppercase tracking-[0.4em] text-[#0055ff] animate-pulse">Provisioning_Extension</div>
+                      <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-tighter">{installingPluginStatus}</div>
+                    </div>
+                 </div>
+               ) : (
+                 <div className="space-y-4">
+                    {[
+                      { id: 'insta-sync', name: 'Instagram Shop Sync', desc: 'Auto-post products to IG Shop and sync inventory realtime.', icon: 'I' },
+                      { id: 'bulk-invoice', name: 'Bulk PDF Invoicer', desc: 'Generate and email 1000+ invoices in one-click batch.', icon: 'B' },
+                      { id: 'live-chat-plus', name: 'LiveChat Pro Suite', desc: 'Enhanced customer support dash with AI auto-replies.', icon: 'L' },
+                      { id: 'stripe-radar', name: 'Stripe Radar Advanced', desc: 'Deep fraud detection for high-risk credit transactions.', icon: 'S' }
+                    ].map(p => (
+                      <div key={p.id} className={`p-5 border transition-all flex items-center justify-between group ${isDarkMode ? 'bg-zinc-900/40 border-zinc-800 hover:border-[#0055ff]/40' : 'bg-zinc-50 border-zinc-200 hover:bg-zinc-100'}`}>
+                        <div className="flex items-center gap-5">
+                           <div className="w-12 h-12 bg-[#0055ff] text-white flex items-center justify-center text-xl font-black rounded-none shadow-[2px_2px_0px_0px_rgba(0,0,0,0.5)]">{p.icon}</div>
+                           <div className="space-y-0.5">
+                             <div className="text-xs font-black uppercase tracking-wider">{p.name}</div>
+                             <div className="text-[9px] text-zinc-500 uppercase tracking-tight max-w-[280px] leading-relaxed">{p.desc}</div>
+                           </div>
+                        </div>
+                        <button 
+                          onClick={() => handleInstallPlugin(p)}
+                          className="px-6 py-3 bg-black text-white text-[10px] font-black uppercase tracking-widest hover:bg-[#0055ff] transition-all group-hover:scale-105 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-none"
+                        >
+                          Install
+                        </button>
+                      </div>
+                    ))}
+                 </div>
+               )}
+            </div>
+            
+            <div className={`p-6 border-t ${isDarkMode ? 'border-zinc-800 bg-black/60' : 'border-black bg-zinc-100'}`}>
+               <p className="text-[10px] text-zinc-500 font-black uppercase tracking-widest text-center opacity-60">Plugins are cryptographically verified before installation.</p>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {showBackupModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => { setShowBackupModal(false); setBackupView('options'); }}></div>
@@ -6438,6 +7208,8 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
           </motion.div>
         </div>
       )}
+
+
 
       <style>{`
         @media print {

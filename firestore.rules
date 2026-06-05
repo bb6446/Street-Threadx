@@ -56,6 +56,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // --- Settings Collection ---
+    match /settings/{settingId} {
+      allow read, write: if true;
+    }
+
     // --- Config Collection ---
     match /config/{configId} {
       allow read, write: if true;
@@ -78,6 +83,11 @@ service cloud.firestore {
       match /messages/{messageId} {
         allow read, write: if true;
       }
+    }
+
+    // --- Newsletters Collection ---
+    match /newsletters/{subscriptionId} {
+      allow read, write: if true;
     }
   }
 }

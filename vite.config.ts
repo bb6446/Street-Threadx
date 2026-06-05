@@ -23,16 +23,9 @@ export default defineConfig(({ mode }) => {
         }
       },
       build: {
-        target: 'esnext',
-        rollupOptions: {
-          output: {
-            manualChunks(id) {
-              if (id.includes('node_modules')) {
-                return 'vendor';
-              }
-            }
-          }
-        }
+        outDir: 'dist',
+        emptyOutDir: true,
+        target: 'esnext'
       }
     };
 });

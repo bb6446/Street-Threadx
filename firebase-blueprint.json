@@ -100,6 +100,18 @@
         "canManageChat": { "type": "boolean" }
       },
       "required": ["id", "username", "password", "role"]
+    },
+    "NewsletterSubscription": {
+      "title": "NewsletterSubscription",
+      "description": "Customer newsletter subscription details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "subscribedAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["active", "unsubscribed"] }
+      },
+      "required": ["id", "email", "subscribedAt", "status"]
     }
   },
   "firestore": {
@@ -130,6 +142,10 @@
     "chatSessions/{sessionId}/messages/{messageId}": {
       "schema": "ChatMessage",
       "description": "Messages within a chat session"
+    },
+    "newsletters/{subscriptionId}": {
+      "schema": "NewsletterSubscription",
+      "description": "E-mail newsletter subscriptions for marketing campaigns"
     },
     "config/{configId}": {
       "schema": "object",

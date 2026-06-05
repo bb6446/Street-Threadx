@@ -12,6 +12,7 @@ export interface Product {
   price: number;
   cost?: number;
   sku?: string;
+  brand?: string;
   description: string;
   materials?: string;
   materialComposition?: string;
@@ -79,7 +80,8 @@ export interface LogEntry {
 export enum AdminRole {
   SUPER_ADMIN = 'SUPER_ADMIN',
   EDITOR = 'EDITOR',
-  SUPPORT = 'SUPPORT'
+  SUPPORT = 'SUPPORT',
+  CUSTOMER = 'CUSTOMER'
 }
 
 export interface AdminUser {
@@ -133,6 +135,9 @@ export interface Order {
   transactionScreenshot?: string;
   advancePaid?: number;
   dueAmount?: number;
+  notes?: string;
+  isEmailVerified?: boolean;
+  isPhoneVerified?: boolean;
 }
 
 export interface Customer {
@@ -148,6 +153,8 @@ export interface Customer {
   zip?: string;
   notes?: string;
   profileImage?: string;
+  isEmailVerified?: boolean;
+  isPhoneVerified?: boolean;
 }
 
 export enum ViewState {
@@ -157,7 +164,8 @@ export enum ViewState {
   ADMIN_DASHBOARD = 'ADMIN_DASHBOARD',
   CUSTOMER_LOGIN = 'CUSTOMER_LOGIN',
   CUSTOMER_PROFILE = 'CUSTOMER_PROFILE',
-  WISHLIST = 'WISHLIST'
+  WISHLIST = 'WISHLIST',
+  TRACK_ORDER = 'TRACK_ORDER'
 }
 
 export interface SocialSettings {
@@ -185,6 +193,31 @@ export interface SocialSettings {
     creditCard?: string;
     debitCard?: string;
   };
+  appearance?: {
+    headerColor: string;
+    footerColor: string;
+    middleColor: string;
+    siteLogoUrl: string;
+    siteLogoHeight?: number;
+    siteLogoWidth?: number;
+    siteLogoFileSize?: number;
+  };
+  siteContent?: {
+    heroTitle?: string;
+    heroSubtitle?: string;
+    aboutText?: string;
+    heroTitleColor?: string;
+    heroTitleSize?: string;
+    heroSubtitleColor?: string;
+    aboutTextColor?: string;
+    announcementBgColor?: string;
+    announcementColor?: string;
+  };
+  plugins?: {
+    id: string;
+    name: string;
+    enabled: boolean;
+  }[];
 }
 
 export interface SecretValues {
@@ -238,3 +271,11 @@ export interface ChatSession {
   isPresenceActive?: boolean;
   lastPresenceUpdate?: string;
 }
+
+export interface NewsletterSubscription {
+  id: string;
+  email: string;
+  subscribedAt: string;
+  status: 'active' | 'unsubscribed';
+}
+

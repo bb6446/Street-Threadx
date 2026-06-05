@@ -36,13 +36,22 @@ export const auth = initializeAuth(app, {
   popupRedirectResolver: browserPopupRedirectResolver
 });
 
+// Extract firestoreDatabaseId from the configuration safely
+const firestoreDbId = 
+  firebaseAppletConfig.firestoreDatabaseId || 
+  (firebaseAppletConfig as any).default?.firestoreDatabaseId || 
+  (firebaseConfig as any).firestoreDatabaseId || 
+  '(default)';
+
+console.log("Firestore initialization: Using database ID", firestoreDbId);
+
 // CRITICAL: Initialize Firestore with forced longPolling and disabled fetch streams 
 // to ensure connectivity in locked-down or proxied environments like iframes.
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
   experimentalAutoDetectLongPolling: false,
   ignoreUndefinedProperties: true
-}, (firebaseConfig as any).firestoreDatabaseId || '(default)');
+}, firestoreDbId);
 
 // Recaptcha and Other Providers
 export const storage = getStorage(app);

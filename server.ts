@@ -188,6 +188,25 @@ async function startServer() {
 
 
 
+  app.post('/api/notify-order-status', async (req, res) => {
+    try {
+      const { orderId, customerEmail, newStatus } = req.body;
+      console.log(`\n[EMAIL MOCK] ------------------------------------------------`);
+      console.log(`[EMAIL MOCK] To: ${customerEmail}`);
+      console.log(`[EMAIL MOCK] Subject: Update on your Order #${orderId}`);
+      console.log(`[EMAIL MOCK] Body: Your order status has been updated to: ${newStatus}`);
+      console.log(`[EMAIL MOCK] ------------------------------------------------\n`);
+      
+      // Simulate network sending delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      res.json({ success: true, message: 'Email notification sent.' });
+    } catch (error) {
+      console.error('Error sending notification:', error);
+      res.status(500).json({ error: 'Failed to send notification' });
+    }
+  });
+
   app.post('/api/create-checkout-session', async (req, res) => {
     try {
       const { items, customerEmail, shippingCost } = req.body;
@@ -263,10 +282,10 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    const buildPath = path.join(process.cwd(), "dist");
+    app.use(express.static(buildPath));
     app.get("*all", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      res.sendFile(path.join(buildPath, "index.html"));
     });
   }
 
