@@ -50,8 +50,9 @@ console.log("Firestore initialization: Using database ID", firestoreDbId);
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
   experimentalAutoDetectLongPolling: false,
+  useFetchStreams: false,
   ignoreUndefinedProperties: true
-}, firestoreDbId);
+} as any, firestoreDbId);
 
 // Recaptcha and Other Providers
 export const storage = getStorage(app);
@@ -72,17 +73,54 @@ export const signInWithEmail = async (email: string, pass: string) => {
 };
 
 export const signInWithGoogle = async () => {
+  console.log("Google Sign-In sequence initiated via signInWithPopup");
   try {
     // Explicitly use the resolver in the call for better iframe support
     const result = await signInWithPopup(auth, googleProvider, browserPopupRedirectResolver);
+    console.log("Google Sign-In success! Raw Firebase Auth UserCredential result:", result);
+    
+    // Access Google OAuth Access Token if available
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    console.log("Extracted Google Auth Credential Object:", credential);
+    if (credential) {
+      console.log("Google OAuth 2.0 Access Token:", credential.accessToken);
+      console.log("Google OAuth 2.0 ID Token:", credential.idToken);
+    }
+    
+    // Log authenticated user property details
+    if (result.user) {
+      console.log("Authenticated User Details:", {
+        uid: result.user.uid,
+        email: result.user.email,
+        emailVerified: result.user.emailVerified,
+        displayName: result.user.displayName,
+        photoURL: result.user.photoURL,
+        isAnonymous: result.user.isAnonymous,
+        providerId: result.user.providerId
+      });
+      
+      try {
+        const idTokenResult = await result.user.getIdTokenResult();
+        console.log("Firebase Auth User Token Claims and Details:", idTokenResult);
+      } catch (tokenErr) {
+        console.warn("Failed to retrieve extra IdTokenResult:", tokenErr);
+      }
+    }
+
     return result.user;
   } catch (error: any) {
+    console.error("Google Sign-In failure caught in firebase.ts. Complete Error Object:", error);
+    console.error("Error Code:", error?.code);
+    console.error("Error Message:", error?.message);
+    console.error("Error Email (if available from Google connection):", error?.email);
+    console.error("Error Credential or Context (if available):", error?.credential);
+    
     if (error.code === 'auth/popup-closed-by-user') {
       console.error("Google Sign-In: Popup closed by user. This can happen if the window is closed manually, blocked by a browser extension, or due to iframe restrictions.");
     } else if (error.code === 'auth/popup-blocked') {
       console.error("Google Sign-In: Popup was blocked by the browser. Please allow popups for this site.");
     } else {
-      console.error("Google Sign-In Error", error);
+      console.error("Google Sign-In Error details:", error);
     }
     throw error;
   }

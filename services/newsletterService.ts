@@ -30,9 +30,17 @@ interface FirestoreErrorInfo {
   }
 }
 
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+function handleFirestoreError(error: any, operationType: OperationType, path: string | null) {
+  const errMsg = error instanceof Error ? error.message : String(error);
+  const isNetworkOrOffline = 
+    errMsg.includes('offline') || 
+    errMsg.includes('Could not reach Cloud Firestore backend') || 
+    errMsg.includes('unavailable') || 
+    error?.code === 'unavailable' || 
+    error?.code === 'failed-precondition';
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -41,7 +49,13 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  console.error('Firestore Error details:', JSON.stringify(errInfo));
+
+  if (isNetworkOrOffline) {
+    console.warn(`Firestore network or offline state bypassed safely in ${operationType} on ${path}.`);
+    return;
+  }
+  
   throw new Error(JSON.stringify(errInfo));
 }
 

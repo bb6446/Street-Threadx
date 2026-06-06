@@ -30,6 +30,7 @@ import { StoreSettingsProvider, useStoreSettings } from './hooks/useStoreSetting
 import { AdminProtectedRoute } from './components/AdminProtectedRoute';
 import { useDocumentMetadata } from './hooks/useDocumentMetadata';
 import { NewsletterSubscription } from './components/NewsletterSubscription';
+import firebaseAppletConfig from './firebase-applet-config.json';
 
 // --- Color Mapping Helper ---
 const COLOR_MAP: Record<string, string> = {
@@ -634,6 +635,23 @@ function AppContent() {
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
   const [verifyingPhoneStr, setVerifyingPhoneStr] = useState<string>('');
 
+  // Google Auth Diagnostics States
+  const [isDiagnosticRunning, setIsDiagnosticRunning] = useState(false);
+  const [diagnosticReport, setDiagnosticReport] = useState<{
+    status: 'IDLE' | 'SUCCESS' | 'ERROR';
+    code?: string;
+    message?: string;
+    stack?: string;
+    authDomain?: string;
+    currentOrigin?: string;
+    checks: {
+      authDomainPresent: boolean;
+      domainMatch: boolean;
+      isInIframe: boolean;
+    };
+  } | null>(null);
+  const [showDiagnosticModal, setShowDiagnosticModal] = useState(false);
+
   // Chat State
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [isChatOpen, setIsChatOpen] = useState(true);
@@ -726,6 +744,42 @@ function AppContent() {
       unsubscribe();
     };
   }, [adminUser]);
+
+  // --- GOOGLE SIGN-IN & OAUTH DIAGNOSTIC INTROSPECTION ---
+  useEffect(() => {
+    const authDomain = firebaseAppletConfig.authDomain;
+    const currentOrigin = window.location.origin;
+
+    console.group("%c🔒 Google Auth & Identity Verification Setup Check", "color: #0055ff; font-weight: bold; font-size: 13px;");
+    console.log("%cThis automated diagnostic checks your Google Identity/Firebase alignment.", "color: #888;");
+    
+    if (!authDomain) {
+      console.error("❌ DIAGNOSTIC FAILURE: 'authDomain' is missing or undeclared in firebase-applet-config.json!");
+    } else {
+      console.info(`%c1. Active Firebase authDomain: %c${authDomain}`, "color: #333; font-weight: bold;", "color: #0077ff; font-family: monospace;");
+      console.info(`%c2. Host Client Origin: %c${currentOrigin}`, "color: #333; font-weight: bold;", "color: #0077ff; font-family: monospace;");
+
+      const expectedJSOrigin = `https://${authDomain}`;
+      const expectedRedirectURI = `https://${authDomain}/__/auth/handler`;
+
+      console.log(
+        `%c\n--- REQUIREMENTS FOR GOOGLE CLOUD CONSOLE ---` +
+        `\nTo resolve 'Google Verification Failed' issues, your OAuth Web Client Credentials` +
+        `\nin Google Cloud Console (https://console.cloud.google.com/) MUST exactly align:` +
+        `\n\n📌 1. [Authorized JavaScript Origins] MUST contain:` +
+        `\n   👉   ${expectedJSOrigin}` +
+        `\n   👉   ${currentOrigin}` +
+        `\n\n📌 2. [Authorized Redirect URIs] MUST contain:` +
+        `\n   👉   ${expectedRedirectURI}` +
+        `\n` +
+        `\n💡 Note: Google utilizes internal referrer checks on Authorized Origins.` +
+        `\nIf you initiate verification inside an iframe or local workspace environment,` +
+        `\nmake sure both the parent container host and the iframe target domain are whitelist additions.`,
+        "color: #111; line-height: 1.5; font-family: sans-serif;"
+      );
+    }
+    console.groupEnd();
+  }, []);
 
   // Initialize Firebase Auth
   useEffect(() => {
@@ -1743,18 +1797,99 @@ function AppContent() {
 
   // Customer Verifications
   const handleVerifyEmailWithGoogle = async () => {
+    console.log("handleVerifyEmailWithGoogle transaction triggered by customer checkout verification flow.");
     try {
       const user = await signInWithGoogle();
+      console.log("Customer-side Firebase signInWithGoogle completed in checkout. Returned User Object:", user);
+      
+      if (user) {
+        console.log("User verification values parsed:", {
+          displayName: user.displayName,
+          email: user.email,
+          emailVerified: user.emailVerified,
+          uid: user.uid
+        });
+      } else {
+        console.warn("User object was falsy or undefined after signInWithGoogle");
+      }
+
       if (user && user.email) {
         setCustomerInfo(prev => ({ ...prev, email: user.email!, name: user.displayName || prev.name }));
         setIsEmailVerified(true);
         const toasts = [{id: Math.random().toString(), message: 'Email Verified via Google'}];
         setToasts(toasts);
+        console.log("Verification state set successfully! IsEmailVerified: true");
+      } else {
+        console.error("Verification error: Signed in user has no active or associated email address.");
+        const toasts = [{id: Math.random().toString(), message: 'Google verification failed: Missing Email'}];
+        setToasts(toasts);
       }
-    } catch (error) {
-      console.error(error);
-      const toasts = [{id: Math.random().toString(), message: 'Google Verification Failed'}];
+    } catch (error: any) {
+      console.error("handleVerifyEmailWithGoogle catch block triggered. Raw error details:", error);
+      console.error("Error Code: ", error?.code);
+      console.error("Error Message: ", error?.message);
+      console.error("Error Stack: ", error?.stack);
+
+      const toasts = [{id: Math.random().toString(), message: `Google Verification Failed: ${error?.code || 'AUTH_ERR'}`}];
       setToasts(toasts);
+    }
+  };
+
+  const handleGoogleAuthDiagnostics = async () => {
+    setIsDiagnosticRunning(true);
+    setShowDiagnosticModal(true);
+    
+    const authDomain = firebaseAppletConfig.authDomain;
+    const currentOrigin = window.location.origin;
+    let isInIframe = false;
+    try {
+      isInIframe = window.self !== window.top;
+    } catch (e) {
+      isInIframe = true;
+    }
+
+    const initialReport = {
+      status: 'IDLE' as const,
+      authDomain,
+      currentOrigin,
+      checks: {
+        authDomainPresent: !!authDomain,
+        domainMatch: authDomain ? currentOrigin.includes(authDomain) : false,
+        isInIframe
+      }
+    };
+    setDiagnosticReport(initialReport);
+
+    console.group("%c⚡ Interactive Google Auth Diagnostic Sequence Started", "color: #ff9900; font-weight: bold; font-size: 13px;");
+    console.info("Target Auth Domain: ", authDomain);
+    console.info("Host Client Origin: ", currentOrigin);
+    console.info("Iframe Sandbox Context: ", isInIframe ? "YES (Sandbox Restricted)" : "NO (Direct Root Context)");
+
+    try {
+      const user = await signInWithGoogle();
+      console.log("Diagnostic Google Sign-In SUCCESS:", user);
+      setDiagnosticReport({
+        ...initialReport,
+        status: 'SUCCESS',
+        message: 'Google Sign-In completed flawlessly. The current origin is properly authorized and secure!'
+      });
+      console.groupEnd();
+    } catch (err: any) {
+      console.error("DIAGNOSTIC EXCEPTION CAUGHT:", err);
+      console.error("Error Code: ", err?.code);
+      console.error("Error Message: ", err?.message);
+      console.error("Error Full Stack Trace: ", err?.stack);
+
+      setDiagnosticReport({
+        ...initialReport,
+        status: 'ERROR',
+        code: err?.code || 'UNKNOWN_CODE',
+        message: err?.message || 'Verification flow crashed or was blocked.',
+        stack: err?.stack || 'No stack trace captured.'
+      });
+      console.groupEnd();
+    } finally {
+      setIsDiagnosticRunning(false);
     }
   };
 
@@ -3309,19 +3444,58 @@ function AppContent() {
                               if (isEmailVerified) setIsEmailVerified(false);
                             }} 
                             disabled={isEmailVerified}
-                            className={`w-full bg-zinc-900/50 border px-4 py-3 text-xs font-bold text-white outline-none transition-all ${checkoutErrors.email ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' : 'border-zinc-800 focus:border-[#0055ff]'}`} 
+                            className={`w-full bg-zinc-900/50 border px-4 py-3 text-xs font-bold text-white outline-none transition-all pr-28 ${
+                              isEmailVerified 
+                                ? 'border-emerald-500/50 bg-emerald-950/10 text-emerald-100 shadow-[0_0_15px_rgba(16,185,129,0.15)]' 
+                                : checkoutErrors.email 
+                                  ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' 
+                                  : 'border-zinc-800 focus:border-[#0055ff]'
+                            }`} 
                             placeholder="ENTITY@REACH.COM" 
                           />
-                          {!isEmailVerified && (
-                             <button
-                               type="button"
-                               onClick={handleVerifyEmailWithGoogle}
-                               className="absolute right-1 top-1.5 bottom-1.5 bg-[#0055ff] hover:bg-[#0044cc] text-white px-4 text-[9px] font-black uppercase tracking-wider flex items-center gap-1"
-                             >
-                               <svg className="w-3 h-3" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-                               Verify Info
-                             </button>
-                          )}
+                          <AnimatePresence mode="wait">
+                            {isEmailVerified ? (
+                              <motion.div
+                                key="verified-badge"
+                                initial={{ opacity: 0, scale: 0.9, x: 10 }}
+                                animate={{ opacity: 1, scale: 1, x: 0 }}
+                                exit={{ opacity: 0, scale: 0.9, x: 10 }}
+                                transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                                className="absolute right-1.5 top-1.5 bottom-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-[0_0_10px_rgba(16,185,129,0.1)] select-none"
+                              >
+                                <svg 
+                                  className="w-3.5 h-3.5 text-emerald-400" 
+                                  fill="none" 
+                                  viewBox="0 0 24 24" 
+                                  stroke="currentColor" 
+                                  strokeWidth="3.5"
+                                >
+                                  <motion.path
+                                    initial={{ pathLength: 0 }}
+                                    animate={{ pathLength: 1 }}
+                                    transition={{ duration: 0.45, ease: "easeOut" }}
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M5 13l4 4L19 7"
+                                  />
+                                </svg>
+                                <span>Verified</span>
+                              </motion.div>
+                            ) : (
+                              <motion.button
+                                key="verify-btn"
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.95 }}
+                                type="button"
+                                onClick={handleVerifyEmailWithGoogle}
+                                className="absolute right-1.5 top-1.5 bottom-1.5 bg-[#0055ff] hover:bg-[#0044cc] text-white px-4 text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all active:scale-95"
+                              >
+                                <svg className="w-3 h-3" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                                <span>Verify Info</span>
+                              </motion.button>
+                            )}
+                          </AnimatePresence>
                         </div>
                         {checkoutErrors.email && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.email}</p>}
                       </div>
@@ -4807,6 +4981,177 @@ function AppContent() {
         isOpen={isSizeGuideOpen}
         onClose={() => setIsSizeGuideOpen(false)}
       />
+
+      {showDiagnosticModal && diagnosticReport && (
+        <div id="google-diag-modal" className="fixed inset-0 bg-black/80 backdrop-blur-md z-[210] flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-300 font-sans">
+          <div className="bg-zinc-950 border border-zinc-800 w-full max-w-2xl p-6 md:p-8 space-y-6 relative rounded-none shadow-[0_0_50px_rgba(0,85,255,0.15)] text-white">
+            <button 
+              onClick={() => setShowDiagnosticModal(false)}
+              className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors p-2 cursor-pointer"
+              title="Close System diagnostics"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+
+            <header className="border-b border-zinc-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-[#0055ff]/10 border border-[#0055ff]/30 text-[#0055ff]">
+                  <svg className="w-5 h-5 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-widest text-[#0055ff]">Google_OAuth_Security_Diagnostics</h3>
+                  <p className="text-[10px] text-zinc-500 uppercase mt-0.5 tracking-wider">Automated Identity Integration Audit Tool</p>
+                </div>
+              </div>
+            </header>
+
+            <div className="space-y-4">
+              {/* Configuration Status Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="p-3 bg-zinc-900/40 border border-zinc-900 flex flex-col justify-between">
+                  <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500">Iframe Sandbox?</span>
+                  <span className={`text-[10px] font-bold mt-1 ${diagnosticReport.checks.isInIframe ? "text-amber-500" : "text-emerald-500"}`}>
+                    {diagnosticReport.checks.isInIframe ? "⚠️ Sandbox (Nested)" : "✅ Direct Origin"}
+                  </span>
+                </div>
+                <div className="p-3 bg-zinc-900/40 border border-zinc-900 flex flex-col justify-between">
+                  <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500">Auth Domain Set?</span>
+                  <span className={`text-[10px] font-bold mt-1 ${diagnosticReport.checks.authDomainPresent ? "text-emerald-500" : "text-rose-500"}`}>
+                    {diagnosticReport.checks.authDomainPresent ? "✅ Configured" : "❌ Missing Configuration"}
+                  </span>
+                </div>
+                <div className="p-3 bg-zinc-900/40 border border-zinc-900 flex flex-col justify-between">
+                  <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500">Domain Match?</span>
+                  <span className={`text-[10px] font-bold mt-1 ${diagnosticReport.checks.domainMatch ? "text-emerald-500" : "text-amber-500"}`}>
+                    {diagnosticReport.checks.domainMatch ? "✅ Direct Alignment" : "⚠️ Cross-Origin Proxy"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Host and Target Information */}
+              <div className="bg-zinc-900/50 p-4 border border-zinc-900 space-y-2 text-[10px] font-mono">
+                <div className="flex justify-between border-b border-zinc-800/50 pb-1.5 text-zinc-400">
+                  <span>Firebase Auth Domain:</span>
+                  <span className="text-white font-bold">{diagnosticReport.authDomain || "NULL"}</span>
+                </div>
+                <div className="flex justify-between pt-1.5 text-zinc-400">
+                  <span>Client Host Origin:</span>
+                  <span className="text-white font-bold">{diagnosticReport.currentOrigin || "NULL"}</span>
+                </div>
+              </div>
+
+              {/* Action/Result details */}
+              <div className="border border-zinc-900 rounded-none overflow-hidden">
+                <div className="bg-zinc-900 px-4 py-2 border-b border-zinc-800 flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
+                  <span>Diagnostic Output Log</span>
+                  <span className={`px-2 py-0.5 text-[8px] ${
+                    isDiagnosticRunning ? 'bg-amber-500 text-black animate-pulse' :
+                    diagnosticReport.status === 'SUCCESS' ? 'bg-emerald-600 text-white' :
+                    diagnosticReport.status === 'ERROR' ? 'bg-rose-600 text-white' : 'bg-zinc-800 text-zinc-400'
+                  }`}>
+                    {isDiagnosticRunning ? "RUNNING_SEQUENCE" : `${diagnosticReport.status}_STATE`}
+                  </span>
+                </div>
+                
+                <div className="p-4 bg-zinc-950 min-h-[100px] flex flex-col justify-center">
+                  {isDiagnosticRunning ? (
+                    <div className="flex flex-col items-center justify-center space-y-3 py-4 text-center">
+                      <div className="w-8 h-8 border-2 border-[#0055ff]/30 border-t-[#0055ff] rounded-full animate-spin"></div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-white animate-pulse">Awaiting Google Identity Popup...</p>
+                        <p className="text-[8px] text-zinc-500 uppercase mt-1 tracking-wider">Please authorize connection when prompted.</p>
+                      </div>
+                    </div>
+                  ) : diagnosticReport.status === 'SUCCESS' ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-bold text-emerald-400 font-mono">Status: SUCCESS_CONNECTION_GRANTED</p>
+                      <p className="text-[10px] text-zinc-300 leading-relaxed">{diagnosticReport.message}</p>
+                    </div>
+                  ) : diagnosticReport.status === 'ERROR' ? (
+                    <div className="space-y-4">
+                      <div className="space-y-1">
+                        <p className="text-xs font-black text-rose-500 uppercase font-mono tracking-wider flex items-center gap-1.5">
+                          <span>❌ Connection Exception:</span>
+                          <span className="bg-rose-500/10 px-2 py-0.5 text-[9px] text-rose-400 border border-rose-500/20 font-bold">{diagnosticReport.code || 'UNKNOWN'}</span>
+                        </p>
+                        <p className="text-[10px] text-zinc-300 font-bold mt-1.5">{diagnosticReport.message}</p>
+                      </div>
+
+                      {/* Technical Troubleshooting Advice */}
+                      <div className="bg-zinc-900/80 p-4 border border-zinc-850 space-y-3">
+                        <h4 className="text-[9px] font-black uppercase tracking-wider text-[#0055ff]">🔧 Actionable Troubleshooting Steps</h4>
+                        
+                        {diagnosticReport.code === 'auth/popup-closed-by-user' && (
+                          <div className="text-[9px] text-zinc-400 leading-relaxed space-y-1">
+                            <p>• <span className="text-white font-bold">Closed Window:</span> Ensure you do not close the signing popup before authorisation processes completely.</p>
+                            <p>• <span className="text-white font-bold">Pop-up Blockers active:</span> Check your address bar for pop-up blocker shield warnings and configure "Always Allow" for this domain.</p>
+                            <p>• <span className="text-white font-bold">Iframe Preview Restrictions:</span> This preview is sandboxed inside an iframe. Click the <span className="text-white font-bold">"Open in New Tab"</span> arrow icon at the top-right of your main viewport to open a direct root context session.</p>
+                          </div>
+                        )}
+
+                        {diagnosticReport.code === 'auth/operation-not-allowed' && (
+                          <div className="text-[9px] text-zinc-400 leading-relaxed space-y-1">
+                            <p>• <span className="text-white font-bold">Provider Disabled:</span> Go to the Firebase Console &rarr; Authentication &rarr; Sign-in method.</p>
+                            <p>• <span className="text-white font-bold">Google Sign-In:</span> Add or edit the <span className="text-white font-bold">Google</span> provider and click the "Enable" switch.</p>
+                            <p>• <span className="text-white font-bold">Save:</span> Save settings and verify your authorization configuration is aligned.</p>
+                          </div>
+                        )}
+
+                        {diagnosticReport.code !== 'auth/popup-closed-by-user' && diagnosticReport.code !== 'auth/operation-not-allowed' && (
+                          <div className="text-[9px] text-zinc-400 leading-relaxed space-y-1 font-sans">
+                            <p>• <span className="text-white font-bold">Authorized JavaScript Origin:</span> Ensure your current address (<code className="text-white bg-zinc-950 px-1 py-0.5 font-mono">{diagnosticReport.currentOrigin}</code>) is exactly registered in Google Cloud Project OAuth Client Credentials.</p>
+                            <p>• <span className="text-white font-bold">Authorized Redirect URIs:</span> Ensure <code className="text-white bg-zinc-950 px-1 py-0.5 font-mono">{`https://${diagnosticReport.authDomain}/__/auth/handler`}</code> is registered inside Cloud Console credentials.</p>
+                            <p>• <span className="text-white font-bold">Network Blocks:</span> Verify third-party cookies are allowed in browser settings, or retry using Google Chrome in Incognito mode with plugins disabled.</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Stack Trace Container */}
+                      {diagnosticReport.stack && (
+                        <div className="space-y-1">
+                          <label className="text-[8px] font-black text-zinc-500 uppercase tracking-widest font-sans">Stack Audit Log</label>
+                          <pre className="p-3 bg-zinc-900 border border-zinc-850 text-[8px] text-zinc-400 overflow-x-auto select-all max-h-36 font-mono leading-normal whitespace-pre">
+                            {diagnosticReport.stack}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center text-[10px] text-zinc-500 font-black uppercase tracking-wider font-sans">
+                      Diagnostics Idle. Click "Run Connection Test" below.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <footer className="flex items-center gap-3 pt-2 border-t border-zinc-800">
+              <button
+                type="button"
+                onClick={handleGoogleAuthDiagnostics}
+                disabled={isDiagnosticRunning}
+                className="flex-1 py-3 bg-[#0055ff] hover:bg-[#0044cc] text-white text-[10px] font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isDiagnosticRunning ? (
+                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                ) : (
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24M14.83 14.83l4.24 4.24M14.83 9.17l4.24-4.24M9.17 14.83l-4.24 4.24"/></svg>
+                )}
+                {isDiagnosticRunning ? "Testing Connection..." : "Run Connection Test"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDiagnosticModal(false)}
+                className="px-6 py-3 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
 
       {/* Toast Notifications - Moved to Top Right to avoid ChatWidget overlap */}
       <div className="fixed top-24 right-4 z-[200] flex flex-col gap-2 pointer-events-none">
