@@ -138,7 +138,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSend
                   }`}>
                     {msg.image && (
                       <div className="mb-2">
-                        <img src={msg.image} className="w-full h-auto rounded-lg border border-zinc-700/50" alt="Attached attachment" />
+                        <img loading="lazy" src={msg.image} className="w-full h-auto rounded-lg border border-zinc-700/50" alt="Attached attachment" />
                       </div>
                     )}
                     {msg.text && (
@@ -183,7 +183,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSend
               {/* Image Preview */}
               {attachedImage && (
                 <div className="mb-3 relative inline-block p-1 bg-zinc-800 rounded-lg border border-zinc-700">
-                  <img src={attachedImage} className="w-16 h-16 object-cover rounded-md" alt="Attachment" />
+                  <img loading="lazy" src={attachedImage} className="w-16 h-16 object-cover rounded-md" alt="Attachment" />
                   <button 
                     onClick={() => setAttachedImage(null)}
                     className="absolute -top-2 -right-2 bg-rose-500 rounded-full p-0.5 text-white shadow-lg z-10"

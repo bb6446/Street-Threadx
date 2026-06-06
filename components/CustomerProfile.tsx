@@ -540,6 +540,7 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
                   <div className="flex justify-center mb-6">
                     {customerInfo.profileImage ? (
                       <img 
+                        loading="lazy"
                         src={customerInfo.profileImage} 
                         alt="Profile" 
                         className="w-24 h-24 rounded-full object-cover border-2 border-zinc-800"
@@ -607,6 +608,7 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
                   <div className="flex flex-col items-center justify-center space-y-4 mb-4">
                     {editProfileImage ? (
                       <img 
+                        loading="lazy"
                         src={editProfileImage} 
                         alt="Profile Preview" 
                         className="w-24 h-24 rounded-full object-cover border-2 border-zinc-800"

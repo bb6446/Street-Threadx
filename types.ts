@@ -30,6 +30,7 @@ export interface Product {
   taxCategory: 'Standard' | 'Reduced' | 'Exempt';
   seoTitle?: string;
   seoDescription?: string;
+  ogImage?: string;
   tags?: string[];
   sales?: number;
   createdAt?: string;
@@ -140,6 +141,13 @@ export interface Order {
   isPhoneVerified?: boolean;
 }
 
+export interface CategorySEO {
+  category: string;
+  seoTitle?: string;
+  seoDescription?: string;
+  ogImage?: string;
+}
+
 export interface Customer {
   id: string;
   name: string;
@@ -212,6 +220,12 @@ export interface SocialSettings {
     aboutTextColor?: string;
     announcementBgColor?: string;
     announcementColor?: string;
+  };
+  categorySEO?: CategorySEO[];
+  sale?: {
+    enabled: boolean;
+    endTime: string; // ISO string
+    title: string;
   };
   plugins?: {
     id: string;

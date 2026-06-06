@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Product, ViewState } from '../types';
+import { Product, ViewState, SocialSettings } from '../types';
 
 /**
  * Custom hook to dynamically update document title and meta information
@@ -8,7 +8,8 @@ import { Product, ViewState } from '../types';
 export function useDocumentMetadata(
   selectedProduct: Product | null,
   activeCategory: string,
-  currentView: ViewState
+  currentView: ViewState,
+  socialSettings?: SocialSettings
 ) {
   useEffect(() => {
     // --- Default metadata values ---
@@ -19,19 +20,31 @@ export function useDocumentMetadata(
 
     // --- Determine values based on current view/selection ---
     if (selectedProduct) {
-      // 1. Viewing product details
-      title = `${selectedProduct.name} | STREET THREADX.`;
-      description = selectedProduct.description || `Exquisite ${selectedProduct.name} by STREET THREADX. Category: ${selectedProduct.category}. Brand: ${selectedProduct.brand || 'STREET THREADX'}.`;
-      if (selectedProduct.images && selectedProduct.images.length > 0) {
+      // 1. Viewing product details - Use stored SEO metadata if available
+      title = selectedProduct.seoTitle || `${selectedProduct.name} | STREET THREADX.`;
+      description = selectedProduct.seoDescription || selectedProduct.description || `Exquisite ${selectedProduct.name} by STREET THREADX. Category: ${selectedProduct.category}. Brand: ${selectedProduct.brand || 'STREET THREADX'}.`;
+      
+      if (selectedProduct.ogImage) {
+        image = selectedProduct.ogImage;
+      } else if (selectedProduct.images && selectedProduct.images.length > 0) {
         image = selectedProduct.images[0];
       }
       type = 'og:product';
     } else if (currentView === ViewState.STORE) {
       // 2. Browsing Store with filter
       if (activeCategory && activeCategory !== 'ALL') {
-        const formattedCategory = activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1).toLowerCase();
-        title = `${formattedCategory} Collection | STREET THREADX.`;
-        description = `Browse the latest ${activeCategory.toLowerCase()} designs in our exclusive premium streetwear line. Designed in Dhaka, built for the streets.`;
+        // Check for category-specific SEO metadata
+        const categorySeo = socialSettings?.categorySEO?.find(c => c.category.toUpperCase() === activeCategory.toUpperCase());
+        
+        if (categorySeo) {
+          if (categorySeo.seoTitle) title = categorySeo.seoTitle;
+          if (categorySeo.seoDescription) description = categorySeo.seoDescription;
+          if (categorySeo.ogImage) image = categorySeo.ogImage;
+        } else {
+          const formattedCategory = activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1).toLowerCase();
+          title = `${formattedCategory} Collection | STREET THREADX.`;
+          description = `Browse the latest ${activeCategory.toLowerCase()} designs in our exclusive premium streetwear line. Designed in Dhaka, built for the streets.`;
+        }
       }
     } else if (currentView === ViewState.WISHLIST) {
       // 3. User Wishlist

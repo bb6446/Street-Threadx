@@ -54,6 +54,56 @@ const BehanceIcon = ({ size = 16, className = "" }: { size?: number, className?:
   </svg>
 );
 
+const CountdownTimer: React.FC<{ endTime: string; title: string }> = ({ endTime, title }) => {
+  const [timeLeft, setTimeLeft] = useState<{ days: number; hours: number; minutes: number; seconds: number } | null>(null);
+
+  useEffect(() => {
+    const calculateTimeLeft = () => {
+      const difference = +new Date(endTime) - +new Date();
+      if (difference > 0) {
+        setTimeLeft({
+          days: Math.floor(difference / (1000 * 60 * 60 * 24)),
+          hours: Math.floor((difference / (1000 * 60 * 60)) % 24),
+          minutes: Math.floor((difference / 1000 / 60) % 60),
+          seconds: Math.floor((difference / 1000) % 60)
+        });
+      } else {
+        setTimeLeft(null);
+      }
+    };
+
+    const timer = setInterval(calculateTimeLeft, 1000);
+    calculateTimeLeft();
+    return () => clearInterval(timer);
+  }, [endTime]);
+
+  if (!timeLeft) return null;
+
+  return (
+    <div className="flex flex-col gap-2 mt-4 animate-in fade-in slide-in-from-left-4 duration-1000">
+      <div className="flex items-center gap-2">
+        <div className="w-2 h-2 rounded-full bg-rose-600 animate-pulse"></div>
+        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-rose-500">{title} ENDS IN</span>
+      </div>
+      <div className="flex gap-4">
+        {[
+          { label: 'D', value: timeLeft.days },
+          { label: 'H', value: timeLeft.hours },
+          { label: 'M', value: timeLeft.minutes },
+          { label: 'S', value: timeLeft.seconds }
+        ].map((item, idx) => (
+          <div key={idx} className="flex flex-col items-center">
+            <div className="bg-black/80 backdrop-blur-md border border-zinc-800 w-12 h-12 flex items-center justify-center">
+              <span className="text-xl font-black heading-font text-white">{String(item.value).padStart(2, '0')}</span>
+            </div>
+            <span className="text-[8px] font-black text-zinc-500 mt-1 uppercase tracking-widest">{item.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 // --- Subcomponents ---
 
 const Navbar: React.FC<{ 
@@ -99,6 +149,7 @@ const Navbar: React.FC<{
           >
             {socialSettings.appearance?.siteLogoUrl ? (
                 <img 
+                  loading="lazy"
                   src={socialSettings.appearance.siteLogoUrl} 
                   alt="Logo" 
                   style={{ 
@@ -535,7 +586,7 @@ function AppContent() {
   };
   
   // Dynamically update document <title> and meta tags based on current view, product, or category
-  useDocumentMetadata(selectedProduct, shopFilter, currentView);
+  useDocumentMetadata(selectedProduct, shopFilter, currentView, socialSettings);
   
   const getColorHex = (colorName: string) => {
     const name = colorName.toLowerCase();
@@ -1134,7 +1185,7 @@ function AppContent() {
 
                 {/* Product spec block */}
                 <div className="text-xs text-zinc-300 font-normal flex items-center gap-3 bg-black/60 p-2.5 border border-emerald-500/10 rounded-lg">
-                  <img src={product.images?.[0] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=150'} className="w-12 h-12 object-cover rounded bg-zinc-900 border border-zinc-800 shrink-0" alt="" />
+                  <img loading="lazy" src={product.images?.[0] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=150'} className="w-12 h-12 object-cover rounded bg-zinc-900 border border-zinc-800 shrink-0" alt="" />
                   <div className="min-w-0 flex-1">
                     <div className="text-white font-black uppercase text-[10px] tracking-wider truncate block">{product.name}</div>
                     <div className="text-[9px] text-zinc-400 font-mono mt-1 flex flex-wrap items-center gap-1.5 uppercase tracking-wide">
@@ -2419,6 +2470,7 @@ function AppContent() {
                 return (
                   <>
                     <img 
+                      loading="lazy"
                       key={heroImageIndex} /* Force re-render for animation */
                       fetchPriority="high" 
                       src={images[heroImageIndex] || images[0] || defaultImages[0]} 
@@ -2526,6 +2578,9 @@ function AppContent() {
                       {socialSettings.siteContent?.heroSubtitle || "Engineered for the modern urban environment. Uncompromising quality meets minimalist industrial design."}
                     </p>
                   </div>
+                  {socialSettings.sale?.enabled && (
+                    <CountdownTimer endTime={socialSettings.sale.endTime} title={socialSettings.sale.title} />
+                  )}
                 </div>
                 <button 
                   onClick={() => handleStoreNavigate('ALL', true)} 
@@ -2621,14 +2676,14 @@ function AppContent() {
                  </div>
                  <div className="grid grid-cols-1 md:grid-cols-12 gap-4 h-[800px]">
                     <div className="md:col-span-8 relative overflow-hidden group">
-                      <img src="https://images.unsplash.com/photo-1523381210434-271e8be1f52b?auto=format&fm=webp&fit=crop&q=80&w=1200" className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-1000 scale-105 group-hover:scale-100" alt="Lookbook 1" />
+                      <img loading="lazy" src="https://images.unsplash.com/photo-1523381210434-271e8be1f52b?auto=format&fm=webp&fit=crop&q=80&w=1200" className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-1000 scale-105 group-hover:scale-100" alt="Lookbook 1" />
                       <div className="absolute bottom-10 left-10 text-white z-10 transition-transform group-hover:-translate-y-2">
                         <span className="text-[10px] font-black uppercase tracking-[0.3em] bg-[#0055ff] px-4 py-2">Shadows & Structure</span>
                       </div>
                     </div>
                     <div className="md:col-span-4 grid grid-rows-2 gap-4">
                       <div className="relative overflow-hidden group">
-                        <img src="https://images.unsplash.com/photo-1483393458019-411bc3f77c94?auto=format&fm=webp&fit=crop&q=80&w=600" className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-1000 scale-105 group-hover:scale-100" alt="Lookbook 2" />
+                        <img loading="lazy" src="https://images.unsplash.com/photo-1483393458019-411bc3f77c94?auto=format&fm=webp&fit=crop&q=80&w=600" className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-1000 scale-105 group-hover:scale-100" alt="Lookbook 2" />
                       </div>
                       <div className="relative overflow-hidden group bg-[#0055ff] flex items-center justify-center p-12 text-center text-white">
                          <div className="space-y-4">
@@ -3524,8 +3579,8 @@ function AppContent() {
                                                 className={`w-full bg-zinc-900/50 border px-4 py-2 text-xs font-bold text-white outline-none transition-all ${checkoutErrors.cardNumber ? 'border-rose-500' : 'border-zinc-800 focus:border-emerald-500'}`}
                                               />
                                               <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1 opacity-50">
-                                                <img src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg" alt="Visa" className="h-2 grayscale invert" />
-                                                <img src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg" alt="Mastercard" className="h-2 grayscale invert" />
+                                                <img loading="lazy" src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg" alt="Visa" className="h-2 grayscale invert" />
+                                                <img loading="lazy" src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg" alt="Mastercard" className="h-2 grayscale invert" />
                                               </div>
                                             </div>
                                             {checkoutErrors.cardNumber && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.cardNumber}</p>}
@@ -3559,8 +3614,8 @@ function AppContent() {
                                         </div>
 
                                         <div className="flex gap-2 pt-2 opacity-50">
-                                          <img src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg" alt="Visa" className="h-4 grayscale invert" />
-                                          <img src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg" alt="Mastercard" className="h-4 grayscale invert" />
+                                          <img loading="lazy" src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg" alt="Visa" className="h-4 grayscale invert" />
+                                          <img loading="lazy" src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg" alt="Mastercard" className="h-4 grayscale invert" />
                                         </div>
                                       </div>
                                     </div>
@@ -4394,7 +4449,7 @@ function AppContent() {
                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
             <div className="w-full md:w-1/2 bg-[#020611] flex items-center justify-center p-8 border-r border-[#1C3A6E]/50">
-               <img src={quickViewProduct.images?.[0]} className="w-full h-auto max-h-[400px] object-contain drop-shadow-[0_0_20px_rgba(0,100,255,0.2)]" alt={quickViewProduct.name} />
+               <img loading="lazy" src={quickViewProduct.images?.[0]} className="w-full h-auto max-h-[400px] object-contain drop-shadow-[0_0_20px_rgba(0,100,255,0.2)]" alt={quickViewProduct.name} />
             </div>
             <div className="w-full md:w-1/2 p-8 flex flex-col justify-center space-y-6">
                <div className="space-y-2">
@@ -4693,7 +4748,7 @@ function AppContent() {
                 <div className="flex -space-x-4 overflow-hidden">
                   {compareList.map(product => (
                     <div key={`compare-thumb-${product.id}`} className="inline-block h-10 w-10 rounded-full ring-2 ring-[#010816] object-cover bg-zinc-900 border border-zinc-800 overflow-hidden shrink-0">
-                      <img src={product.images[0]} alt="" className="w-full h-full object-cover" />
+                      <img loading="lazy" src={product.images[0]} alt="" className="w-full h-full object-cover" />
                     </div>
                   ))}
                 </div>

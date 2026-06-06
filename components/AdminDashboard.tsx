@@ -64,7 +64,7 @@ interface Props {
 const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800';
 
 const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, setOrders, customers, setCustomers, socialSettings, setSocialSettings, socialReferrals, onLogout, logs, addLog, discountCodes, setDiscountCodes, reviews, setReviews, chatSessions, setChatSessions, onSendMessage, adminUsersList, setAdminUsersList, expenses, setExpenses, onEnableLiveEditMode }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders' | 'pending_verification' | 'customers' | 'activity_logs' | 'settings' | 'discounts' | 'reviews' | 'insights' | 'support' | 'pos' | 'chat' | 'user_management' | 'accounting' | 'appearance' | 'plugins'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders' | 'pending_verification' | 'customers' | 'activity_logs' | 'settings' | 'discounts' | 'reviews' | 'insights' | 'support' | 'pos' | 'chat' | 'user_management' | 'accounting' | 'appearance' | 'plugins' | 'sales_list' | 'seo'>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
@@ -124,6 +124,8 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   const [reviewSort, setReviewSort] = useState('NEWEST');
   const [managedReply, setManagedReply] = useState<{ id: string, text: string } | null>(null);
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [salesVoucherSearch, setSalesVoucherSearch] = useState('');
+  const [salesDateRange, setSalesDateRange] = useState({ start: '', end: '' });
 
   // Management State
   const [managedOrder, setManagedOrder] = useState<Partial<Order> | null>(null);
@@ -179,6 +181,9 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   const [isInstallingPlugin, setIsInstallingPlugin] = useState(false);
   const [pluginMarketOpen, setPluginMarketOpen] = useState(false);
   const [installingPluginStatus, setInstallingPluginStatus] = useState<string | null>(null);
+  const [selectedSeoCategory, setSelectedSeoCategory] = useState<string>('T-Shirts');
+  const [selectedSeoProduct, setSelectedSeoProduct] = useState<string>(products[0]?.id || '');
+  const [isSavingSeo, setIsSavingSeo] = useState(false);
 
   const handleSiteLogoUpload = (file: File) => {
     if (!file) return;
@@ -225,6 +230,39 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   // Accounting Date State
   const [accountingStartDate, setAccountingStartDate] = useState<string>('');
   const [accountingEndDate, setAccountingEndDate] = useState<string>('');
+  const [isMonthlyProfitSheetOpen, setIsMonthlyProfitSheetOpen] = useState(false);
+
+  const monthlySummary = useMemo(() => {
+    const summaryMap: { [key: string]: { revenue: number, cogs: number, expenses: number } } = {};
+    
+    orders.filter(o => o.status !== 'CANCELLED').forEach(o => {
+      const monthKey = o.date.substring(0, 7); // YYYY-MM
+      if (!summaryMap[monthKey]) summaryMap[monthKey] = { revenue: 0, cogs: 0, expenses: 0 };
+      summaryMap[monthKey].revenue += o.total;
+      
+      const orderCogs = o.orderItems?.reduce((acc, item) => {
+        const prod = products.find(p => p.id === item.productId);
+        return acc + (prod?.cost || 0) * item.quantity;
+      }, 0) || 0;
+      
+      summaryMap[monthKey].cogs += orderCogs;
+    });
+
+    expenses.forEach(e => {
+      const monthKey = e.date.substring(0, 7);
+      if (!summaryMap[monthKey]) summaryMap[monthKey] = { revenue: 0, cogs: 0, expenses: 0 };
+      summaryMap[monthKey].expenses += e.amount;
+    });
+
+    return Object.entries(summaryMap)
+      .map(([month, data]) => ({
+        month,
+        ...data,
+        grossProfit: data.revenue - data.cogs,
+        netProfit: data.revenue - data.cogs - data.expenses
+      }))
+      .sort((a, b) => b.month.localeCompare(a.month));
+  }, [orders, expenses, products]);
 
   // Discount Management State
   const [managedDiscount, setManagedDiscount] = useState<Partial<DiscountCode> | null>(null);
@@ -1846,6 +1884,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     { id: 'pending_verification', label: 'Payment Verification', icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z', hidden: !canManageOrders },
     { id: 'customers', label: 'Customers', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z', hidden: !canManageCustomers },
     { id: 'pos', label: 'POS Terminal', icon: 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z', hidden: !canManageOrders },
+    { id: 'sales_list', label: 'Sales List', icon: 'M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', hidden: !canManageOrders },
     { id: 'support', label: 'Support Inquiries', icon: 'M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z', hidden: !canManageCustomers },
     { id: 'insights', label: 'Insights', icon: 'M13 10V3L4 14h7v7l9-11h-7z', hidden: !canManageCustomers },
     { id: 'chat', label: 'Customer Chat', icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z', hidden: false },
@@ -1855,6 +1894,8 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     { id: 'activity_logs', label: 'Activity Logs', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', hidden: !canViewLogs },
     { id: 'appearance', label: 'Appearance', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z', hidden: user.role !== AdminRole.SUPER_ADMIN },
     { id: 'plugins', label: 'Plugins', icon: 'M17 14v6m-3-3h6M6 10h2a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2zm10 0h2a2 2 0 002-2V6a2 2 0 00-2-2h-2a2 2 0 00-2 2v2a2 2 0 002 2zM6 20h2a2 2 0 002-2v-2a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2z', hidden: user.role !== AdminRole.SUPER_ADMIN },
+    { id: 'seo', label: 'SEO Metadata', icon: 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9h18', hidden: user.role !== AdminRole.SUPER_ADMIN },
+    { id: 'settings', label: 'Site Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37a1.724 1.724 0 002.572-1.065z', hidden: user.role !== AdminRole.SUPER_ADMIN },
   ].filter(t => !t.hidden);
 
   return (
@@ -1950,7 +1991,15 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                 </div>
               )}
             </nav>
-            <button onClick={() => { onLogout(); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full py-4 border-2 text-[9px] font-black uppercase tracking-[0.4em] transition-all cursor-pointer ${isDarkMode ? 'border-zinc-800 hover:bg-zinc-900' : 'border-black hover:bg-black hover:text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none'}`}>DISCONNECT</button>
+            <div className="pt-4 border-t border-zinc-800/20 space-y-2">
+              <button 
+                onClick={() => window.open('/', '_blank')}
+                className={`w-full py-4 border-2 text-[9px] font-black uppercase tracking-[0.4em] transition-all cursor-pointer flex items-center justify-center gap-2 ${isDarkMode ? 'border-zinc-800 hover:bg-zinc-900 text-zinc-400 hover:text-white' : 'border-black hover:bg-black hover:text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px]'}`}
+              >
+                <ExternalLink className="w-3 h-3" /> LIVE_SITE
+              </button>
+              <button onClick={() => { onLogout(); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full py-4 border-2 text-[9px] font-black uppercase tracking-[0.4em] transition-all cursor-pointer ${isDarkMode ? 'border-zinc-800 hover:bg-zinc-900' : 'border-black hover:bg-black hover:text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none'}`}>DISCONNECT</button>
+            </div>
           </div>
         </aside>
 
@@ -1972,6 +2021,12 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
               <h1 className="text-sm md:text-lg font-black uppercase tracking-[0.3em] md:tracking-[0.4em]">{activeTab.replace(/_/g, ' ')}</h1>
             </div>
             <div className="flex items-center gap-4">
+              <button 
+                onClick={() => window.open('/', '_blank')}
+                className={`hidden md:flex items-center gap-2 px-4 py-2 border-2 text-[10px] font-black uppercase tracking-widest transition-all ${isDarkMode ? 'border-zinc-800 hover:bg-zinc-900 text-zinc-300' : 'border-black hover:bg-black hover:text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px]'}`}
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> View Store
+              </button>
               <div className={`flex items-center border-2 ${isDarkMode ? 'border-zinc-800 p-1 bg-black' : 'border-black p-1 bg-zinc-100'}`}>
                 <button 
                   onClick={() => setIsDarkMode(true)} 
@@ -2680,6 +2735,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                               </div>
                                               <div className="relative w-full h-36 border border-zinc-800 bg-zinc-950/80 overflow-hidden cursor-pointer group flex items-center justify-center rounded-sm">
                                                 <img 
+                                                  loading="lazy"
                                                   src={o.transactionScreenshot} 
                                                   alt="Payment Proof" 
                                                   className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
@@ -3205,6 +3261,160 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
               </div>
             )}
 
+            {activeTab === 'sales_list' && (
+              <div className="space-y-8 animate-in fade-in duration-500">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div>
+                    <h2 className="text-2xl font-black uppercase italic tracking-tighter text-[#0055ff]">Sales_Report_Terminal</h2>
+                    <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1">Audit transactions, verify vouchers, and reconcile accounts.</p>
+                  </div>
+                  
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div className="relative group">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-40 text-[#0055ff]" />
+                      <input 
+                        type="text" 
+                        placeholder="SEARCH VOUCHER / TXID..." 
+                        value={salesVoucherSearch}
+                        onChange={e => setSalesVoucherSearch(e.target.value)}
+                        className={`pl-10 pr-4 py-3 text-[10px] font-black uppercase border focus:border-[#0055ff] outline-none transition-all w-64 ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'}`}
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                       <input 
+                         type="date" 
+                         value={salesDateRange.start}
+                         onChange={e => setSalesDateRange(prev => ({ ...prev, start: e.target.value }))}
+                         className={`px-4 py-3 text-[10px] font-black uppercase border outline-none ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'}`}
+                       />
+                       <span className="text-zinc-500 font-black">-</span>
+                       <input 
+                         type="date" 
+                         value={salesDateRange.end}
+                         onChange={e => setSalesDateRange(prev => ({ ...prev, end: e.target.value }))}
+                         className={`px-4 py-3 text-[10px] font-black uppercase border outline-none ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'}`}
+                       />
+                       <button 
+                         onClick={() => setSalesDateRange({ start: '', end: '' })}
+                         className={`px-4 py-3 text-[10px] font-black uppercase border hover:bg-rose-500 hover:text-white transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'}`}
+                       >
+                         RESET
+                       </button>
+                    </div>
+
+                    <button 
+                      onClick={() => {
+                        const filtered = orders.filter(o => {
+                          if (salesDateRange.start && new Date(o.date) < new Date(salesDateRange.start)) return false;
+                          if (salesDateRange.end && new Date(o.date) > new Date(salesDateRange.end)) return false;
+                          if (salesVoucherSearch) {
+                            const search = salesVoucherSearch.toLowerCase();
+                            return o.id.toLowerCase().includes(search) || (o.transactionId && o.transactionId.toLowerCase().includes(search));
+                          }
+                          return true;
+                        });
+                        const csvContent = "data:text/csv;charset=utf-8," 
+                          + "Date,Voucher ID,Transaction ID,Customer,Amount,Status\n"
+                          + filtered
+                              .map(o => `${o.date},${o.id},${o.transactionId || 'N/A'},${o.customerName},${o.total},${o.paymentStatus || 'UNPAID'}`)
+                              .join("\n");
+                        const encodedUri = encodeURI(csvContent);
+                        const link = document.createElement("a");
+                        link.setAttribute("href", encodedUri);
+                        link.setAttribute("download", `ST_SALES_REPORT_${new Date().toISOString().split('T')[0]}.csv`);
+                        document.body.appendChild(link);
+                        link.click();
+                        addLog('EXPORT_SALES', { field: 'FORMAT', newValue: 'CSV' });
+                      }}
+                      className="bg-[#0055ff] text-white px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] shadow-lg shadow-[#0055ff]/20 hover:scale-105 transition-transform flex items-center gap-2"
+                    >
+                      <Download size={14} /> EXPORT_AUDIT
+                    </button>
+                  </div>
+                </div>
+
+                <div className={`border overflow-hidden rounded-none ${isDarkMode ? 'border-zinc-800 bg-black' : 'bg-white border-zinc-200 shadow-xl'}`}>
+                  <div className="overflow-x-auto no-scrollbar">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className={`${isDarkMode ? 'bg-zinc-900/50' : 'bg-zinc-50'} border-b ${isDarkMode ? 'border-zinc-800' : 'border-zinc-200'}`}>
+                          <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-[#0055ff]">TIMESTAMP</th>
+                          <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-[#0055ff]">VOUCHER_ID</th>
+                          <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-[#0055ff]">TX_ID</th>
+                          <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-[#0055ff]">CUSTOMER</th>
+                          <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-[#0055ff]">METHOD</th>
+                          <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-[#0055ff] text-right">GROSS_AMOUNT</th>
+                          <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-[#0055ff] text-center">STATUS</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800/10">
+                        {orders
+                          .filter(o => {
+                            // Date filtering
+                            if (salesDateRange.start && new Date(o.date) < new Date(salesDateRange.start)) return false;
+                            if (salesDateRange.end && new Date(o.date) > new Date(salesDateRange.end)) return false;
+                            
+                            // Voucher/TXID search
+                            if (salesVoucherSearch) {
+                              const search = salesVoucherSearch.toLowerCase();
+                              return o.id.toLowerCase().includes(search) || (o.transactionId && o.transactionId.toLowerCase().includes(search));
+                            }
+                            
+                            return true;
+                          })
+                          .map((o) => (
+                          <tr key={o.id} className={`group hover:bg-[#0055ff]/5 transition-colors ${isDarkMode ? 'hover:bg-[#0055ff]/5' : 'hover:bg-zinc-50'}`}>
+                            <td className="px-6 py-4">
+                              <div className="text-[10px] font-black uppercase tracking-widest">{o.date}</div>
+                              <div className="text-[8px] text-zinc-500 font-mono mt-0.5">{o.time}</div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="text-[10px] font-black uppercase tracking-widest border-b border-dashed border-zinc-700 cursor-help" title="Click to copy ID" onClick={() => { navigator.clipboard.writeText(o.id); addLog('COPY_VOUCHER_ID', { entityId: o.id }); }}>{o.id}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">{o.transactionId || '---'}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="text-[10px] font-black uppercase tracking-widest">{o.customerName}</div>
+                              <div className="text-[8px] text-zinc-500 font-mono truncate max-w-[150px]">{o.customerEmail}</div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`px-2 py-0.5 text-[8px] font-black uppercase tracking-tighter ${isDarkMode ? 'bg-zinc-900 border border-zinc-800' : 'bg-zinc-100 border border-zinc-200'}`}>
+                                {o.paymentMethod || 'COD'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="text-[11px] font-black uppercase tracking-widest">৳{o.total.toLocaleString()}</div>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                               <div className={`inline-block px-3 py-1 text-[8px] font-black uppercase tracking-widest border ${
+                                 o.paymentStatus === 'FULLY_PAID' ? 'border-emerald-500 text-emerald-500 bg-emerald-500/10' :
+                                 o.paymentStatus === 'ADVANCE_VERIFIED' ? 'border-[#0055ff] text-[#0055ff] bg-[#0055ff]/10' :
+                                 'border-zinc-700 text-zinc-500 bg-zinc-900'
+                               }`}>
+                                 {o.paymentStatus || 'UNPAID'}
+                               </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {orders.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="px-6 py-20 text-center">
+                              <div className="flex flex-col items-center gap-4 opacity-30">
+                                 <Database className="w-12 h-12" />
+                                 <p className="text-[10px] font-black uppercase tracking-widest">NO_SALES_RECORDED_IN_DATABASE</p>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {activeTab === 'chat' && (
               <div className="h-[calc(100vh-12rem)] flex gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans">
                 {/* Chat List */}
@@ -3459,8 +3669,8 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
 
             {activeTab === 'accounting' && (
               <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500" id="accounting-summary-print-area">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-zinc-800 pb-4">
-                  <div className="flex flex-wrap items-end gap-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b-2 border-[#0055ff]/10 pb-6 mb-8">
+                  <div className="flex flex-wrap items-center gap-4">
                     <div>
                       <label className="text-[10px] font-black uppercase tracking-widest block mb-1">Start Date</label>
                       <input type="date" value={accountingStartDate} onChange={e => setAccountingStartDate(e.target.value)} className={`px-4 py-2 border ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-transparent border-black'} outline-none text-sm focus:border-[#0055ff]`} />
@@ -3470,9 +3680,15 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                       <input type="date" value={accountingEndDate} onChange={e => setAccountingEndDate(e.target.value)} className={`px-4 py-2 border ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-transparent border-black'} outline-none text-sm focus:border-[#0055ff]`} />
                     </div>
                     <button onClick={() => { setAccountingStartDate(''); setAccountingEndDate(''); }} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white text-[10px] font-black uppercase tracking-widest h-10">Clear Filter</button>
-                  </div>
-                  <button onClick={() => {
-                    const printWindow = window.open('', '', 'height=800,width=1000');
+                    
+                    <button 
+                      onClick={() => setIsMonthlyProfitSheetOpen(true)}
+                      className="px-6 py-2 border border-[#0055ff] text-[#0055ff] hover:bg-[#0055ff] hover:text-white text-[10px] font-black uppercase tracking-widest h-10 transition-all flex items-center gap-2"
+                    >
+                      <ListIcon className="w-4 h-4" /> Monthly_Profit_Sheet
+                    </button>
+                    <button onClick={() => {
+                      const printWindow = window.open('', '', 'height=800,width=1000');
                     const printContents = document.getElementById('accounting-summary-print-area')?.innerHTML;
                     if(printWindow && printContents) {
                       printWindow.document.write(`<html><head><title>Profit Summary</title>
@@ -3502,6 +3718,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                     <Download className="w-4 h-4" /> Download / Print Profit
                   </button>
                 </div>
+              </div>
                 {/* Financial Overview Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   {(() => {
@@ -3571,7 +3788,6 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                   })()}
                 </div>
 
-                {/* Expenses Section */}
                 <div className="space-y-6">
                   <div className="flex justify-between items-center">
                     <div>
@@ -3980,7 +4196,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pt-4 border-t border-zinc-800">
                         {socialSettings.heroImages.map((img, idx) => (
                            <div key={idx} className="aspect-video relative group border border-zinc-800 bg-black">
-                             <img src={img} className="w-full h-full object-cover" alt="Hero Banner Preview" />
+                             <img loading="lazy" src={img} className="w-full h-full object-cover" alt="Hero Banner Preview" />
                              <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-center items-center gap-2">
                                <button onClick={() => window.open(img, '_blank')} className="w-24 text-[9px] font-black uppercase px-2 py-1.5 bg-[#0055ff] text-white tracking-widest border border-transparent hover:border-white transition-all">Preview</button>
                                <button 
@@ -5043,6 +5259,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                             {/* Checkerboard transparency grid */}
                             <div className="absolute inset-0 opacity-[0.03] select-none pointer-events-none" style={{ backgroundImage: 'radial-gradient(#ffffff 1px, transparent 0), radial-gradient(#ffffff 1px, #000000 0)', backgroundSize: '8px 8px', backgroundPosition: '0 0, 4px 4px' }}></div>
                             <img 
+                              loading="lazy"
                               src={socialSettings.appearance.siteLogoUrl} 
                               alt="Logo Render" 
                               style={{ height: `${socialSettings.appearance.siteLogoHeight || 32}px`, width: socialSettings.appearance.siteLogoWidth ? `${socialSettings.appearance.siteLogoWidth}px` : 'auto' }}
@@ -5190,6 +5407,61 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         </div>
                       </div>
                     </div>
+
+                    <div className="border-t border-zinc-800 pt-8 space-y-6">
+                      <div>
+                        <h4 className="text-[11px] font-black uppercase tracking-widest text-[#0055ff]">3. Sale & Countdown Urgency</h4>
+                        <p className="text-[10px] text-zinc-500 uppercase mt-0.5">Display a live countdown timer on the hero section to drive limited-time sales.</p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-3">
+                          <button 
+                            onClick={() => setSocialSettings({
+                              ...socialSettings,
+                              sale: {
+                                enabled: !socialSettings.sale?.enabled,
+                                endTime: socialSettings.sale?.endTime || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+                                title: socialSettings.sale?.title || 'FLASH SALE'
+                              }
+                            })}
+                            className={`w-12 h-6 rounded-full transition-all flex items-center px-1 ${socialSettings.sale?.enabled ? 'bg-[#0055ff]' : 'bg-zinc-800'}`}
+                          >
+                            <div className={`w-4 h-4 bg-white rounded-full transition-all transform ${socialSettings.sale?.enabled ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                          </button>
+                          <label className="text-[10px] font-black uppercase cursor-pointer">Enable Sale Countdown</label>
+                        </div>
+
+                        {socialSettings.sale?.enabled && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                            <div className="space-y-1.5">
+                              <label className="block text-[8px] font-black uppercase text-zinc-500 tracking-widest text-left">Sale Title (e.g. MEGA CLEARANCE)</label>
+                              <input
+                                type="text"
+                                value={socialSettings.sale?.title || ''}
+                                onChange={(e) => setSocialSettings({
+                                  ...socialSettings,
+                                  sale: { ...socialSettings.sale!, title: e.target.value }
+                                })}
+                                className={`w-full p-3 text-xs focus:outline-none focus:border-[#0055ff] border font-black uppercase tracking-wider transition-colors ${isDarkMode ? 'bg-black border-zinc-800 text-white' : 'bg-transparent border-zinc-200 text-black'}`}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="block text-[8px] font-black uppercase text-zinc-500 tracking-widest text-left">Sale Expiry (Date & Time)</label>
+                              <input
+                                type="datetime-local"
+                                value={socialSettings.sale?.endTime ? new Date(new Date(socialSettings.sale.endTime).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}
+                                onChange={(e) => setSocialSettings({
+                                  ...socialSettings,
+                                  sale: { ...socialSettings.sale!, endTime: new Date(e.target.value).toISOString() }
+                                })}
+                                className={`w-full p-3 text-xs focus:outline-none focus:border-[#0055ff] border font-mono transition-colors ${isDarkMode ? 'bg-black border-zinc-800 text-white' : 'bg-transparent border-zinc-200 text-black'}`}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -5298,6 +5570,224 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                             </div>
                         )
                     })}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'seo' && (
+              <div className="space-y-10 animate-in fade-in duration-700">
+                <div className="flex justify-between items-center pb-6 border-b border-zinc-800">
+                  <div>
+                    <h2 className="text-2xl font-black uppercase tracking-tighter">SEO_Metadata_Core</h2>
+                    <p className="text-[10px] text-zinc-500 uppercase mt-1 tracking-widest">Global Search Engine Optimization & Social Graph Control Panel</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                  {/* Category SEO Section */}
+                  <div className={`p-8 border ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-100'} space-y-8`}>
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-black uppercase tracking-widest text-[#0055ff]">Category_SEO_Config</h3>
+                      <Globe className="w-5 h-5 text-zinc-500" />
+                    </div>
+
+                    <div className="space-y-4">
+                      <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block">Select Category</label>
+                      <select 
+                        value={selectedSeoCategory}
+                        onChange={(e) => setSelectedSeoCategory(e.target.value)}
+                        className={`w-full p-4 border text-xs font-black uppercase tracking-widest outline-none transition-all ${isDarkMode ? 'bg-black border-zinc-800 focus:border-[#0055ff]' : 'bg-transparent border-zinc-200 focus:border-black'}`}
+                      >
+                        {['Hoodies', 'T-Shirts', 'Accessories', 'Sweaters'].map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {(() => {
+                      const catSeo = socialSettings.categorySEO?.find(c => c.category === selectedSeoCategory) || {
+                        category: selectedSeoCategory,
+                        seoTitle: '',
+                        seoDescription: '',
+                        ogImage: ''
+                      };
+
+                      const updateCatSeo = (field: keyof typeof catSeo, value: string) => {
+                        const updatedList = socialSettings.categorySEO ? [...socialSettings.categorySEO] : [];
+                        const index = updatedList.findIndex(c => c.category === selectedSeoCategory);
+                        if (index > -1) {
+                          updatedList[index] = { ...updatedList[index], [field]: value };
+                        } else {
+                          updatedList.push({ ...catSeo, [field]: value });
+                        }
+                        setSocialSettings({ ...socialSettings, categorySEO: updatedList });
+                      };
+
+                      return (
+                        <div className="space-y-6">
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block">SEO Title Tag</label>
+                            <input 
+                              type="text"
+                              value={catSeo.seoTitle || ''}
+                              onChange={(e) => updateCatSeo('seoTitle', e.target.value)}
+                              placeholder={`${selectedSeoCategory} Collection | STREET THREADX.`}
+                              className={`w-full p-4 border text-xs font-bold outline-none transition-all ${isDarkMode ? 'bg-black border-zinc-800 focus:border-[#0055ff]' : 'bg-transparent border-zinc-200 focus:border-black'}`}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block">SEO Meta Description</label>
+                            <textarea 
+                              value={catSeo.seoDescription || ''}
+                              onChange={(e) => updateCatSeo('seoDescription', e.target.value)}
+                              placeholder={`Browse the latest ${selectedSeoCategory.toLowerCase()} designs in our exclusive premium streetwear line.`}
+                              className={`w-full p-4 border text-xs font-bold outline-none transition-all h-32 resize-none ${isDarkMode ? 'bg-black border-zinc-800 focus:border-[#0055ff]' : 'bg-transparent border-zinc-200 focus:border-black'}`}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block">OG Share Image URL</label>
+                            <input 
+                              type="text"
+                              value={catSeo.ogImage || ''}
+                              onChange={(e) => updateCatSeo('ogImage', e.target.value)}
+                              placeholder="https://images.unsplash.com/..."
+                              className={`w-full p-4 border text-xs font-mono outline-none transition-all ${isDarkMode ? 'bg-black border-zinc-800 focus:border-[#0055ff]' : 'bg-transparent border-zinc-200 focus:border-black'}`}
+                            />
+                          </div>
+                          <button 
+                            onClick={async () => {
+                              setIsSavingSeo(true);
+                              try {
+                                const { doc, setDoc } = await import('firebase/firestore');
+                                const { db } = await import('../firebase');
+                                await setDoc(doc(db, 'settings', 'social'), JSON.parse(JSON.stringify(socialSettings)), { merge: true });
+                                addLog('UPDATED_CATEGORY_SEO', { field: 'SEO Metadata', newValue: selectedSeoCategory });
+                              } catch (e: any) {
+                                console.error(e);
+                                alert('Failed to sync SEO metadata: ' + (e.message || String(e)));
+                              } finally {
+                                setIsSavingSeo(false);
+                              }
+                            }}
+                            disabled={isSavingSeo}
+                            className="w-full py-4 bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2"
+                          >
+                            {isSavingSeo ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <Check className="w-4 h-4" />}
+                            Sync_Category_Metadata
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Product SEO Section */}
+                  <div className={`p-8 border ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-100'} space-y-8`}>
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-black uppercase tracking-widest text-amber-500">Product_SEO_Config</h3>
+                      <ShoppingCart className="w-5 h-5 text-zinc-500" />
+                    </div>
+
+                    <div className="space-y-4">
+                      <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block">Select Product</label>
+                      <select 
+                        value={selectedSeoProduct}
+                        onChange={(e) => setSelectedSeoProduct(e.target.value)}
+                        className={`w-full p-4 border text-xs font-black uppercase tracking-widest outline-none transition-all ${isDarkMode ? 'bg-black border-zinc-800 focus:border-[#0055ff]' : 'bg-transparent border-zinc-200 focus:border-black'}`}
+                      >
+                        {products.map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {(() => {
+                      const product = products.find(p => p.id === selectedSeoProduct);
+                      if (!product) return null;
+
+                      const updateProdSeo = (field: 'seoTitle' | 'seoDescription' | 'ogImage', value: string) => {
+                        const updatedProducts = [...products];
+                        const index = updatedProducts.findIndex(p => p.id === selectedSeoProduct);
+                        if (index > -1) {
+                          updatedProducts[index] = { ...updatedProducts[index], [field]: value };
+                          setProducts(updatedProducts);
+                        }
+                      };
+
+                      return (
+                        <div className="space-y-6">
+                           <div className="flex gap-4">
+                              <button 
+                                onClick={async () => {
+                                  setIsGeneratingSeo(true);
+                                  try {
+                                    const seo = await generateSEOContent(product.name, product.description, product.category, product.tags || []);
+                                    updateProdSeo('seoTitle', seo.seoTitle || seo.title);
+                                    updateProdSeo('seoDescription', seo.seoDescription || seo.description);
+                                  } catch (e) {
+                                    console.error(e);
+                                  } finally {
+                                    setIsGeneratingSeo(false);
+                                  }
+                                }}
+                                className="flex-1 py-4 border border-zinc-800 text-[10px] font-black uppercase tracking-widest hover:bg-zinc-900 transition-colors flex items-center justify-center gap-2"
+                              >
+                                {isGeneratingSeo ? <div className="w-4 h-4 border-2 border-[#0055ff]/30 border-t-[#0055ff] rounded-full animate-spin"></div> : <Zap className="w-4 h-4 text-[#0055ff]" />}
+                                AI_Auto_Generate
+                              </button>
+                           </div>
+
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block">SEO Title Tag</label>
+                            <input 
+                              type="text"
+                              value={product.seoTitle || ''}
+                              onChange={(e) => updateProdSeo('seoTitle', e.target.value)}
+                              placeholder={`${product.name} | STREET THREADX.`}
+                              className={`w-full p-4 border text-xs font-bold outline-none transition-all ${isDarkMode ? 'bg-black border-zinc-800 focus:border-[#0055ff]' : 'bg-transparent border-zinc-200 focus:border-black'}`}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block">SEO Meta Description</label>
+                            <textarea 
+                              value={product.seoDescription || ''}
+                              onChange={(e) => updateProdSeo('seoDescription', e.target.value)}
+                              placeholder={product.description.substring(0, 100) + '...'}
+                              className={`w-full p-4 border text-xs font-bold outline-none transition-all h-32 resize-none ${isDarkMode ? 'bg-black border-zinc-800 focus:border-[#0055ff]' : 'bg-transparent border-zinc-200 focus:border-black'}`}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block">OG Share Image URL</label>
+                            <input 
+                              type="text"
+                              value={product.ogImage || ''}
+                              onChange={(e) => updateProdSeo('ogImage', e.target.value)}
+                              placeholder={product.images[0] || 'https://images.unsplash.com/...'}
+                              className={`w-full p-4 border text-xs font-mono outline-none transition-all ${isDarkMode ? 'bg-black border-zinc-800 focus:border-[#0055ff]' : 'bg-transparent border-zinc-200 focus:border-black'}`}
+                            />
+                          </div>
+                          <button 
+                            onClick={async () => {
+                              setIsSavingSeo(true);
+                              try {
+                                await saveProductToFirestore(product);
+                                addLog('UPDATED_PRODUCT_SEO', { entityId: product.id, field: 'SEO Metadata', newValue: product.name });
+                              } catch (e: any) {
+                                console.error(e);
+                                alert('Failed to sync product SEO: ' + (e.message || String(e)));
+                              } finally {
+                                setIsSavingSeo(false);
+                              }
+                            }}
+                            disabled={isSavingSeo}
+                            className="w-full py-4 bg-[#0055ff] text-white text-[10px] font-black uppercase tracking-widest hover:bg-[#0033aa] transition-colors flex items-center justify-center gap-2"
+                          >
+                            {isSavingSeo ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <Check className="w-4 h-4" />}
+                            Sync_Product_Metadata
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
               </div>
             )}
@@ -5557,6 +6047,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                             <span className="text-zinc-500 font-bold mb-1">Payment Proof Screenshot</span>
                             <div className="relative w-full h-28 border border-zinc-800 bg-zinc-950/80 overflow-hidden cursor-pointer group flex items-center justify-center rounded-sm">
                               <img 
+                                loading="lazy"
                                 src={managedOrder.transactionScreenshot} 
                                 alt="Payment Proof" 
                                 className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
@@ -5851,7 +6342,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                   }}
                   className={`group relative aspect-[3/4] border-2 cursor-pointer transition-all overflow-hidden ${selectedAiImages.includes(img) ? 'border-[#0055ff]' : 'border-zinc-800 opacity-60 hover:opacity-100 hover:border-zinc-600'}`}
                 >
-                  <img src={img} className="w-full h-full object-cover" alt={`AI Preview ${idx}`} />
+                  <img loading="lazy" src={img} className="w-full h-full object-cover" alt={`AI Preview ${idx}`} />
                   <div className={`absolute top-3 right-3 w-6 h-6 rounded-none flex items-center justify-center transition-colors ${selectedAiImages.includes(img) ? 'bg-[#0055ff] text-white' : 'bg-black/50 border border-white/20 text-transparent'}`}>
                     <Check className="w-4 h-4" />
                   </div>
@@ -7258,6 +7749,153 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
       )}
 
 
+
+      {/* Monthly Profit Sheet Modal */}
+      <AnimatePresence>
+        {isMonthlyProfitSheetOpen && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMonthlyProfitSheetOpen(false)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className={`relative w-full max-w-5xl max-h-[90vh] overflow-hidden border shadow-[0_0_100px_rgba(0,85,255,0.2)] flex flex-col ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'}`}
+            >
+              <div className={`p-8 border-b flex justify-between items-center ${isDarkMode ? 'border-zinc-800' : 'border-zinc-100'}`}>
+                <div>
+                  <h2 className="text-3xl font-black uppercase italic tracking-tighter text-[#0055ff]">Monthly_Profit_Terminal</h2>
+                  <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-[0.3em] mt-1">Cross-sectional monthly financial reconciliation</p>
+                </div>
+                <button 
+                  onClick={() => setIsMonthlyProfitSheetOpen(false)}
+                  className={`p-3 border hover:scale-110 transition-transform ${isDarkMode ? 'border-zinc-800 text-white' : 'border-zinc-200 text-black'}`}
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto no-scrollbar p-8">
+                <div id="monthly-profit-sheet-print-area">
+                  <div className="space-y-12">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                       <div className={`p-6 border ${isDarkMode ? 'bg-zinc-900/20 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                          <div className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-1">ALL_TIME_REVENUE</div>
+                          <div className="text-xl font-black">৳{orders.filter(o => o.status !== 'CANCELLED').reduce((s, o) => s + o.total, 0).toLocaleString()}</div>
+                       </div>
+                       <div className={`p-6 border ${isDarkMode ? 'bg-zinc-900/20 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                          <div className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-1">ALL_TIME_COGS</div>
+                          <div className="text-xl font-black">৳{orders.filter(o => o.status !== 'CANCELLED').reduce((s, o) => s + (o.orderItems?.reduce((acc, item) => acc + (products.find(p => p.id === item.productId)?.cost || 0) * item.quantity, 0) || 0), 0).toLocaleString()}</div>
+                       </div>
+                       <div className={`p-6 border ${isDarkMode ? 'bg-zinc-900/20 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                          <div className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-1">ALL_TIME_EXPENSES</div>
+                          <div className="text-xl font-black text-rose-500">৳{expenses.reduce((s, e) => s + e.amount, 0).toLocaleString()}</div>
+                       </div>
+                       <div className={`p-6 border ${isDarkMode ? 'bg-[#0055ff]/10 border-[#0055ff]/30' : 'bg-[#0055ff]/5 border-[#0055ff]/20'}`}>
+                          <div className="text-[9px] font-black text-[#0055ff] uppercase tracking-widest mb-1">TOTAL_NET_PROFIT</div>
+                          {(() => {
+                            const rev = orders.filter(o => o.status !== 'CANCELLED').reduce((s, o) => s + o.total, 0);
+                            const cogs = orders.filter(o => o.status !== 'CANCELLED').reduce((s, o) => s + (o.orderItems?.reduce((acc, item) => acc + (products.find(p => p.id === item.productId)?.cost || 0) * item.quantity, 0) || 0), 0);
+                            const exp = expenses.reduce((s, e) => s + e.amount, 0);
+                            const net = rev - cogs - exp;
+                            return <div className={`text-xl font-black ${net >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>৳{net.toLocaleString()}</div>;
+                          })()}
+                       </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h4 className="text-[12px] font-black uppercase tracking-[0.2em] flex items-center gap-3">
+                        <ListIcon className="w-4 h-4 text-[#0055ff]" /> Monthly_Breakdown_Manifest
+                      </h4>
+                      <div className={`border overflow-hidden ${isDarkMode ? 'border-zinc-800' : 'border-zinc-200'}`}>
+                        <table className="w-full text-left">
+                          <thead>
+                            <tr className={`${isDarkMode ? 'bg-zinc-900/50' : 'bg-zinc-50'} border-b ${isDarkMode ? 'border-zinc-800' : 'border-zinc-200'}`}>
+                              <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest">MONTH_PERIOD</th>
+                              <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest">GROSS_SALES</th>
+                              <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest">PURCHASES (COGS)</th>
+                              <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-rose-500">OPERATING_EXPENSES</th>
+                              <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-emerald-500">NET_PROFIT</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-800/10">
+                            {monthlySummary.map((summary) => (
+                              <tr key={summary.month} className="group hover:bg-[#0055ff]/5 transition-colors">
+                                <td className="px-6 py-5">
+                                  <span className="text-[11px] font-black uppercase tracking-[0.2em]">
+                                    {new Date(summary.month + '-01').toLocaleDateString('default', { month: 'long', year: 'numeric' }).toUpperCase()}
+                                  </span>
+                                  <div className="text-[8px] text-zinc-500 font-mono mt-1">{summary.month}</div>
+                                </td>
+                                <td className="px-6 py-5 text-[11px] font-bold">৳{summary.revenue.toLocaleString()}</td>
+                                <td className="px-6 py-5 text-[11px] font-bold">৳{summary.cogs.toLocaleString()}</td>
+                                <td className="px-6 py-5 text-[11px] font-bold text-rose-500">৳{summary.expenses.toLocaleString()}</td>
+                                <td className={`px-6 py-5 text-[11px] font-black ${summary.netProfit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                  ৳{summary.netProfit.toLocaleString()}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className={`p-8 border-t flex justify-end gap-4 ${isDarkMode ? 'border-zinc-800 bg-zinc-900/30' : 'border-zinc-100 bg-zinc-50'}`}>
+                <button 
+                  onClick={() => {
+                    const printWindow = window.open('', '', 'height=800,width=1000');
+                    const printContents = document.getElementById('monthly-profit-sheet-print-area')?.innerHTML;
+                    if(printWindow && printContents) {
+                      printWindow.document.write(`<html><head><title>Monthly Profit Sheet</title>
+                        <script src="https://cdn.tailwindcss.com"></script>
+                        <style>
+                          body { padding: 40px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; background: white; color: black; }
+                          table { border-collapse: collapse; width: 100%; border: 1px solid #eee; margin-top: 20px; }
+                          th, td { border-bottom: 2px solid #f0f0f0; padding: 16px; text-align: left; }
+                          th { background: #fafafa; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em; }
+                          td { font-size: 12px; font-weight: 600; }
+                          .text-rose-500 { color: #ef4444 !important; }
+                          .text-emerald-500 { color: #10b981 !important; }
+                          .text-[#0055ff] { color: #0055ff !important; }
+                        </style>
+                      </head><body>
+                        <div class="flex justify-between items-end border-b-4 border-[#0055ff] pb-6 mb-10">
+                          <div>
+                            <h1 class="text-4xl font-black uppercase text-[#0055ff] italic tracking-tighter">STREET_THREADX</h1>
+                            <p class="text-[10px] font-black uppercase tracking-[0.4em] opacity-60">Monthly_Financial_Statement</p>
+                          </div>
+                          <div class="text-right">
+                            <p class="text-[10px] font-black uppercase tracking-widest">Report_Generated</p>
+                            <p class="text-xs font-mono">${new Date().toLocaleString()}</p>
+                          </div>
+                        </div>
+                        ${printContents}
+                      </body></html>`);
+                      printWindow.document.close();
+                      printWindow.focus();
+                      setTimeout(() => {
+                        printWindow.print();
+                        printWindow.close();
+                      }, 1000);
+                    }
+                  }}
+                  className="bg-[#0055ff] text-white px-8 py-4 text-[10px] font-black uppercase tracking-[0.2em] shadow-lg shadow-[#0055ff]/20"
+                >
+                  DOWNLOAD_STATEMENT
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <style>{`
         @media print {

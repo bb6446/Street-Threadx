@@ -52,6 +52,11 @@ export const StoreSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
       Rocket: '01929667716',
       creditCard: '',
       debitCard: ''
+    },
+    sale: {
+      enabled: false,
+      endTime: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+      title: 'FLASH SALE'
     }
   });
 
