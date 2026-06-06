@@ -1376,9 +1376,6 @@ function AppContent() {
       if (!isEmailVerified) {
         errors.email = 'Please verify your email address.';
       }
-      if (!isPhoneVerified) {
-        errors.phone = 'Please verify your phone number via OTP.';
-      }
     }
 
     if (checkoutStep === 2) {
@@ -3227,58 +3224,19 @@ function AppContent() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-1">
                           <label className="text-[9px] font-black uppercase text-zinc-500">Full_Name</label>
-                          <input id="checkout-name" type="text" value={customerInfo.name} onChange={e => handleCustomerInfoChange('name', e.target.value)} className={`w-full bg-zinc-900/50 border px-4 py-3 text-xs font-bold text-white outline-none transition-all ${checkoutErrors.name ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' : 'border-zinc-800 focus:border-[#0055ff]'}`} placeholder="ID_ENTITY" />
+                          <input id="checkout-name" type="text" value={customerInfo.name} onChange={e => handleCustomerInfoChange('name', e.target.value)} className={`w-full bg-zinc-900/50 border px-4 py-3 text-xs font-bold text-white outline-none transition-all ${checkoutErrors.name ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' : 'border-zinc-800 focus:border-[#0055ff]'}`} placeholder="Full Name" />
                           {checkoutErrors.name && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.name}</p>}
                         </div>
                         <div className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <label className="text-[9px] font-black uppercase text-zinc-500">Contact_Number {isPhoneVerified && <span className="text-emerald-500">✓ VERIFIED</span>}</label>
-                          </div>
-                          {!isPhoneVerified && confirmationResult ? (
-                            <div className="flex items-center gap-2">
-                              <input 
-                                type="text" 
-                                value={verificationCode} 
-                                onChange={e => setVerificationCode(e.target.value)} 
-                                className={`w-full bg-zinc-900/50 border border-zinc-800 px-4 py-3 text-xs font-bold text-white outline-none focus:border-[#0055ff] transition-all`} 
-                                placeholder="OTP Code" 
-                              />
-                              <button 
-                                type="button"
-                                onClick={handleVerifyPhoneOtp}
-                                disabled={phoneVerifying}
-                                className="bg-[#0055ff] text-white px-4 py-3 text-[10px] font-black uppercase tracking-wider shrink-0 disabled:opacity-50"
-                              >
-                                {phoneVerifying ? 'Verifying...' : 'Confirm'}
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 relative">
-                              <input 
-                                id="checkout-phone"
-                                type="tel" 
-                                value={customerInfo.phone} 
-                                onChange={e => {
-                                  handleCustomerInfoChange('phone', e.target.value);
-                                  if (isPhoneVerified) setIsPhoneVerified(false);
-                                }} 
-                                disabled={isPhoneVerified}
-                                className={`w-full bg-zinc-900/50 border px-4 py-3 text-xs font-bold text-white outline-none transition-all ${checkoutErrors.phone ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' : 'border-zinc-800 focus:border-[#0055ff]'}`} 
-                                placeholder="+8801XXXXXXXXX" 
-                              />
-                              <div id="recaptcha-container" className="hidden"></div>
-                              {!isPhoneVerified && customerInfo.phone && (
-                                <button
-                                  type="button"
-                                  onClick={handleSendPhoneOtp}
-                                  disabled={phoneVerifying}
-                                  className="absolute right-1 top-1.5 bottom-1.5 bg-zinc-800 hover:bg-zinc-700 text-white px-3 text-[9px] font-black uppercase tracking-wider disabled:opacity-50"
-                                >
-                                  {phoneVerifying ? 'Sending...' : 'Verify'}
-                                </button>
-                              )}
-                            </div>
-                          )}
+                          <label className="text-[9px] font-black uppercase text-zinc-500">Contact_Number</label>
+                          <input 
+                            id="checkout-phone"
+                            type="tel" 
+                            value={customerInfo.phone} 
+                            onChange={e => handleCustomerInfoChange('phone', e.target.value)} 
+                            className={`w-full bg-zinc-900/50 border px-4 py-3 text-xs font-bold text-white outline-none transition-all ${checkoutErrors.phone ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' : 'border-zinc-800 focus:border-[#0055ff]'}`} 
+                            placeholder="+8801XXXXXXXXX" 
+                          />
                           {checkoutErrors.phone && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.phone}</p>}
                         </div>
                       </div>
@@ -4532,50 +4490,149 @@ function AppContent() {
 
       {/* Mobile Bottom Navigation */}
       {currentView !== ViewState.ADMIN_DASHBOARD && (
-        <div className="md:hidden fixed bottom-0 w-full z-50 bg-black/90 backdrop-blur-md border-t border-zinc-800 pb-safe">
-          <div className="flex justify-around items-center h-16 px-4">
+        <div className="md:hidden fixed bottom-0 w-full z-50 bg-black/95 backdrop-blur-md border-t border-zinc-800 pb-safe">
+          <div className="flex justify-around items-center h-16 px-2 relative">
             <button 
-              onClick={() => { setCurrentView(ViewState.STORE); setShopFilter('ALL'); window.scrollTo(0,0); }}
-              className={`flex flex-col items-center gap-1 p-2 ${currentView === ViewState.STORE && shopFilter === 'ALL' ? 'text-[#0055ff]' : 'text-zinc-500 hover:text-white'}`}
+              onClick={() => { 
+                setIsSearchOpen(false);
+                setIsCartOpen(false);
+                setCurrentView(ViewState.STORE); 
+                setShopFilter('ALL'); 
+                window.scrollTo(0,0); 
+              }}
+              className={`relative flex flex-col items-center justify-center gap-1 w-16 h-14 transition-colors duration-300 ${
+                currentView === ViewState.STORE && !isSearchOpen && !isCartOpen 
+                  ? 'text-[#0055ff]' 
+                  : 'text-zinc-500 hover:text-white'
+              }`}
             >
+              {currentView === ViewState.STORE && !isSearchOpen && !isCartOpen && (
+                <>
+                  <motion.div 
+                    layoutId="mobile-nav-bg"
+                    className="absolute inset-0 bg-[#0055ff]/10 rounded-lg -z-10"
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  />
+                  <motion.div 
+                    layoutId="mobile-nav-underline"
+                    className="absolute bottom-0 left-2 right-2 h-1 bg-[#0055ff]"
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  />
+                </>
+              )}
               <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
               </svg>
-              <span className="text-[8px] font-black uppercase">Home</span>
+              <span className="text-[8px] font-black uppercase tracking-wider">Home</span>
             </button>
+
             <button 
-              onClick={() => setIsSearchOpen(true)}
-              className="flex flex-col items-center gap-1 p-2 text-zinc-500 hover:text-white"
+              onClick={() => {
+                setIsCartOpen(false);
+                setIsSearchOpen(!isSearchOpen);
+              }}
+              className={`relative flex flex-col items-center justify-center gap-1 w-16 h-14 transition-colors duration-300 ${
+                isSearchOpen 
+                  ? 'text-[#0055ff]' 
+                  : 'text-zinc-500 hover:text-white'
+              }`}
             >
+              {isSearchOpen && (
+                <>
+                  <motion.div 
+                    layoutId="mobile-nav-bg"
+                    className="absolute inset-0 bg-[#0055ff]/10 rounded-lg -z-10"
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  />
+                  <motion.div 
+                    layoutId="mobile-nav-underline"
+                    className="absolute bottom-0 left-2 right-2 h-1 bg-[#0055ff]"
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  />
+                </>
+              )}
               <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
-              <span className="text-[8px] font-black uppercase">Search</span>
+              <span className="text-[8px] font-black uppercase tracking-wider">Search</span>
             </button>
+
             <button 
-              onClick={() => setIsCartOpen(true)}
-              className={`relative flex flex-col items-center gap-1 p-2 transition-all duration-300 ${cartBounce ? 'scale-125 text-[#0055ff]' : 'text-zinc-500 hover:text-white'}`}
+              onClick={() => {
+                setIsSearchOpen(false);
+                setIsCartOpen(!isCartOpen);
+              }}
+              className={`relative flex flex-col items-center justify-center gap-1 w-16 h-14 transition-all duration-300 ${
+                isCartOpen 
+                  ? 'text-[#0055ff]' 
+                  : cartBounce ? 'scale-110 text-[#0055ff]' : 'text-zinc-500 hover:text-white'
+              }`}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-              </svg>
-              {cart.length > 0 && (
-                <span className="absolute top-1 right-2 w-2 h-2 bg-[#0055ff] rounded-none"></span>
+              {isCartOpen && (
+                <>
+                  <motion.div 
+                    layoutId="mobile-nav-bg"
+                    className="absolute inset-0 bg-[#0055ff]/10 rounded-lg -z-10"
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  />
+                  <motion.div 
+                    layoutId="mobile-nav-underline"
+                    className="absolute bottom-0 left-2 right-2 h-1 bg-[#0055ff]"
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  />
+                </>
               )}
-              <span className="text-[8px] font-black uppercase">Cart</span>
+              <div className="relative">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                </svg>
+                {cart.length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-[#0055ff] text-white text-[7px] font-black rounded-full h-3.5 w-3.5 flex items-center justify-center">
+                    {cart.reduce((acc, item) => acc + item.quantity, 0)}
+                  </span>
+                )}
+              </div>
+              <span className="text-[8px] font-black uppercase tracking-wider">Cart</span>
             </button>
+
             <button 
-              onClick={() => { setCurrentView(ViewState.TRACK_ORDER); window.scrollTo(0, 0); }}
-              className={`flex flex-col items-center gap-1 p-2 ${currentView === ViewState.TRACK_ORDER ? 'text-[#0055ff]' : 'text-zinc-500 hover:text-white'}`}
+              onClick={() => { 
+                setIsSearchOpen(false);
+                setIsCartOpen(false);
+                setCurrentView(ViewState.TRACK_ORDER); 
+                window.scrollTo(0, 0); 
+              }}
+              className={`relative flex flex-col items-center justify-center gap-1 w-16 h-14 transition-colors duration-300 ${
+                currentView === ViewState.TRACK_ORDER && !isSearchOpen && !isCartOpen 
+                  ? 'text-[#0055ff]' 
+                  : 'text-zinc-500 hover:text-white'
+              }`}
             >
+              {currentView === ViewState.TRACK_ORDER && !isSearchOpen && !isCartOpen && (
+                <>
+                  <motion.div 
+                    layoutId="mobile-nav-bg"
+                    className="absolute inset-0 bg-[#0055ff]/10 rounded-lg -z-10"
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  />
+                  <motion.div 
+                    layoutId="mobile-nav-underline"
+                    className="absolute bottom-0 left-2 right-2 h-1 bg-[#0055ff]"
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  />
+                </>
+              )}
               <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-              <span className="text-[8px] font-black uppercase">Track</span>
+              <span className="text-[8px] font-black uppercase tracking-wider">Track</span>
             </button>
+
             <button 
               onClick={() => {
+                setIsSearchOpen(false);
+                setIsCartOpen(false);
                 if (customerInfo?.email) {
                   setCurrentView(ViewState.CUSTOMER_PROFILE);
                 } else {
@@ -4583,12 +4640,30 @@ function AppContent() {
                 }
                 window.scrollTo(0, 0);
               }}
-              className={`flex flex-col items-center gap-1 p-2 ${currentView === ViewState.CUSTOMER_LOGIN || currentView === ViewState.CUSTOMER_PROFILE ? 'text-[#0055ff]' : 'text-zinc-500 hover:text-white'}`}
+              className={`relative flex flex-col items-center justify-center gap-1 w-16 h-14 transition-colors duration-300 ${
+                (currentView === ViewState.CUSTOMER_LOGIN || currentView === ViewState.CUSTOMER_PROFILE) && !isSearchOpen && !isCartOpen 
+                  ? 'text-[#0055ff]' 
+                  : 'text-zinc-500 hover:text-white'
+              }`}
             >
+              {(currentView === ViewState.CUSTOMER_LOGIN || currentView === ViewState.CUSTOMER_PROFILE) && !isSearchOpen && !isCartOpen && (
+                <>
+                  <motion.div 
+                    layoutId="mobile-nav-bg"
+                    className="absolute inset-0 bg-[#0055ff]/10 rounded-lg -z-10"
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  />
+                  <motion.div 
+                    layoutId="mobile-nav-underline"
+                    className="absolute bottom-0 left-2 right-2 h-1 bg-[#0055ff]"
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  />
+                </>
+              )}
               <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
-              <span className="text-[8px] font-black uppercase">Profile</span>
+              <span className="text-[8px] font-black uppercase tracking-wider">Profile</span>
             </button>
           </div>
         </div>

@@ -66,7 +66,13 @@ const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1556821840-3a63f95609a7
 const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, setOrders, customers, setCustomers, socialSettings, setSocialSettings, socialReferrals, onLogout, logs, addLog, discountCodes, setDiscountCodes, reviews, setReviews, chatSessions, setChatSessions, onSendMessage, adminUsersList, setAdminUsersList, expenses, setExpenses, onEnableLiveEditMode }) => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders' | 'pending_verification' | 'customers' | 'activity_logs' | 'settings' | 'discounts' | 'reviews' | 'insights' | 'support' | 'pos' | 'chat' | 'user_management' | 'accounting' | 'appearance' | 'plugins'>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(true);
-  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  useEffect(() => {
+    if (window.innerWidth < 1024) {
+      setIsSidebarOpen(false);
+    }
+  }, []);
   const [isLiveEditorOpen, setIsLiveEditorOpen] = useState(false);
 
   // AI Monitor State
@@ -1854,96 +1860,115 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     <div className={`min-h-screen flex flex-col font-mono selection:bg-[#0055ff] selection:text-white transition-colors duration-300 ${themeClasses}`}>
       
       {/* Backdrop for Mobile Sidebar Drawer */}
-      {isMobileSidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
-          onClick={() => setIsMobileSidebarOpen(false)}
-        />
-      )}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+            onClick={() => setIsSidebarOpen(false)}
+          />
+        )}
+      </AnimatePresence>
 
-      <div className="flex flex-col lg:flex-row flex-1">
+      <div className="flex flex-col lg:flex-row flex-1 h-screen overflow-hidden relative">
         <aside className={`
-          fixed lg:static inset-y-0 left-0 w-72 lg:w-72 h-full border-r flex flex-col p-8 space-y-10 z-50 transition-transform lg:transition-colors duration-300
-          ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-          ${isDarkMode ? 'bg-[#050505] border-zinc-800' : 'bg-white border-r-2 border-black'}
+          fixed lg:static inset-y-0 left-0 h-full flex flex-col transition-all duration-300 ease-in-out z-50 overflow-hidden
+          ${isSidebarOpen 
+            ? 'w-72 translate-x-0 opacity-100' 
+            : 'w-0 -translate-x-full lg:translate-x-0 lg:w-0 opacity-0 pointer-events-none'
+          }
+          ${isDarkMode ? 'bg-[#050505] border-zinc-800' : 'bg-white border-black'}
+          ${isSidebarOpen ? 'border-r' : 'border-r-0'}
         `}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-[#0055ff]"></div>
-              <h2 className="text-2xl font-black heading-font tracking-tighter uppercase">STREET<span className="text-[#0055ff]">THREADX</span></h2>
-            </div>
-            {/* Dedicated Close Button for Mobile Drawer */}
-            <button 
-              onClick={() => setIsMobileSidebarOpen(false)}
-              className={`lg:hidden p-1.5 border transition-all cursor-pointer ${isDarkMode ? 'border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-900' : 'border-black text-zinc-600 hover:text-black hover:bg-zinc-100'}`}
-              aria-label="Close Navigation Menu"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <nav className="flex-1 space-y-2 overflow-y-auto no-scrollbar">
-            {availableTabs.map(tab => (
-              <button 
-                key={tab.id} 
-                onClick={() => {
-                  setActiveTab(tab.id as any);
-                  setIsMobileSidebarOpen(false);
-                }} 
-                className={`w-full text-left px-5 py-3 rounded-none transition-all flex items-center gap-4 cursor-pointer ${activeTab === tab.id ? 'bg-[#0055ff] text-white' : 'opacity-70 hover:bg-zinc-500/5'}`}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} />
-                </svg>
-                <span className="text-[10px] font-black uppercase tracking-[0.3em]">{tab.label}</span>
-                {tab.id === 'pending_verification' && orders.filter(o => o.paymentStatus === 'PENDING_ADVANCE').length > 0 && (
-                  <span className="ml-auto w-2 h-2 rounded-none bg-rose-500 animate-pulse shadow-[0_0_8px_rgba(244,63,94,0.6)]"></span>
-                )}
-              </button>
-            ))}
-            
-            {user.role === AdminRole.SUPER_ADMIN && (
-              <div className="pt-8">
-                <button
-                  onClick={() => {
-                    setShowBackupModal(true);
-                    setIsMobileSidebarOpen(false);
-                  }}
-                  disabled={isBackingUp}
-                  className={`w-full text-left px-5 py-3 rounded-none transition-all flex items-center gap-4 opacity-70 hover:bg-[#0055ff]/10 hover:text-[#0055ff] hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer`}
-                >
-                  {isBackingUp ? (
-                    <span className="w-4 h-4 border-2 border-[#0055ff]/30 border-t-[#0055ff] rounded-full animate-spin"></span>
-                  ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                  )}
-                  <span className="text-[10px] font-black uppercase tracking-[0.3em]">
-                    {isBackingUp ? 'SYNCING...' : 'Backup'}
-                  </span>
-                </button>
+          <div className="p-8 flex flex-col h-full space-y-10 w-72">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-[#0055ff]"></div>
+                <h2 className="text-2xl font-black heading-font tracking-tighter uppercase">STREET<span className="text-[#0055ff]">THREADX</span></h2>
               </div>
-            )}
-          </nav>
-          <button onClick={() => { onLogout(); setIsMobileSidebarOpen(false); }} className={`w-full py-4 border-2 text-[9px] font-black uppercase tracking-[0.4em] transition-all cursor-pointer ${isDarkMode ? 'border-zinc-800 hover:bg-zinc-900' : 'border-black hover:bg-black hover:text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none'}`}>DISCONNECT</button>
+              {/* Close Button for Sidebar */}
+              <button 
+                onClick={() => setIsSidebarOpen(false)}
+                className={`p-2 border transition-all cursor-pointer ${isDarkMode ? 'border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-900' : 'border-black text-zinc-600 hover:text-black hover:bg-zinc-100'}`}
+                aria-label="Close Navigation Menu"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className={`h-px w-full ${isDarkMode ? 'bg-zinc-800/50' : 'bg-zinc-200/50'}`} />
+
+            <nav className="flex-1 space-y-2 overflow-y-auto no-scrollbar">
+              {availableTabs.map(tab => (
+                <button 
+                  key={tab.id} 
+                  onClick={() => {
+                    setActiveTab(tab.id as any);
+                    if (window.innerWidth < 1024) {
+                      setIsSidebarOpen(false);
+                    }
+                  }} 
+                  className={`w-full text-left px-5 py-3 rounded-none transition-all flex items-center gap-4 cursor-pointer ${activeTab === tab.id ? 'bg-[#0055ff] text-white' : 'opacity-70 hover:bg-zinc-500/5'}`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} />
+                  </svg>
+                  <span className="text-[10px] font-black uppercase tracking-[0.3em]">{tab.label}</span>
+                  {tab.id === 'pending_verification' && orders.filter(o => o.paymentStatus === 'PENDING_ADVANCE').length > 0 && (
+                    <span className="ml-auto w-2 h-2 rounded-none bg-rose-500 animate-pulse shadow-[0_0_8px_rgba(244,63,94,0.6)]"></span>
+                  )}
+                </button>
+              ))}
+              
+              {user.role === AdminRole.SUPER_ADMIN && (
+                <div className="pt-8 space-y-8">
+                  <div className={`h-px w-full ${isDarkMode ? 'bg-zinc-800/50' : 'bg-zinc-200/50'}`} />
+                  <button
+                    onClick={() => {
+                      setShowBackupModal(true);
+                      if (window.innerWidth < 1024) {
+                        setIsSidebarOpen(false);
+                      }
+                    }}
+                    disabled={isBackingUp}
+                    className={`w-full text-left px-5 py-3 rounded-none transition-all flex items-center gap-4 opacity-70 hover:bg-[#0055ff]/10 hover:text-[#0055ff] hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer`}
+                  >
+                    {isBackingUp ? (
+                      <span className="w-4 h-4 border-2 border-[#0055ff]/30 border-t-[#0055ff] rounded-full animate-spin"></span>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                    )}
+                    <span className="text-[10px] font-black uppercase tracking-[0.3em]">
+                      {isBackingUp ? 'SYNCING...' : 'Backup'}
+                    </span>
+                  </button>
+                </div>
+              )}
+            </nav>
+            <button onClick={() => { onLogout(); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full py-4 border-2 text-[9px] font-black uppercase tracking-[0.4em] transition-all cursor-pointer ${isDarkMode ? 'border-zinc-800 hover:bg-zinc-900' : 'border-black hover:bg-black hover:text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none'}`}>DISCONNECT</button>
+          </div>
         </aside>
 
-        <main className="flex-1 flex flex-col relative overflow-y-auto no-scrollbar">
-          <header className={`h-20 border-b-2 flex items-center justify-between px-6 md:px-10 transition-colors duration-300 ${isDarkMode ? 'bg-black/50 border-zinc-800' : 'bg-white/80 border-black'}`}>
+        <main className="flex-1 flex flex-col relative overflow-hidden bg-zinc-950">
+          <header className={`sticky top-0 z-40 h-20 border-b flex items-center justify-between px-6 md:px-10 transition-all duration-300 ${isDarkMode ? 'bg-black/80 backdrop-blur-md border-zinc-800' : 'bg-white/90 backdrop-blur-md border-black'}`}>
             <div className="flex items-center gap-4">
-              {/* Hamburger Button on Mobile */}
-              <button 
-                onClick={() => setIsMobileSidebarOpen(true)}
-                className={`lg:hidden p-2 border-2 transition-all cursor-pointer ${isDarkMode ? 'border-zinc-800 bg-zinc-900 text-white hover:bg-zinc-800' : 'border-black bg-white text-black hover:bg-zinc-100'}`}
-                aria-label="Open Navigation Menu"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-              </button>
-              <h1 className="text-sm md:text-lg font-black uppercase tracking-[0.3em] md:tracking-[0.4em]">{activeTab.replace('_', ' ')}</h1>
+              {/* Hamburger Button / Menu toggles */}
+              {!isSidebarOpen && (
+                <button 
+                  onClick={() => setIsSidebarOpen(true)}
+                  className={`p-2 border-2 transition-all cursor-pointer z-50 ${isDarkMode ? 'border-zinc-800 bg-zinc-900 text-white hover:bg-[#0055ff] hover:border-[#0055ff]' : 'border-black bg-white text-black hover:bg-zinc-100'}`}
+                  aria-label="Open Navigation Menu"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                </button>
+              )}
+              <h1 className="text-sm md:text-lg font-black uppercase tracking-[0.3em] md:tracking-[0.4em]">{activeTab.replace(/_/g, ' ')}</h1>
             </div>
             <div className="flex items-center gap-4">
               <div className={`flex items-center border-2 ${isDarkMode ? 'border-zinc-800 p-1 bg-black' : 'border-black p-1 bg-zinc-100'}`}>
@@ -1965,7 +1990,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
             </div>
           </header>
 
-          <div className="p-4 md:p-10 space-y-6 md:space-y-10 animate-in fade-in duration-500">
+          <div className="flex-1 overflow-y-auto no-scrollbar p-4 md:p-10 space-y-6 md:space-y-10 animate-in fade-in duration-500">
             <AdminProtectedRoute adminUser={user}>
               {activeTab === 'dashboard' && (
               <div className="space-y-10">
