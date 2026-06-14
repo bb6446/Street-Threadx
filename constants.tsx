@@ -49,7 +49,8 @@ export const MOCK_PRODUCTS: Product[] = [
   {
     id: '1',
     name: 'THREADX CORE HOODIE',
-    price: 9500,
+    price: 8500,
+    originalPrice: 9500,
     description: 'Constructed for the modern nomad. 450GSM heavyweight armor. Architectural boxy fit. Brutalist aesthetic. Foundation of the uniform. Engineered for life in the grey.',
     materials: '100% Premium Organic Cotton Fleece. Pre-shrunk and garment dyed for a vintage hand-feel.',
     materialComposition: '100% ORGANIC COTTON',
@@ -150,7 +151,8 @@ export const MOCK_PRODUCTS: Product[] = [
   {
     id: '4',
     name: 'TECH ZIP HOODIE',
-    price: 12500,
+    price: 11500,
+    originalPrice: 12500,
     description: 'Water-repellent tech fleece with integrated face mask and asymmetric zippers.',
     materials: 'DWR-coated Technical Fleece (Polyester/Elastane). Laser-cut zippers and reinforced seams.',
     category: 'Hoodies',

@@ -191,19 +191,52 @@ async function startServer() {
   app.post('/api/notify-order-status', async (req, res) => {
     try {
       const { orderId, customerEmail, newStatus } = req.body;
-      console.log(`\n[EMAIL MOCK] ------------------------------------------------`);
-      console.log(`[EMAIL MOCK] To: ${customerEmail}`);
-      console.log(`[EMAIL MOCK] Subject: Update on your Order #${orderId}`);
-      console.log(`[EMAIL MOCK] Body: Your order status has been updated to: ${newStatus}`);
-      console.log(`[EMAIL MOCK] ------------------------------------------------\n`);
+      const { sendEmailNotification } = await import('./server/emailService');
       
-      // Simulate network sending delay
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const subject = `Update on your Order #${orderId}`;
+      const text = `Your order status has been updated to: ${newStatus}`;
+      const html = `<div style="font-family: sans-serif; padding: 20px;">
+        <h2 style="color: #0055ff;">Street Threadx</h2>
+        <p>Your order <strong>#${orderId}</strong> status has been updated.</p>
+        <p>New Status: <strong style="color: #10B981;">${newStatus}</strong></p>
+        <p>Thank you for shopping with us!</p>
+      </div>`;
+      
+      await sendEmailNotification(customerEmail, subject, text, html);
       
       res.json({ success: true, message: 'Email notification sent.' });
     } catch (error) {
       console.error('Error sending notification:', error);
       res.status(500).json({ error: 'Failed to send notification' });
+    }
+  });
+
+  app.post('/api/send-order-confirmation', async (req, res) => {
+    try {
+      const { order } = req.body;
+      const { sendEmailNotification } = await import('./server/emailService');
+      
+      const subject = `Order Confirmation #${order.id} - Street Threadx`;
+      const text = `We received your order! Total: BDT ${order.total}`;
+      const html = `<div style="font-family: sans-serif; padding: 20px;">
+        <h2 style="color: #0055ff;">Street Threadx</h2>
+        <p>Hi ${order.customerName},</p>
+        <p>We're thrilled to confirm your order <strong>#${order.id}</strong>!</p>
+        <h3>Order Summary:</h3>
+        <ul>
+          ${order.orderItems.map((item: any) => `<li>${item.quantity}x ${item.name} (${item.variant?.size || 'Default'}) - BDT ${item.price * item.quantity}</li>`).join('')}
+        </ul>
+        <p><strong>Subtotal:</strong> BDT ${order.subtotal}</p>
+        <p><strong>Total Paid:</strong> BDT ${order.total}</p>
+        <p>We will notify you once your products are shipped.</p>
+      </div>`;
+      
+      await sendEmailNotification(order.customerEmail, subject, text, html);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error sending confirmation email:', error);
+      res.status(500).json({ error: 'Failed to send confirmation email' });
     }
   });
 

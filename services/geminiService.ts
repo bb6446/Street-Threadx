@@ -117,6 +117,9 @@ export const generateChatAgentResponse = async (message: string, products: Produ
     if (error.message?.includes('AI_SERVICE_UNAVAILABLE') || error.message?.includes('UNAVAILABLE')) {
       return "The STREET THREADX neural link is experiencing extremely high demand. Spikes in traffic are temporary. Please try again in a moment.";
     }
+    if (error.message?.includes('Failed to fetch') || error instanceof TypeError) {
+      return "The STREET THREADX neural link is unreachable. This usually means the app is deployed on a static hosting service (like GitHub Pages) without the required Node.js backend server. Please deploy to a full-stack platform like Cloud Run.";
+    }
     return "The STREET THREADX neural link is currently under maintenance or the backend server is unreachable. Please ensure you are using a platform that supports Node.js backends (like Cloud Run). Our support agents are still standing by.";
   }
 };

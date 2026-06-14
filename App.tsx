@@ -1474,9 +1474,6 @@ function AppContent() {
       
       const cityError = validateField('city', customerInfo.city);
       if (cityError) errors.city = cityError;
-
-      const zipError = validateField('zip', customerInfo.zip || '');
-      if (zipError) errors.zip = zipError;
     }
 
     if (checkoutStep === 2) {
@@ -1662,6 +1659,13 @@ function AppContent() {
         // Save order to Firestore (Wait for it!)
         await saveOrderToFirestore(newOrder);
 
+        // Send order confirmation email asynchronously
+        fetch('/api/send-order-confirmation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order: newOrder })
+        }).catch(err => console.error('Failed to trigger confirmation email', err));
+
         // Update customer records
         const existing = customers.find(c => c.email.toLowerCase() === customerInfo.email.toLowerCase());
         if (existing) {
@@ -1826,7 +1830,12 @@ function AppContent() {
       console.error("Error Message: ", error?.message);
       console.error("Error Stack: ", error?.stack);
 
-      const toasts = [{id: Math.random().toString(), message: `Google Verification Failed: ${error?.code || 'AUTH_ERR'}`}];
+      let msg = `Verification Failed: ${error?.code || 'AUTH_ERR'}`;
+      if (error?.code === 'auth/unauthorized-domain' || error?.message?.includes('unauthorized domain')) {
+        msg = "Domain not authorized. Please add this URL to Firebase Console > Authentication > Settings > Authorized domains.";
+      }
+      
+      const toasts = [{id: Math.random().toString(), message: msg}];
       setToasts(toasts);
     }
   };
@@ -2790,7 +2799,12 @@ function AppContent() {
                          </div>
                          <div className="mt-4 px-2 space-y-1">
                            <h4 className="font-black uppercase tracking-tighter text-sm text-white group-hover:text-[#4da6ff] drop-shadow-[0_0_10px_rgba(0,100,255,0.3)] transition-colors">{product.name}</h4>
-                           <p className="text-[10px] text-[#3399ff] font-black drop-shadow-[0_2px_15px_rgba(0,150,255,0.5)]">৳{product.price.toLocaleString()}</p>
+                           <div className="flex items-center gap-2">
+                             <p className="text-[10px] text-[#3399ff] font-black drop-shadow-[0_2px_15px_rgba(0,150,255,0.5)]">৳{product.price.toLocaleString()}</p>
+                             {product.originalPrice && product.originalPrice > product.price && (
+                               <p className="text-[9px] text-zinc-500 line-through font-bold">৳{product.originalPrice.toLocaleString()}</p>
+                             )}
+                           </div>
                          </div>
                        </div>
                      ))}
@@ -2898,9 +2912,14 @@ function AppContent() {
                       });
                     }}>
                       <img loading="lazy" src={product.images?.[0] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800'} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt={product.name} referrerPolicy="no-referrer" />
-                      {product.isNewArrival && (
-                        <div className="absolute top-4 left-4 bg-gradient-to-r from-[#0044cc] to-[#0099ff] border border-[#66bcff] shadow-[0_5px_15px_rgba(0,150,255,0.5)] rounded-md text-white text-[9px] font-black px-3 py-1.5 uppercase tracking-[0.2em] z-10">New</div>
-                      )}
+                      <div className="absolute top-4 left-4 flex flex-col gap-2 z-10">
+                        {product.isNewArrival && (
+                          <div className="bg-gradient-to-r from-[#0044cc] to-[#0099ff] border border-[#66bcff] shadow-[0_5px_15px_rgba(0,150,255,0.5)] rounded-md text-white text-[9px] font-black px-3 py-1.5 uppercase tracking-[0.2em] w-fit">New</div>
+                        )}
+                        {product.originalPrice && product.originalPrice > product.price && (
+                          <div className="bg-gradient-to-r from-rose-600 to-rose-400 border border-rose-300 shadow-[0_5px_15px_rgba(225,29,72,0.5)] rounded-md text-white text-[9px] font-black px-3 py-1.5 uppercase tracking-[0.2em] w-fit">Sale</div>
+                        )}
+                      </div>
                       <button 
                         onClick={(e) => { e.stopPropagation(); toggleCompare(product); }}
                         className={`absolute top-4 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all ${compareList.find(p => p.id === product.id) ? 'bg-[#0055ff] text-white shadow-[0_0_15px_rgba(0,85,255,0.6)]' : 'bg-black/40 backdrop-blur-md text-zinc-400 hover:text-white border border-white/10'}`}
@@ -2964,7 +2983,12 @@ function AppContent() {
                         });
                       }}>
                         <div className="space-y-1"><h3 className="font-black uppercase tracking-tighter text-xl leading-tight text-white group-hover:text-[#4da6ff] drop-shadow-[0_0_10px_rgba(0,100,255,0.3)] transition-colors">{product.name}</h3><p className="text-[10px] text-[#0066ff] uppercase font-bold tracking-widest">{product.category}</p></div>
-                        <span className="font-black text-xl heading-font tabular-nums text-[#3399ff] drop-shadow-[0_2px_15px_rgba(0,150,255,0.5)]">৳{product.price.toLocaleString()}</span>
+                        <div className="flex flex-col items-end">
+                          <span className="font-black text-xl heading-font tabular-nums text-[#3399ff] drop-shadow-[0_2px_15px_rgba(0,150,255,0.5)]">৳{product.price.toLocaleString()}</span>
+                          {product.originalPrice && product.originalPrice > product.price && (
+                            <span className="text-xs text-zinc-500 line-through font-bold">৳{product.originalPrice.toLocaleString()}</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2995,6 +3019,14 @@ function AppContent() {
                   <div key={`wishlist-${product.id}`} className="group relative flex flex-col p-4 md:p-5 bg-[#010816] md:bg-gradient-to-b md:from-[#030b1c] md:to-[#01050e] border border-[#0033aa]/50 rounded-[2rem] shadow-[0_10px_30px_-10px_rgba(0,50,200,0.2)] hover:shadow-[0_20px_40px_-10px_rgba(0,100,255,0.4)] transform hover:-translate-y-2 transition-all duration-500">
                     <div className="relative w-full aspect-[1/1] sm:aspect-[4/5] object-contain overflow-hidden rounded-xl bg-[#001433] border border-[#0044cc]/40 shadow-[inset_0_0_25px_rgba(0,60,255,0.1)] transition-all duration-300 group-hover:border-[#0066ff] mb-4 cursor-pointer" onClick={() => { setSelectedSize(''); setQuickViewProduct(product); }}>
                       <img loading="lazy" src={product.images?.[0] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800'} alt={product.name} className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-110 transition-all duration-700 ease-out" referrerPolicy="no-referrer" />
+                      <div className="absolute top-4 left-4 flex flex-col gap-2 z-10">
+                        {product.isNewArrival && (
+                          <div className="bg-gradient-to-r from-[#0044cc] to-[#0099ff] border border-[#66bcff] shadow-[0_5px_15px_rgba(0,150,255,0.5)] rounded-md text-white text-[9px] font-black px-3 py-1.5 uppercase tracking-[0.2em] w-fit">New</div>
+                        )}
+                        {product.originalPrice && product.originalPrice > product.price && (
+                          <div className="bg-gradient-to-r from-rose-600 to-rose-400 border border-rose-300 shadow-[0_5px_15px_rgba(225,29,72,0.5)] rounded-md text-white text-[9px] font-black px-3 py-1.5 uppercase tracking-[0.2em] w-fit">Sale</div>
+                        )}
+                      </div>
                       <button 
                         onClick={(e) => { e.stopPropagation(); toggleCompare(product); }}
                         className={`absolute top-4 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all ${compareList.find(p => p.id === product.id) ? 'bg-[#0055ff] text-white shadow-[0_0_15px_rgba(0,85,255,0.6)]' : 'bg-black/40 backdrop-blur-md text-zinc-400 hover:text-white border border-white/10'}`}
@@ -3011,9 +3043,14 @@ function AppContent() {
                       )}
                     </div>
                     <div className="flex flex-col gap-2 flex-1 px-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[9px] uppercase font-black text-[#0066ff] tracking-widest">{product.category}</span>
-                        <span className="font-black text-lg heading-font tabular-nums text-[#3399ff] drop-shadow-[0_2px_15px_rgba(0,150,255,0.5)]">৳{product.price.toLocaleString()}</span>
+                      <div className="flex items-start justify-between">
+                        <span className="text-[9px] uppercase font-black text-[#0066ff] tracking-widest mt-1">{product.category}</span>
+                        <div className="flex flex-col items-end">
+                          <span className="font-black text-lg heading-font tabular-nums text-[#3399ff] drop-shadow-[0_2px_15px_rgba(0,150,255,0.5)]">৳{product.price.toLocaleString()}</span>
+                          {product.originalPrice && product.originalPrice > product.price && (
+                            <span className="text-[10px] text-zinc-500 line-through font-bold">৳{product.originalPrice.toLocaleString()}</span>
+                          )}
+                        </div>
                       </div>
                       <h3 className="font-black uppercase text-xs tracking-widest text-white leading-snug cursor-pointer group-hover:text-[#4da6ff] drop-shadow-[0_0_10px_rgba(0,100,255,0.3)] transition-colors" onClick={() => { setSelectedSize(''); setQuickViewProduct(product); }}>{product.name}</h3>
                     </div>
@@ -3249,8 +3286,11 @@ function AppContent() {
                       </div>
                       <div>
                         <h4 className={`text-sm font-bold ${product.stock <= 0 ? 'text-zinc-500' : 'text-white'}`}>{product.name}</h4>
-                        <div className="flex items-center gap-2 mt-1">
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
                           <p className="text-xs text-[#0055ff] font-black">৳{product.price.toLocaleString()}</p>
+                          {product.originalPrice && product.originalPrice > product.price && (
+                            <p className="text-[10px] text-zinc-500 line-through font-bold">৳{product.originalPrice.toLocaleString()}</p>
+                          )}
                           {product.stock <= 0 && <span className="text-[8px] font-black text-rose-500 uppercase tracking-widest border border-rose-500/30 px-1">Out of Stock</span>}
                         </div>
                       </div>
@@ -3479,18 +3519,6 @@ function AppContent() {
                             <label className="text-[9px] font-black uppercase text-zinc-500">City</label>
                             <input id="checkout-city" type="text" value={customerInfo.city} onChange={e => handleCustomerInfoChange('city', e.target.value)} className={`w-full bg-zinc-900/50 border px-4 py-3 text-xs font-bold text-white outline-none transition-all ${checkoutErrors.city ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' : 'border-zinc-800 focus:border-[#0055ff]'}`} placeholder="CITY" />
                             {checkoutErrors.city && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.city}</p>}
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[9px] font-black uppercase text-zinc-500">Zip / Postal Code</label>
-                            <input 
-                              id="checkout-zip"
-                              type="text" 
-                              value={customerInfo.zip || ''} 
-                              onChange={e => handleCustomerInfoChange('zip', e.target.value)} 
-                              className={`w-full bg-zinc-900/50 border px-4 py-3 text-xs font-bold text-white outline-none transition-all ${checkoutErrors.zip ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' : 'border-zinc-800 focus:border-[#0055ff]'}`} 
-                              placeholder="12345" 
-                            />
-                            {checkoutErrors.zip && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.zip}</p>}
                           </div>
                           <div className="space-y-1">
                             <label className="text-[9px] font-black uppercase text-zinc-500">Customer_Note / Special_Instructions</label>
@@ -4092,9 +4120,14 @@ function AppContent() {
                 </div>
 
                 {/* Price */}
-                <div className="flex items-start gap-1 py-1">
-                  <span className="text-sm mt-1.5 text-gray-300 font-medium">৳</span>
-                  <span className="text-3xl font-medium text-white">{selectedProduct.price.toLocaleString()}</span>
+                <div className="flex items-baseline gap-3 py-1">
+                  <div className="flex items-start gap-1">
+                    <span className="text-sm mt-1.5 text-gray-300 font-medium">৳</span>
+                    <span className="text-3xl font-medium text-white">{selectedProduct.price.toLocaleString()}</span>
+                  </div>
+                  {selectedProduct.originalPrice && selectedProduct.originalPrice > selectedProduct.price && (
+                    <span className="text-lg text-zinc-500 line-through font-bold">৳{selectedProduct.originalPrice.toLocaleString()}</span>
+                  )}
                 </div>
 
                 {/* Variations */}
@@ -4208,9 +4241,14 @@ function AppContent() {
               {/* Right Column: Buy Box */}
               <div className="w-full lg:w-[20%] mt-6 lg:mt-0">
                 <div className="border border-[#1C3A6E] rounded-lg p-4 space-y-4 shadow-sm bg-[#061122]">
-                  <div className="flex items-start gap-1">
-                    <span className="text-sm mt-1 text-gray-300">৳</span>
-                    <span className="text-3xl font-medium text-white">{selectedProduct.price.toLocaleString()}</span>
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-start gap-1">
+                      <span className="text-sm mt-1 text-gray-300">৳</span>
+                      <span className="text-3xl font-medium text-white">{selectedProduct.price.toLocaleString()}</span>
+                    </div>
+                    {selectedProduct.originalPrice && selectedProduct.originalPrice > selectedProduct.price && (
+                      <span className="text-sm text-zinc-500 line-through font-bold px-1">৳{selectedProduct.originalPrice.toLocaleString()}</span>
+                    )}
                   </div>
                   
                   <div className="text-sm text-gray-300">
@@ -4541,7 +4579,12 @@ function AppContent() {
                           </div>
                           <div className="space-y-1">
                             <a className="text-sm text-[#4da6ff] group-hover:text-[#99ccff] group-hover:underline line-clamp-2 leading-tight">{aiProduct.name}</a>
-                            <p className="text-base font-medium text-emerald-400 mt-1">৳{aiProduct.price.toLocaleString()}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <p className="text-base font-medium text-emerald-400">৳{aiProduct.price.toLocaleString()}</p>
+                              {aiProduct.originalPrice && aiProduct.originalPrice > aiProduct.price && (
+                                <p className="text-[10px] text-zinc-500 line-through font-bold">৳{aiProduct.originalPrice.toLocaleString()}</p>
+                              )}
+                            </div>
                             <p className="text-[9px] text-[#4da6ff]/70 font-mono flex items-center gap-1">
                                 <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -4576,7 +4619,12 @@ function AppContent() {
                <div className="space-y-2">
                  <h2 className="text-[10px] font-black text-[#0066ff] uppercase tracking-[0.3em]">{quickViewProduct.category}</h2>
                  <h1 className="text-3xl text-white font-black uppercase tracking-tighter drop-shadow-[0_0_10px_rgba(0,100,255,0.3)]">{quickViewProduct.name}</h1>
-                 <p className="text-2xl text-[#3399ff] font-medium font-mono drop-shadow-[0_2px_15px_rgba(0,150,255,0.5)]">৳{quickViewProduct.price.toLocaleString()}</p>
+                 <div className="flex items-center gap-3">
+                   <p className="text-2xl text-[#3399ff] font-medium font-mono drop-shadow-[0_2px_15px_rgba(0,150,255,0.5)]">৳{quickViewProduct.price.toLocaleString()}</p>
+                   {quickViewProduct.originalPrice && quickViewProduct.originalPrice > quickViewProduct.price && (
+                     <p className="text-lg text-zinc-500 line-through font-bold font-mono">৳{quickViewProduct.originalPrice.toLocaleString()}</p>
+                   )}
+                 </div>
                </div>
                
                <p className="text-zinc-400 text-sm line-clamp-3 leading-relaxed">{quickViewProduct.description}</p>
