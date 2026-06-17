@@ -16,6 +16,55 @@ export const generateSEOContent = async (productName: string, description: strin
   }
 };
 
+export const generateTags = async (productName: string, description: string, category: string) => {
+  try {
+    const response = await fetch("/api/ai/generate-tags", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productName, description, category }),
+    });
+    if (!response.ok) throw new Error("Failed to generate tags");
+    const data = await response.json();
+    return data.tags as string[];
+  } catch (error) {
+    console.error("Error generating tags:", error);
+    return [];
+  }
+};
+
+export const generateSizeChart = async (productName: string, category: string, extraPrompt: string = "") => {
+  try {
+    const response = await fetch("/api/ai/generate-size-chart", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productName, category, extraPrompt }),
+    });
+    if (!response.ok) throw new Error("Failed to generate size chart");
+    const data = await response.json();
+    return data.imageUrl as string;
+  } catch (error) {
+    console.error("Error generating size chart:", error);
+    return null;
+  }
+};
+
+export const generateOgImage = async (productName: string, category: string, description: string) => {
+  try {
+    const response = await fetch("/api/ai/generate-og-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productName, category, description }),
+    });
+    if (!response.ok) throw new Error("Failed to generate Open Graph image");
+    const data = await response.json();
+    return data.imageUrl as string;
+  } catch (error) {
+    console.error("Error generating Open Graph image:", error);
+    return null;
+  }
+};
+
+
 export const generateProductDescription = async (productName: string, category: string, currentDescription?: string) => {
   try {
     const response = await fetch("/api/ai/generate-description", {

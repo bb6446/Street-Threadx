@@ -82,6 +82,39 @@ async function startServer() {
     }
   });
 
+  app.post("/api/ai/generate-tags", async (req, res) => {
+    try {
+      const { productName, description, category } = req.body;
+      const tags = await gemini.generateTags(productName, description, category);
+      res.json({ tags });
+    } catch (error: any) {
+      console.error("Tags Gen Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/ai/generate-og-image", async (req, res) => {
+    try {
+      const { productName, category, description } = req.body;
+      const imageUrl = await gemini.generateOgImage(productName, category, description);
+      res.json({ imageUrl });
+    } catch (error: any) {
+      console.error("OG Image Gen Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/ai/generate-size-chart", async (req, res) => {
+    try {
+      const { productName, category, extraPrompt } = req.body;
+      const imageUrl = await gemini.generateSizeChartImage(productName, category, extraPrompt);
+      res.json({ imageUrl });
+    } catch (error: any) {
+      console.error("Size Chart Gen Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/ai/generate-description", async (req, res) => {
     try {
       const { productName, category, currentDescription } = req.body;

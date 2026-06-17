@@ -58,6 +58,7 @@ export const deductStockFirebase = async (items: TransactionItem[]) => {
         }
         
         const currentStock = snap.data().stock || 0;
+        const currentSales = snap.data().sales || 0;
         const requested = items[idx].quantity;
         
         if (currentStock < requested) {
@@ -66,14 +67,16 @@ export const deductStockFirebase = async (items: TransactionItem[]) => {
 
         validItemRefs.push({
           ref: itemRefs[idx].ref,
-          newStock: currentStock - requested
+          newStock: currentStock - requested,
+          newSales: currentSales + requested
         });
       });
 
       // 3. Perform the updates
-      validItemRefs.forEach(({ ref, newStock }) => {
+      validItemRefs.forEach(({ ref, newStock, newSales }) => {
         transaction.update(ref, { 
           stock: newStock,
+          sales: newSales,
           updatedAt: new Date().toISOString()
         });
       });

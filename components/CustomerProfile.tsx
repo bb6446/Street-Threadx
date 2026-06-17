@@ -5,6 +5,19 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../firebase';
 import { OrderTimeline } from './OrderTimeline';
 import { QRCodeSVG } from 'qrcode.react';
+import { 
+  ResponsiveContainer, 
+  AreaChart, 
+  Area, 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip,
+  Legend
+} from 'recharts';
+import { TrendingUp, ShoppingBag, CreditCard, DollarSign } from 'lucide-react';
 
 interface Props {
   customerInfo: { 
@@ -501,6 +514,57 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
       });
   }, [orders, customerInfo.email]);
 
+  const { chartData, totalSpent, activeOrderCount, averageOrderValue } = useMemo(() => {
+    const months: { month: string; yearMonth: string; spending: number; count: number }[] = [];
+    const now = new Date();
+    
+    // Create list of last 6 months backwards
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const label = d.toLocaleString('en-US', { month: 'short', year: '2-digit' });
+      const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      months.push({
+        month: label,
+        yearMonth,
+        spending: 0,
+        count: 0
+      });
+    }
+
+    let spent = 0;
+    let count = 0;
+
+    customerOrders.forEach(order => {
+      if (order.status === 'CANCELLED') return;
+      
+      spent += order.total;
+      count += 1;
+
+      try {
+        const d = new Date(order.date);
+        if (!isNaN(d.getTime())) {
+          const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          const slot = months.find(m => m.yearMonth === yearMonth);
+          if (slot) {
+            slot.spending += order.total;
+            slot.count += 1;
+          }
+        }
+      } catch (err) {
+        console.error("Failed to parse order date for stats:", err);
+      }
+    });
+
+    const aov = count > 0 ? Math.round(spent / count) : 0;
+
+    return {
+      chartData: months,
+      totalSpent: spent,
+      activeOrderCount: count,
+      averageOrderValue: aov
+    };
+  }, [customerOrders]);
+
   return (
     <div className={`min-h-screen ${isDarkMode ? 'bg-[#020202] text-white' : 'bg-white text-black'}`}>
       <div className="max-w-5xl mx-auto px-6 py-12 md:py-20 animate-in fade-in duration-500">
@@ -734,6 +798,132 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
 
           {/* Orders Hub */}
           <div className="lg:col-span-2 space-y-8">
+            {/* Visual Analytics Dashboard Section */}
+            <div className={`p-6 border ${isDarkMode ? 'bg-zinc-900/20 border-zinc-800' : 'bg-zinc-50 border-zinc-200'} space-y-6`}>
+              <h2 className="text-xs font-black uppercase tracking-widest border-b border-zinc-800 pb-4 flex items-center justify-between">
+                <span>6-Month_Metrics_Dashboard</span>
+                <span className="text-[10px] font-mono text-[#0055ff] lowercase">real-time sync</span>
+              </h2>
+
+              {/* Stat Cards Row */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className={`p-4 border ${isDarkMode ? 'bg-black/40 border-zinc-800' : 'bg-white border-zinc-150'} flex items-center gap-3`}>
+                  <div className="p-2 bg-[#0055ff]/10 text-[#0055ff] rounded">
+                    <DollarSign className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-black uppercase text-zinc-500 tracking-wider">Total Spent</div>
+                    <div className="text-base font-black mt-0.5">৳{totalSpent.toLocaleString()}</div>
+                  </div>
+                </div>
+
+                <div className={`p-4 border ${isDarkMode ? 'bg-black/40 border-zinc-800' : 'bg-white border-zinc-150'} flex items-center gap-3`}>
+                  <div className="p-2 bg-emerald-500/10 text-emerald-500 rounded">
+                    <ShoppingBag className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-black uppercase text-zinc-500 tracking-wider">Active Orders</div>
+                    <div className="text-base font-black mt-0.5">{activeOrderCount}</div>
+                  </div>
+                </div>
+
+                <div className={`p-4 border ${isDarkMode ? 'bg-black/40 border-zinc-800' : 'bg-white border-zinc-150'} flex items-center gap-3`}>
+                  <div className="p-2 bg-purple-500/10 text-purple-500 rounded">
+                    <TrendingUp className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-black uppercase text-zinc-500 tracking-wider">Avg Order Value</div>
+                    <div className="text-base font-black mt-0.5">৳{averageOrderValue.toLocaleString()}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Charts Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Spending Area Chart */}
+                <div className={`p-4 border ${isDarkMode ? 'bg-black/30 border-zinc-800' : 'bg-white border-zinc-200'}`}>
+                  <h3 className="text-[10px] font-black uppercase text-zinc-400 tracking-widest mb-4">Spending Trends</h3>
+                  <div className="h-44 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="colorSpending" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#0055ff" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#0055ff" stopOpacity={0.0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#1f1f23' : '#e4e4e7'} vertical={false} />
+                        <XAxis 
+                          dataKey="month" 
+                          stroke={isDarkMode ? '#71717a' : '#71717a'} 
+                          fontSize={9} 
+                          tickLine={false} 
+                          axisLine={false} 
+                        />
+                        <YAxis 
+                          stroke={isDarkMode ? '#71717a' : '#71717a'} 
+                          fontSize={9} 
+                          tickLine={false} 
+                          axisLine={false} 
+                          tickFormatter={(value) => `৳${value}`}
+                        />
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: isDarkMode ? '#09090b' : '#ffffff', 
+                            borderColor: isDarkMode ? '#27272a' : '#e4e4e7',
+                            color: isDarkMode ? '#ffffff' : '#000000',
+                            fontSize: '11px',
+                            fontFamily: 'monospace'
+                          }} 
+                          formatter={(value: any) => [`৳${Number(value).toLocaleString()}`, 'Spending']}
+                          labelStyle={{ fontWeight: 'bold' }}
+                        />
+                        <Area type="monotone" dataKey="spending" stroke="#0055ff" strokeWidth={2} fillOpacity={1} fill="url(#colorSpending)" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Order Frequency Bar Chart */}
+                <div className={`p-4 border ${isDarkMode ? 'bg-black/30 border-zinc-800' : 'bg-white border-zinc-200'}`}>
+                  <h3 className="text-[10px] font-black uppercase text-zinc-400 tracking-widest mb-4">Order Frequency</h3>
+                  <div className="h-44 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#1f1f23' : '#e4e4e7'} vertical={false} />
+                        <XAxis 
+                          dataKey="month" 
+                          stroke={isDarkMode ? '#71717a' : '#71717a'} 
+                          fontSize={9} 
+                          tickLine={false} 
+                          axisLine={false} 
+                        />
+                        <YAxis 
+                          stroke={isDarkMode ? '#71717a' : '#71717a'} 
+                          fontSize={9} 
+                          tickLine={false} 
+                          axisLine={false}
+                          allowDecimals={false}
+                        />
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: isDarkMode ? '#09090b' : '#ffffff', 
+                            borderColor: isDarkMode ? '#27272a' : '#e4e4e7',
+                            color: isDarkMode ? '#ffffff' : '#000000',
+                            fontSize: '11px',
+                            fontFamily: 'monospace'
+                          }}
+                          formatter={(value: any) => [value, 'Orders']}
+                          labelStyle={{ fontWeight: 'bold' }}
+                        />
+                        <Bar dataKey="count" fill="#10b981" radius={[1, 1, 0, 0]} maxBarSize={20} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <h2 className="text-sm font-black uppercase tracking-widest border-b border-zinc-800 pb-4">
               Order_History
             </h2>

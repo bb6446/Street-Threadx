@@ -34,6 +34,7 @@ export interface Product {
   ogImage?: string;
   tags?: string[];
   sales?: number;
+  sizeChartImage?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -233,6 +234,8 @@ export interface SocialSettings {
     name: string;
     enabled: boolean;
   }[];
+  agentApiKey?: string;
+  sizeChartImage?: string;
 }
 
 export interface SecretValues {

@@ -1,7 +1,7 @@
 
 
 import ReactGA from 'react-ga4';
-import { Facebook, Instagram, Linkedin, Twitter, ArrowRightLeft, X, Share2, Link, Ruler, ArrowUp } from 'lucide-react';
+import { Facebook, Instagram, Linkedin, Twitter, ArrowRightLeft, X, Share2, Link, Ruler, ArrowUp, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ViewState, Product, CartItem, Review, AdminRole, AdminUser, LogEntry, SocialSettings, SocialReferral, Order, DiscountCode, Customer, ChatSession, ChatMessage, Expense } from './types';
 import { MOCK_PRODUCTS, ACCENT_COLOR } from './constants';
@@ -587,7 +587,7 @@ function AppContent() {
   };
   
   // Dynamically update document <title> and meta tags based on current view, product, or category
-  useDocumentMetadata(selectedProduct, shopFilter, currentView, socialSettings);
+  useDocumentMetadata(selectedProduct || quickViewProduct, shopFilter, currentView, socialSettings);
   
   const getColorHex = (colorName: string) => {
     const name = colorName.toLowerCase();
@@ -2059,6 +2059,7 @@ function AppContent() {
         result.sort((a, b) => b.price - a.price);
         break;
       case 'Best Selling':
+      case 'Popularity':
         result.sort((a, b) => (b.sales || 0) - (a.sales || 0));
         break;
       case 'Newest':
@@ -2753,6 +2754,13 @@ function AppContent() {
                            >
                              <ArrowRightLeft size={14} />
                            </button>
+                           <button 
+                             onClick={(e) => { e.stopPropagation(); toggleWishlist(product); }}
+                             className={`absolute top-14 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all ${wishlist.some(p => p.id === product.id) ? 'bg-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.6)] border border-rose-400/30' : 'bg-black/40 backdrop-blur-md text-zinc-400 hover:text-rose-400 border border-white/10'}`}
+                             title={wishlist.some(p => p.id === product.id) ? "Remove from Wishlist" : "Add to Wishlist"}
+                           >
+                             <Heart size={14} className={wishlist.some(p => p.id === product.id) ? "fill-current" : ""} />
+                           </button>
                            {product.stock <= 0 && (
                              <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-20 backdrop-blur-[2px]">
                                <div className="border-2 border-white/20 px-6 py-2 bg-black/40 rotate-[-12deg]">
@@ -2853,6 +2861,7 @@ function AppContent() {
                       className="bg-zinc-900 border border-zinc-800 text-white px-4 py-2 outline-none focus:border-[#0055ff] transition-colors"
                     >
                       <option value="Newest">Sort: Newest</option>
+                      <option value="Popularity">Sort: Popularity</option>
                       <option value="Price (Low to High)">Price: Low to High</option>
                       <option value="Price (High to Low)">Price: High to Low</option>
                       <option value="Best Selling">Best Selling</option>
@@ -2926,6 +2935,13 @@ function AppContent() {
                         title="Compare Product"
                       >
                         <ArrowRightLeft size={14} />
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); toggleWishlist(product); }}
+                        className={`absolute top-14 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all ${wishlist.some(p => p.id === product.id) ? 'bg-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.6)] border border-rose-400/30' : 'bg-black/40 backdrop-blur-md text-zinc-400 hover:text-rose-400 border border-white/10'}`}
+                        title={wishlist.some(p => p.id === product.id) ? "Remove from Wishlist" : "Add to Wishlist"}
+                      >
+                        <Heart size={14} className={wishlist.some(p => p.id === product.id) ? "fill-current" : ""} />
                       </button>
                       {product.stock <= 0 && (
                         <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-20 backdrop-blur-[2px]">
@@ -3033,6 +3049,13 @@ function AppContent() {
                         title="Compare Product"
                       >
                         <ArrowRightLeft size={14} />
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); toggleWishlist(product); }}
+                        className={`absolute top-14 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all ${wishlist.some(p => p.id === product.id) ? 'bg-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.6)] border border-rose-400/30' : 'bg-black/40 backdrop-blur-md text-zinc-400 hover:text-rose-400 border border-white/10'}`}
+                        title={wishlist.some(p => p.id === product.id) ? "Remove from Wishlist" : "Add to Wishlist"}
+                      >
+                        <Heart size={14} className={wishlist.some(p => p.id === product.id) ? "fill-current" : ""} />
                       </button>
                       {product.stock <= 0 && (
                         <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-20 backdrop-blur-[2px]">
@@ -3300,6 +3323,13 @@ function AppContent() {
                         title="Compare Product"
                       >
                         <ArrowRightLeft size={12} />
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); toggleWishlist(product); }}
+                        className={`absolute relative mr-2 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all ${wishlist.some(p => p.id === product.id) ? 'bg-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.6)] border border-rose-400/30' : 'bg-black/40 backdrop-blur-md text-zinc-400 hover:text-rose-400 border border-white/10'}`}
+                        title={wishlist.some(p => p.id === product.id) ? "Remove from Wishlist" : "Add to Wishlist"}
+                      >
+                        <Heart size={14} className={wishlist.some(p => p.id === product.id) ? "fill-current" : ""} />
                       </button>
                     </div>
                   ))
@@ -4975,6 +5005,8 @@ function AppContent() {
       <SizeGuideModal 
         isOpen={isSizeGuideOpen}
         onClose={() => setIsSizeGuideOpen(false)}
+        product={selectedProduct || undefined}
+        socialSettings={socialSettings}
       />
 
       {showDiagnosticModal && diagnosticReport && (

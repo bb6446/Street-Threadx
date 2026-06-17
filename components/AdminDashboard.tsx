@@ -6,7 +6,7 @@ import {
   BarChart, Bar, Cell, PieChart, Pie 
 } from 'recharts';
 import { Sun, Moon, Monitor, Shield, Zap, Database, Globe, Share2, MessageSquare, Trash2, Edit3, Plus, Copy, Check, ChevronRight, ChevronLeft, Search, Filter, Download, ArrowUpRight, ArrowDownRight, Layout, List as ListIcon, Maximize2, Trash, ExternalLink, User, Cloud, ShoppingCart, Users, X, Key, Activity, Lock } from 'lucide-react';
-import { generateSEOContent, generateSupportReply, generateAnalyticsReport, generateProductDescription, generateResponseSuggestions, generateAgentMonitorReply, generateModelSwapImages, generatePromotionalImage } from '../services/geminiService';
+import { generateSEOContent, generateSupportReply, generateAnalyticsReport, generateProductDescription, generateResponseSuggestions, generateAgentMonitorReply, generateModelSwapImages, generatePromotionalImage, generateTags, generateSizeChart, generateOgImage } from '../services/geminiService';
 import { chatService } from '../services/chatService';
 import { updateProductStock, updateProductPrice, saveProductToFirestore, updateProductsBulk } from '../services/productService';
 import { saveOrderToFirestore, updateOrder, deleteOrderFromFirestore, updateOrderStatus } from '../services/orderService';
@@ -64,7 +64,7 @@ interface Props {
 const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800';
 
 const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, setOrders, customers, setCustomers, socialSettings, setSocialSettings, socialReferrals, onLogout, logs, addLog, discountCodes, setDiscountCodes, reviews, setReviews, chatSessions, setChatSessions, onSendMessage, adminUsersList, setAdminUsersList, expenses, setExpenses, onEnableLiveEditMode }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders' | 'pending_verification' | 'customers' | 'activity_logs' | 'settings' | 'discounts' | 'reviews' | 'insights' | 'support' | 'pos' | 'chat' | 'user_management' | 'accounting' | 'appearance' | 'plugins' | 'sales_list' | 'seo'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders' | 'pending_verification' | 'customers' | 'activity_logs' | 'settings' | 'discounts' | 'reviews' | 'insights' | 'support' | 'pos' | 'chat' | 'user_management' | 'accounting' | 'appearance' | 'plugins' | 'sales_list' | 'seo' | 'ai_setup'>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
@@ -156,8 +156,14 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newProductVariant, setNewProductVariant] = useState({ size: '', color: '', stock: 0, sku: '' });
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
+  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const [isGeneratingSeo, setIsGeneratingSeo] = useState(false);
+  const [isGeneratingOgImage, setIsGeneratingOgImage] = useState(false);
   const [isAiAutofilling, setIsAiAutofilling] = useState(false);
+  const [isGeneratingSizeChart, setIsGeneratingSizeChart] = useState(false);
+  const [sizeChartStylePrompt, setSizeChartStylePrompt] = useState("");
+  const [isGeneratingGlobalSizeChart, setIsGeneratingGlobalSizeChart] = useState(false);
+  const [globalSizeChartPrompt, setGlobalSizeChartPrompt] = useState("");
   const [managedExpense, setManagedExpense] = useState<Partial<Expense> | null>(null);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [expenseDeleteConfirm, setExpenseDeleteConfirm] = useState<string | null>(null);
@@ -1507,6 +1513,59 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     { name: 'Sneakers', sales: 40 },
   ];
 
+  const categorySalesData = useMemo(() => {
+    const baselineSales: Record<string, number> = {
+      'Hoodies': 48,
+      'T-Shirts': 72,
+      'Sweaters': 33,
+      'Accessories': 15,
+    };
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const salesMap = { ...baselineSales };
+
+    if (orders && orders.length > 0) {
+      orders.forEach(order => {
+        const orderDate = new Date(order.date);
+        if (!isNaN(orderDate.getTime()) && orderDate >= thirtyDaysAgo) {
+          order.orderItems?.forEach(item => {
+            const product = products?.find(p => p.id === item.productId || p.name === item.name);
+            let category = product?.category;
+
+            if (!category) {
+              const lowerName = item.name.toLowerCase();
+              if (lowerName.includes('hoodie')) {
+                category = 'Hoodies';
+              } else if (lowerName.includes('t-shirt') || lowerName.includes('tee') || lowerName.includes('shirt')) {
+                category = 'T-Shirts';
+              } else if (lowerName.includes('sweater') || lowerName.includes('crewneck')) {
+                category = 'Sweaters';
+              } else {
+                category = 'Accessories';
+              }
+            }
+
+            if (category && typeof salesMap[category] === 'number') {
+              salesMap[category] += item.quantity;
+            } else if (category) {
+              salesMap[category] = item.quantity;
+            }
+          });
+        }
+      });
+    }
+
+    return Object.entries(salesMap).map(([category, volume]) => ({
+      category,
+      volume,
+      fill: category === 'Hoodies' ? '#0055ff' : 
+            category === 'T-Shirts' ? '#00A86B' : 
+            category === 'Sweaters' ? '#F4C430' : '#FF6F61'
+    }));
+  }, [orders, products]);
+
   const COLORS = ['#0055ff', '#00c49f', '#ffbb28', '#ff8042', '#8884d8'];
 
   const handleAiGenerateDescription = async () => {
@@ -1525,6 +1584,119 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     } finally {
       setIsGeneratingDescription(false);
     }
+  };
+
+  const handleAiGenerateTags = async () => {
+    if (!managedProduct?.name || !managedProduct?.description || !managedProduct?.category) {
+      alert('Please provide a name, description, and category first to generate tags.');
+      return;
+    }
+    setIsGeneratingTags(true);
+    try {
+      const generatedTags = await generateTags(
+        managedProduct.name,
+        managedProduct.description,
+        managedProduct.category
+      );
+      if (generatedTags && Array.isArray(generatedTags) && generatedTags.length > 0) {
+        const existingTags = managedProduct.tags || [];
+        const uniqueTags = Array.from(new Set([...existingTags, ...generatedTags]));
+        setManagedProduct(prev => ({ ...prev, tags: uniqueTags }));
+        addLog(`AI_TAGS_GENERATE: ASSET_${managedProduct.name}`);
+        alert(`Successfully generated and added ${generatedTags.length} SEO tags!`);
+      } else {
+        alert('No relevant tags could be generated.');
+      }
+    } catch (err: any) {
+      console.error('Failed to generate tags:', err);
+      alert(err.message || 'Failed to generate tags.');
+    } finally {
+      setIsGeneratingTags(false);
+    }
+  };
+
+  const handleAiGenerateSizeChart = async () => {
+    if (!managedProduct?.name || !managedProduct?.category) {
+      alert('Please provide a name and category first to generate a size chart.');
+      return;
+    }
+    setIsGeneratingSizeChart(true);
+    try {
+      const imageUrl = await generateSizeChart(
+        managedProduct.name,
+        managedProduct.category,
+        sizeChartStylePrompt
+      );
+      if (imageUrl) {
+        setManagedProduct(prev => ({ ...prev, sizeChartImage: imageUrl }));
+        addLog(`AI_SIZE_CHART_GEN_PRODUCT: ASSET_${managedProduct.name}`);
+        alert('Custom size chart image generated and added successfully!');
+      } else {
+        alert('Could not generate size chart image.');
+      }
+    } catch (err: any) {
+      console.error('Failed to generate size chart:', err);
+      alert(err.message || 'Failed to generate size chart.');
+    } finally {
+      setIsGeneratingSizeChart(false);
+    }
+  };
+
+  const handleSizeChartUpload = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('Please select a valid image file (PNG/JPG/WEBP).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setManagedProduct(prev => ({ ...prev, sizeChartImage: reader.result as string }));
+      addLog(`UPLOAD_SIZE_CHART_PRODUCT: ASSET_${managedProduct?.name || 'NEW'}`);
+      alert('Custom size chart image uploaded successfully!');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleAiGenerateGlobalSizeChart = async () => {
+    setIsGeneratingGlobalSizeChart(true);
+    try {
+      const imageUrl = await generateSizeChart(
+        'Universal Streetwear Guidelines',
+        'Apparel Sizing',
+        globalSizeChartPrompt
+      );
+      if (imageUrl) {
+        setSocialSettings(prev => ({
+          ...prev,
+          sizeChartImage: imageUrl
+        }));
+        addLog(`AI_SIZE_CHART_GEN_GLOBAL: ASSET_STORE`);
+        alert('Global fallback size chart image generated successfully!');
+      } else {
+        alert('Could not generate size chart image.');
+      }
+    } catch (err: any) {
+      console.error('Failed to generate global size chart:', err);
+      alert(err.message || 'Failed to generate global size chart.');
+    } finally {
+      setIsGeneratingGlobalSizeChart(false);
+    }
+  };
+
+  const handleGlobalSizeChartUpload = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('Please select a valid image file (PNG/JPG/WEBP).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSocialSettings(prev => ({
+        ...prev,
+        sizeChartImage: reader.result as string
+      }));
+      addLog(`UPLOAD_SIZE_CHART_GLOBAL: ASSET_STORE`);
+      alert('Global fallback size chart image uploaded successfully!');
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleAiGenerateSeo = async (target: 'title' | 'description' | 'both' = 'both') => {
@@ -1553,6 +1725,43 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
       console.error('Failed to generate SEO content:', err);
     } finally {
       setIsGeneratingSeo(false);
+    }
+  };
+
+  const handleAiGenerateOgImage = async (productId?: string) => {
+    const targetProduct = productId ? products.find(p => p.id === productId) : managedProduct;
+    if (!targetProduct?.name || !targetProduct?.category) {
+      alert('Please provide a name, description, and category first.');
+      return;
+    }
+    setIsGeneratingOgImage(true);
+    try {
+      const ogImageUrl = await generateOgImage(
+        targetProduct.name,
+        targetProduct.category,
+        targetProduct.description || ''
+      );
+      if (ogImageUrl) {
+        if (productId) {
+          setProducts(prev => prev.map(p => {
+            if (p.id === productId) {
+              return { ...p, ogImage: ogImageUrl };
+            }
+            return p;
+          }));
+        } else {
+          setManagedProduct(prev => ({ ...prev, ogImage: ogImageUrl }));
+        }
+        addLog(`AI_OG_IMAGE_GENERATE: FOR_${targetProduct.name}`);
+        alert('Beautiful Open Graph share image generated successfully!');
+      } else {
+        alert('Could not generate Open Graph image. Please check API Key configuration.');
+      }
+    } catch (err: any) {
+      console.error('Failed to generate Open Graph image:', err);
+      alert(err.message || 'Failed to generate Open Graph image.');
+    } finally {
+      setIsGeneratingOgImage(false);
     }
   };
 
@@ -1896,6 +2105,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     { id: 'plugins', label: 'Plugins', icon: 'M17 14v6m-3-3h6M6 10h2a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2zm10 0h2a2 2 0 002-2V6a2 2 0 00-2-2h-2a2 2 0 00-2 2v2a2 2 0 002 2zM6 20h2a2 2 0 002-2v-2a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2z', hidden: user.role !== AdminRole.SUPER_ADMIN },
     { id: 'seo', label: 'SEO Metadata', icon: 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9h18', hidden: user.role !== AdminRole.SUPER_ADMIN },
     { id: 'settings', label: 'Site Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37a1.724 1.724 0 002.572-1.065z', hidden: user.role !== AdminRole.SUPER_ADMIN },
+    { id: 'ai_setup', label: 'AI Agent Setup', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', hidden: user.role !== AdminRole.SUPER_ADMIN },
   ].filter(t => !t.hidden);
 
   return (
@@ -2066,13 +2276,21 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                       <h3 className="text-zinc-500 text-[11px] font-black uppercase flex items-center gap-2">
                         <Monitor className="w-4 h-4 text-[#0055ff]" /> AI Site Monitor
                       </h3>
-                      {isAiMonitoring ? (
-                        <div className="flex items-center gap-2 text-[10px] text-zinc-500 font-bold">
-                          PROCESSING <span className="w-2 h-2 bg-[#0055ff] rounded-full animate-pulse"></span>
-                        </div>
-                      ) : (
-                        <span className="text-[10px] text-emerald-500 font-bold flex items-center gap-1"><div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div> ONLINE</span>
-                      )}
+                      <div className="flex items-center gap-4">
+                        <button
+                          onClick={() => setActiveTab('ai_setup')}
+                          className="bg-zinc-800 hover:bg-zinc-700 text-white text-[9px] font-black uppercase px-2 py-1 transition-colors flex items-center gap-1 border border-zinc-700"
+                        >
+                          <Key className="w-3 h-3 text-[#0055ff]" /> API_Setup
+                        </button>
+                        {isAiMonitoring ? (
+                          <div className="flex items-center gap-2 text-[10px] text-zinc-500 font-bold">
+                            PROCESSING <span className="w-2 h-2 bg-[#0055ff] rounded-full animate-pulse"></span>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-emerald-500 font-bold flex items-center gap-1"><div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div> ONLINE</span>
+                        )}
+                      </div>
                     </div>
                     
                     <div className="flex-1 overflow-y-auto mb-4 px-4 space-y-3 no-scrollbar flex flex-col font-mono">
@@ -2159,6 +2377,39 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                           contentStyle={{ backgroundColor: isDarkMode ? '#111' : '#fff', border: '1px solid #333', fontSize: '10px' }}
                         />
                       </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-8">
+                  <div className={`border p-8 rounded-none ${cardClasses} h-[400px]`}>
+                    <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+                      <div>
+                        <h3 className="text-zinc-500 text-[9px] font-black uppercase">Category Sales Volume (Last 30 Days)</h3>
+                        <p className="text-[10px] text-zinc-400 font-mono tracking-tighter uppercase mt-1">
+                          COMPARATIVE ANALYSIS OF PRODUCT UNITS SOLD ACROSS STREETWEAR CLASSIFICATIONS
+                        </p>
+                      </div>
+                      <span className="text-[8px] font-mono border border-[#0055ff]/30 px-2.5 py-1 text-[#0055ff] bg-[#0055ff]/10 uppercase font-black tracking-widest">
+                        METRICS_CAT_MATRIX
+                      </span>
+                    </div>
+                    <ResponsiveContainer width="100%" height="80%">
+                      <BarChart data={categorySalesData} margin={{ top: 20, right: 30, left: 10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#222' : '#eee'} vertical={false} />
+                        <XAxis dataKey="category" stroke="#888" fontSize={10} tickLine={false} axisLine={false} />
+                        <YAxis stroke="#888" fontSize={10} tickLine={false} axisLine={false} allowDecimals={false} />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: isDarkMode ? '#111' : '#fff', border: '1px solid #333', fontSize: '10px' }}
+                          cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }}
+                          formatter={(value) => [`${value} Units`, 'Volume']}
+                        />
+                        <Bar dataKey="volume" radius={[4, 4, 0, 0]}>
+                          {categorySalesData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.fill} />
+                          ))}
+                        </Bar>
+                      </BarChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
@@ -5462,6 +5713,91 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         )}
                       </div>
                     </div>
+
+                    <div className="border-t border-zinc-800 pt-8 space-y-6">
+                      <div>
+                        <h4 className="text-[11px] font-black uppercase tracking-widest text-[#0055ff]">4. Global Fallback Size Chart Guide</h4>
+                        <p className="text-[10px] text-zinc-500 uppercase mt-0.5">Configure a universal size chart document to display on products lacking an asset-specific diagram.</p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                        {/* Control Box */}
+                        <div className="space-y-4">
+                          <p className="text-[9px] font-bold text-zinc-500 uppercase">Input style instructions for Gemini to build a universal master sizing diagram, or upload your store wide sizing card.</p>
+                          
+                          <div className="flex gap-2">
+                            <input 
+                              type="text" 
+                              value={globalSizeChartPrompt} 
+                              onChange={e => setGlobalSizeChartPrompt(e.target.value)}
+                              className={`flex-1 px-4 py-3 text-[10px] font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800 text-white' : 'bg-transparent border-zinc-200 text-black'}`} 
+                              placeholder="e.g. Clean technical blueprints on a dark slate background" 
+                            />
+                            <button 
+                              type="button" 
+                              onClick={handleAiGenerateGlobalSizeChart}
+                              disabled={isGeneratingGlobalSizeChart}
+                              className="bg-[#0055ff] text-white px-4 py-3 text-[9px] font-black uppercase disabled:opacity-50 flex items-center gap-2"
+                            >
+                              {isGeneratingGlobalSizeChart ? (
+                                <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <Zap className="w-3 h-3" />
+                              )}
+                              Synthesize
+                            </button>
+                          </div>
+
+                          <div className="flex gap-2 items-center">
+                            <input 
+                              type="file" 
+                              id="global-sizechart-file" 
+                              accept="image/*"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleGlobalSizeChartUpload(file);
+                              }}
+                              className="hidden" 
+                            />
+                            <label 
+                              htmlFor="global-sizechart-file"
+                              className="flex-1 text-center cursor-pointer bg-zinc-800 hover:bg-zinc-700 text-white py-3 text-[9px] font-black uppercase transition-all"
+                            >
+                              Upload Universal Card
+                            </label>
+                            {socialSettings.sizeChartImage && (
+                              <button 
+                                type="button"
+                                onClick={() => setSocialSettings(prev => ({ ...prev, sizeChartImage: undefined }))}
+                                className="px-4 py-3 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20 text-[9px] uppercase font-black"
+                              >
+                                Revert
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Preview Box */}
+                        <div className={`p-4 border flex flex-col items-center justify-center min-h-[140px] relative transition-all ${isDarkMode ? 'bg-zinc-950/40 border-zinc-900' : 'bg-zinc-100/30 border-zinc-200'}`}>
+                          {socialSettings.sizeChartImage ? (
+                            <div className="relative w-full h-full flex flex-col items-center justify-center">
+                              <img 
+                                src={socialSettings.sizeChartImage} 
+                                alt="Store Sizing Guide" 
+                                className="max-h-[120px] object-contain border border-zinc-800 shadow-md"
+                                referrerPolicy="no-referrer"
+                              />
+                              <p className="text-[8px] font-black uppercase text-[#0055ff] mt-2">Active: Universal Size Chart Loaded</p>
+                            </div>
+                          ) : (
+                            <div className="text-center space-y-1 text-zinc-500">
+                              <p className="text-[10px] font-black uppercase opacity-40">No Universal Chart Card</p>
+                              <p className="text-[8px] uppercase tracking-wide opacity-40 max-w-[190px] mx-auto">Products will fall back to their individual size tables.</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -5756,14 +6092,41 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                             />
                           </div>
                           <div className="space-y-2">
-                            <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block">OG Share Image URL</label>
+                            <div className="flex items-center justify-between">
+                              <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block">OG Share Image (16:9)</label>
+                              <button 
+                                onClick={() => handleAiGenerateOgImage(product.id)}
+                                disabled={isGeneratingOgImage}
+                                className="text-[9px] font-black uppercase text-[#0055ff] hover:underline disabled:opacity-50 flex items-center gap-1"
+                              >
+                                {isGeneratingOgImage ? (
+                                  <div className="w-3 h-3 border border-[#0055ff]/30 border-t-[#0055ff] rounded-full animate-spin" />
+                                ) : (
+                                  <Zap className="w-3 h-3" />
+                                )}
+                                {isGeneratingOgImage ? 'Synthesizing...' : 'AI_Synthesize_OG_Image'}
+                              </button>
+                            </div>
                             <input 
                               type="text"
                               value={product.ogImage || ''}
                               onChange={(e) => updateProdSeo('ogImage', e.target.value)}
                               placeholder={product.images[0] || 'https://images.unsplash.com/...'}
-                              className={`w-full p-4 border text-xs font-mono outline-none transition-all ${isDarkMode ? 'bg-black border-zinc-800 focus:border-[#0055ff]' : 'bg-transparent border-zinc-200 focus:border-black'}`}
+                              className={`w-full p-4 border text-[10px] font-mono outline-none transition-all ${isDarkMode ? 'bg-black border-zinc-800 focus:border-[#0055ff]' : 'bg-transparent border-zinc-200 focus:border-black'}`}
                             />
+                            {product.ogImage && (
+                              <div className="mt-2 border border-[#0055ff]/20 bg-zinc-950/50 p-2 overflow-hidden flex flex-col items-center justify-center aspect-[16/9] relative group">
+                                <img
+                                  src={product.ogImage}
+                                  alt="OG Preview"
+                                  className="max-h-full max-w-full object-contain"
+                                  referrerPolicy="no-referrer"
+                                />
+                                <div className="absolute inset-0 bg-black/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <span className="text-[9px] font-black uppercase text-emerald-400">Custom Social OG Image Active</span>
+                                </div>
+                              </div>
+                            )}
                           </div>
                           <button 
                             onClick={async () => {
@@ -5787,6 +6150,57 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         </div>
                       );
                     })()}
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {activeTab === 'ai_setup' && (
+              <div className="space-y-10">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <h2 className="text-4xl font-black uppercase italic tracking-tighter">AI_AGENT_SETUP</h2>
+                    <p className="text-[10px] font-black uppercase opacity-40 mt-2 tracking-widest">Configure AI Agent API Configurations</p>
+                  </div>
+                </div>
+
+                <div className={`border p-8 rounded-none space-y-8 ${cardClasses}`}>
+                  <div className="flex items-center justify-between border-b pb-4 border-zinc-800">
+                    <div>
+                      <h4 className="text-[12px] font-black uppercase tracking-widest text-[#0055ff]">Agent_Configuration</h4>
+                      <p className="text-[9px] uppercase opacity-40 font-black mt-1">Provide API key for AI assistant module</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-black uppercase opacity-40">Agent_API_Key (Gemini)</label>
+                      <input 
+                        type="password" 
+                        value={socialSettings?.agentApiKey || ''} 
+                        onChange={(e) => setSocialSettings(prev => ({ ...prev, agentApiKey: e.target.value }))}
+                        className={`w-full px-4 py-3 text-xs font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
+                        placeholder="AIza..."
+                      />
+                    </div>
+
+                    <button 
+                      onClick={async () => {
+                        try {
+                          const { doc, setDoc } = await import('firebase/firestore');
+                          const { db } = await import('../firebase');
+                          const cleanSettings = JSON.parse(JSON.stringify(socialSettings));
+                          await setDoc(doc(db, 'settings', 'social'), cleanSettings, { merge: true });
+                          addLog('UPDATED_AI_AGENT_SETUP', { field: 'API Key configured' });
+                          alert('AI Agent setup saved successfully');
+                        } catch (e: any) {
+                          alert('Failed to save AI configure: ' + e.message);
+                        }
+                      }}
+                      className="w-full py-4 bg-[#0055ff] hover:bg-[#0044cc] text-white text-[10px] font-black uppercase tracking-widest shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px] transition-all"
+                    >
+                      Save_Agent_Settings
+                    </button>
                   </div>
                 </div>
               </div>
@@ -6463,7 +6877,12 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase opacity-40">Tags</label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black uppercase opacity-40">Tags</label>
+                      <button onClick={handleAiGenerateTags} disabled={isGeneratingTags} className="text-[9px] font-black uppercase text-[#0055ff] hover:underline disabled:opacity-50">
+                        {isGeneratingTags ? 'Generating...' : 'AI_Generate'}
+                      </button>
+                    </div>
                     <div className={`w-full p-2 border focus-within:border-[#0055ff] transition-all flex flex-wrap gap-2 ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
                       {managedProduct.tags?.map((tag, i) => (
                         <div key={i} className={`flex items-center gap-1 px-2 py-1 text-xs font-bold rounded-none ${isDarkMode ? 'bg-zinc-800' : 'bg-zinc-200'}`}>
@@ -6853,6 +7272,91 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                       <button type="button" onClick={addImageToManagedProduct} className="bg-zinc-800 text-white px-6 py-4 text-[10px] font-black uppercase">Add</button>
                     </div>
                   </div>
+
+                  <div className="space-y-4 pt-6 border-t border-zinc-800">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black uppercase opacity-40">Product Size Chart Document</label>
+                      <span className="text-[9px] uppercase tracking-widest text-[#0055ff] font-bold border border-[#0055ff]/30 px-2 py-0.5 rounded-none bg-[#0055ff]/10">Size_Chart_Visualizer</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Left: Input, File Upload & AI Generation */}
+                      <div className="space-y-3">
+                        <p className="text-[9px] font-bold text-zinc-500 uppercase">Input style directives to let Gemini synthesize a customized blueprint size guide, or upload your own graphic.</p>
+                        
+                        <div className="flex gap-2">
+                          <input 
+                            type="text" 
+                            value={sizeChartStylePrompt} 
+                            onChange={e => setSizeChartStylePrompt(e.target.value)}
+                            className={`flex-1 px-4 py-3 text-[10px] font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-black'}`} 
+                            placeholder="e.g. Neon blue technical schematic diagram" 
+                          />
+                          <button 
+                            type="button" 
+                            onClick={handleAiGenerateSizeChart}
+                            disabled={isGeneratingSizeChart}
+                            className="bg-[#0055ff] text-white px-4 py-3 text-[9px] font-black uppercase disabled:opacity-50 flex items-center gap-2"
+                          >
+                            {isGeneratingSizeChart ? (
+                              <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <Zap className="w-3 h-3" />
+                            )}
+                            Generate
+                          </button>
+                        </div>
+
+                        <div className="flex gap-2 items-center">
+                          <input 
+                            type="file" 
+                            id="prod-sizechart-file" 
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleSizeChartUpload(file);
+                            }}
+                            className="hidden" 
+                          />
+                          <label 
+                            htmlFor="prod-sizechart-file"
+                            className="flex-1 text-center cursor-pointer bg-zinc-805 hover:bg-zinc-700 bg-zinc-800 text-white py-3 text-[9px] font-black uppercase transition-all"
+                          >
+                            Upload Custom Image
+                          </label>
+                          {managedProduct.sizeChartImage && (
+                            <button 
+                              type="button"
+                              onClick={() => setManagedProduct(prev => ({ ...prev, sizeChartImage: undefined }))}
+                              className="px-4 py-3 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20 text-[9px] uppercase font-black"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Right: Real-time Size Chart Preview */}
+                      <div className={`p-4 border flex flex-col items-center justify-center min-h-[140px] relative transition-all ${isDarkMode ? 'bg-zinc-950/40 border-zinc-900' : 'bg-zinc-50 border-zinc-200'}`}>
+                        {managedProduct.sizeChartImage ? (
+                          <div className="relative w-full h-full flex flex-col items-center justify-center">
+                            <img 
+                              src={managedProduct.sizeChartImage} 
+                              alt="Size Chart Blueprint" 
+                              className="max-h-[120px] object-contain border border-zinc-800 shadow-md"
+                              referrerPolicy="no-referrer"
+                            />
+                            <p className="text-[8px] font-black uppercase text-emerald-500 mt-2">Active: Custom Size Chart Blueprint Loaded</p>
+                          </div>
+                        ) : (
+                          <div className="text-center space-y-1 text-zinc-500">
+                            <p className="text-[10px] font-black uppercase opacity-40">No Custom Chart Image</p>
+                            <p className="text-[8px] uppercase tracking-wide opacity-40 max-w-[180px] mx-auto">Defaults to the standard Measurement Matrix table inside SizeGuideModal.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -6883,6 +7387,44 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                     <textarea value={managedProduct.seoDescription || ''} onChange={e => setManagedProduct({...managedProduct, seoDescription: e.target.value})} className={`w-full px-5 py-4 text-sm font-bold border focus:border-[#0055ff] outline-none transition-all h-24 resize-none ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`} placeholder={managedProduct.description?.substring(0, 160)} />
                   </div>
                   
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black uppercase opacity-40">Open_Graph_Share_Image_(16:9)</label>
+                      <button 
+                        onClick={() => handleAiGenerateOgImage()} 
+                        disabled={isGeneratingOgImage} 
+                        className="text-[9px] font-black uppercase text-[#0055ff] hover:underline disabled:opacity-50 flex items-center gap-1"
+                      >
+                        {isGeneratingOgImage ? (
+                          <div className="w-3 h-3 border border-[#0055ff]/30 border-t-[#0055ff] rounded-full animate-spin" />
+                        ) : (
+                          <Zap className="w-3 h-3" />
+                        )}
+                        {isGeneratingOgImage ? 'Synthesizing...' : 'AI_Synthesize_OG_Image'}
+                      </button>
+                    </div>
+                    <input 
+                      type="text" 
+                      value={managedProduct.ogImage || ''} 
+                      onChange={e => setManagedProduct({...managedProduct, ogImage: e.target.value})} 
+                      className={`w-full px-5 py-4 text-sm font-mono border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`} 
+                      placeholder={managedProduct.images?.[0] || 'https://images.unsplash.com/...'} 
+                    />
+                    {managedProduct.ogImage && (
+                      <div className="mt-2 border border-[#0055ff]/20 bg-zinc-950/50 p-2 overflow-hidden flex flex-col items-center justify-center aspect-[16/9] relative group">
+                        <img
+                          src={managedProduct.ogImage}
+                          alt="Wizard OG Preview"
+                          className="max-h-full max-w-full object-contain"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute inset-0 bg-black/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <span className="text-[9px] font-black uppercase text-emerald-400">Social Open Graph Graphic Preview</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="space-y-4">
                     <label className="text-[10px] font-black uppercase opacity-40">Search_Engine_Preview</label>
                     <div className="bg-white p-6 rounded-none shadow-sm border border-zinc-200 font-sans">
