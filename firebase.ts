@@ -72,7 +72,15 @@ export const signInWithEmail = async (email: string, pass: string) => {
   return result.user;
 };
 
+let isGoogleSignInPending = false;
+
 export const signInWithGoogle = async () => {
+  if (isGoogleSignInPending) {
+    console.warn("Ignoring repeating signInWithGoogle requests. One is already pending.");
+    throw { code: 'auth/cancelled-popup-request', message: 'Popup request already pending' };
+  }
+  
+  isGoogleSignInPending = true;
   console.log("Google Sign-In sequence initiated via signInWithPopup");
   try {
     // Explicitly use the resolver in the call for better iframe support
@@ -115,25 +123,37 @@ export const signInWithGoogle = async () => {
     console.error("Error Email (if available from Google connection):", error?.email);
     console.error("Error Credential or Context (if available):", error?.credential);
     
-    if (error.code === 'auth/popup-closed-by-user') {
-      console.error("Google Sign-In: Popup closed by user. This can happen if the window is closed manually, blocked by a browser extension, or due to iframe restrictions.");
+    if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
+      console.error("Google Sign-In: Popup closed by user or cancelled. This can happen if the window is closed manually, blocked by a browser extension, or due to iframe restrictions.");
     } else if (error.code === 'auth/popup-blocked') {
       console.error("Google Sign-In: Popup was blocked by the browser. Please allow popups for this site.");
     } else {
       console.error("Google Sign-In Error details:", error);
     }
     throw error;
+  } finally {
+    isGoogleSignInPending = false;
   }
 };
 
+let isFacebookSignInPending = false;
+
 export const signInWithFacebook = async () => {
+  if (isFacebookSignInPending) {
+    console.warn("Ignoring repeating signInWithFacebook requests. One is already pending.");
+    throw { code: 'auth/cancelled-popup-request', message: 'Popup request already pending' };
+  }
+  
+  isFacebookSignInPending = true;
   try {
     // Explicitly use the resolver in the call for better iframe support
     const result = await signInWithPopup(auth, facebookProvider, browserPopupRedirectResolver);
     return result.user;
   } catch (error: any) {
-    if (error.code === 'auth/popup-closed-by-user') {
-       console.error("Facebook Sign-In: Popup closed by user.");
+    if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
+       console.error("Facebook Sign-In: Popup closed by user or cancelled.");
+    } else if (error.code === 'auth/popup-blocked') {
+       console.error("Facebook Sign-In: Popup blocked by browser.");
     } else {
       console.error("Facebook Sign-In Error Details:", {
         code: error.code,
@@ -142,6 +162,8 @@ export const signInWithFacebook = async () => {
       });
     }
     throw error;
+  } finally {
+    isFacebookSignInPending = false;
   }
 };
 

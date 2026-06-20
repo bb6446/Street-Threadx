@@ -1,24 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ViewState, Order } from '../types';
 import { fetchOrderById } from '../services/orderService';
 import { OrderTimeline } from './OrderTimeline';
 
-export const OrderTracking: React.FC<{ onNavigateBack: () => void }> = ({ onNavigateBack }) => {
+interface OrderTrackingProps {
+  onNavigateBack: () => void;
+  onOpenSmartPreview?: (order: Order) => void;
+}
+
+export const OrderTracking: React.FC<OrderTrackingProps> = ({ onNavigateBack, onOpenSmartPreview }) => {
   const [orderId, setOrderId] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorParam, setErrorParam] = useState('');
   const [order, setOrder] = useState<Order | null>(null);
 
-  const handleTrackSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!orderId.trim()) return;
-    
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.startsWith('#track=')) {
+      const id = hash.split('=')[1];
+      if (id) {
+        setOrderId(id);
+        fetchAndSetOrder(id);
+      }
+    }
+  }, []);
+
+  const fetchAndSetOrder = async (id: string) => {
     setLoading(true);
     setErrorParam('');
     setOrder(null);
-    
     try {
-      const fetchedOrder = await fetchOrderById(orderId.trim());
+      const fetchedOrder = await fetchOrderById(id.trim());
       if (fetchedOrder) {
         setOrder(fetchedOrder);
       } else {
@@ -29,6 +41,13 @@ export const OrderTracking: React.FC<{ onNavigateBack: () => void }> = ({ onNavi
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleTrackSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!orderId.trim()) return;
+    window.location.hash = `track=${orderId.trim()}`;
+    await fetchAndSetOrder(orderId);
   };
 
   return (
@@ -104,6 +123,18 @@ export const OrderTracking: React.FC<{ onNavigateBack: () => void }> = ({ onNavi
                 <div className="font-bold text-[#0055ff]">৳{order.total.toLocaleString()}</div>
               </div>
             </div>
+            
+            {onOpenSmartPreview && (
+              <div className="mt-8 pt-4 border-t border-zinc-200">
+                <button
+                  type="button"
+                  onClick={() => onOpenSmartPreview(order)}
+                  className="w-full bg-[#0055ff] text-white text-[10px] font-black uppercase tracking-widest py-4 hover:bg-blue-600 transition-colors cursor-pointer"
+                >
+                  👁️ View Complete Smart Invoice
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -1,8 +1,8 @@
 
 
 import ReactGA from 'react-ga4';
-import { Facebook, Instagram, Linkedin, Twitter, ArrowRightLeft, X, Share2, Link, Ruler, ArrowUp, Heart } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { Facebook, Instagram, Linkedin, Twitter, ArrowRightLeft, X, Share2, Link, Ruler, ArrowUp, Heart, Camera, Upload, Trash2, Maximize2, Star, Eye, ShoppingBag, AlertTriangle, CheckCircle2, Tag } from 'lucide-react';
+import { motion, AnimatePresence, useMotionValue, useTransform, useSpring } from 'motion/react';
 import { ViewState, Product, CartItem, Review, AdminRole, AdminUser, LogEntry, SocialSettings, SocialReferral, Order, DiscountCode, Customer, ChatSession, ChatMessage, Expense } from './types';
 import { MOCK_PRODUCTS, ACCENT_COLOR } from './constants';
 import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
@@ -11,6 +11,7 @@ import { LiveEditorPanel } from './components/LiveEditorPanel';
 const CustomerPortal = lazy(() => import('./components/CustomerPortal'));
 const CustomerProfile = lazy(() => import('./components/CustomerProfile'));
 import { OrderTracking } from './components/OrderTracking';
+import { SmartOrderPreview } from './components/SmartOrderPreview';
 import { ChatWidget } from './components/ChatWidget';
 import { ProductComparisonModal } from './components/ProductComparisonModal';
 import { SizeGuideModal } from './components/SizeGuideModal';
@@ -106,6 +107,195 @@ const CountdownTimer: React.FC<{ endTime: string; title: string }> = ({ endTime,
 };
 
 // --- Subcomponents ---
+
+const ProductImageSwiper: React.FC<{
+  product: Product;
+  compareList: Product[];
+  wishlist: Product[];
+  toggleCompare: (p: Product) => void;
+  toggleWishlist: (p: Product) => void;
+  setQuickViewProduct: (p: Product) => void;
+  setSelectedSize: (size: string) => void;
+  addToCart: (p: Product, size: string, color?: string, qty?: number, bypass?: boolean, direct?: boolean) => void;
+}> = ({ product, compareList, wishlist, toggleCompare, toggleWishlist, setQuickViewProduct, setSelectedSize, addToCart }) => {
+  const [activeImgIdx, setActiveImgIdx] = useState(0);
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null || touchStartY.current === null) return;
+    const touchEndX = e.changedTouches[0].clientX;
+    const touchEndY = e.changedTouches[0].clientY;
+    
+    const diffX = touchStartX.current - touchEndX;
+    const diffY = touchStartY.current - touchEndY;
+    
+    // Validate horizontal swipe vs vertical scroll
+    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 40) {
+      if (diffX > 0) {
+        // Swiped left - show next image
+        setActiveImgIdx((prev) => (prev + 1) % product.images.length);
+      } else {
+        // Swiped right - show previous image
+        setActiveImgIdx((prev) => (prev - 1 + product.images.length) % product.images.length);
+      }
+    }
+    
+    touchStartX.current = null;
+    touchStartY.current = null;
+  };
+
+  const hasMultipleImages = product.images && product.images.length > 1;
+
+  return (
+    <div 
+      className="relative w-full aspect-[1/1] sm:aspect-[4/5] md:aspect-[3/4] object-contain overflow-hidden rounded-xl bg-[#001433] border border-[#0044cc]/40 shadow-[inset_0_0_25px_rgba(0,60,255,0.1)] transition-all duration-500 group-hover:border-[#0066ff] cursor-pointer"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onClick={() => {
+        setSelectedSize('');
+        setQuickViewProduct(product);
+        ReactGA.event({
+          category: "Ecommerce",
+          action: "view_item",
+          label: product.name,
+          value: product.price
+        });
+      }}
+    >
+      <img 
+        loading="lazy" 
+        src={product.images?.[activeImgIdx] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800'} 
+        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
+        alt={product.name} 
+        referrerPolicy="no-referrer" 
+      />
+      
+      {/* Swipe Indicators */}
+      {hasMultipleImages && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-20 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10">
+          {product.images.map((_, i) => (
+            <button
+              key={i}
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveImgIdx(i);
+              }}
+              className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
+                i === activeImgIdx ? 'bg-[#0055ff] w-3' : 'bg-white/40'
+              }`}
+              aria-label={`Go to image ${i + 1}`}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Swipe Overlay Help Text purely for Mobile */}
+      {hasMultipleImages && (
+        <span className="absolute bottom-3 right-3 text-[7px] font-black uppercase text-white/70 bg-black/65 backdrop-blur-md px-2 py-0.5 rounded-sm tracking-widest pointer-events-none md:hidden border border-white/5 shadow-[0_2px_10px_rgba(0,0,0,0.5)]">
+          Swipe
+        </span>
+      )}
+
+      <button 
+        onClick={(e) => { 
+          e.stopPropagation(); 
+          setSelectedSize('');
+          setQuickViewProduct(product);
+        }}
+        className="absolute top-24 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center bg-black/40 backdrop-blur-md text-zinc-400 hover:text-[#0055ff] hover:bg-white border border-white/10 shadow-lg active:scale-95 transition-all"
+        title="Quick View"
+      >
+        <Maximize2 size={13} />
+      </button>
+
+      <div className="absolute top-4 left-4 flex flex-col gap-2 z-10">
+        {product.isNewArrival && (
+          <div className="bg-gradient-to-r from-[#0044cc] to-[#0099ff] border border-[#66bcff] shadow-[0_5px_15px_rgba(0,150,255,0.5)] rounded-md text-white text-[9px] font-black px-3 py-1.5 uppercase tracking-[0.2em] w-fit">New</div>
+        )}
+        {product.originalPrice && product.originalPrice > product.price && (
+          <div className="bg-gradient-to-r from-rose-600 to-rose-400 border border-rose-300 shadow-[0_5px_15px_rgba(225,29,72,0.5)] rounded-md text-white text-[9px] font-black px-3 py-1.5 uppercase tracking-[0.2em] w-fit">Sale</div>
+        )}
+        {product.stock > 0 && product.stock < 5 && (
+          <div className="bg-rose-500/90 backdrop-blur-md border border-rose-400 shadow-[0_5px_15px_rgba(244,63,94,0.5)] rounded-md text-white text-[9px] font-black px-3 py-1.5 uppercase tracking-widest flex items-center gap-1 w-fit animate-pulse">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            Low Stock
+          </div>
+        )}
+      </div>
+
+      <button 
+        onClick={(e) => { e.stopPropagation(); toggleCompare(product); }}
+        className={`absolute top-4 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all ${compareList.some(p => p.id === product.id) ? 'bg-[#0055ff] text-white shadow-[0_0_15px_rgba(0,85,255,0.6)] border border-blue-400/30' : 'bg-black/40 backdrop-blur-md text-zinc-400 hover:text-white border border-white/10'}`}
+        title="Compare Product"
+      >
+        <ArrowRightLeft size={14} />
+      </button>
+
+      <button 
+        onClick={(e) => { e.stopPropagation(); toggleWishlist(product); }}
+        className={`absolute top-14 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all ${wishlist.some(p => p.id === product.id) ? 'bg-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.6)] border border-rose-400/30' : 'bg-black/40 backdrop-blur-md text-zinc-400 hover:text-rose-400 border border-white/10'}`}
+        title={wishlist.some(p => p.id === product.id) ? "Remove from Wishlist" : "Add to Wishlist"}
+      >
+        <Heart size={14} className={wishlist.some(p => p.id === product.id) ? "fill-current" : ""} />
+      </button>
+
+      {product.stock <= 0 && (
+        <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-20 backdrop-blur-[2px]">
+          <div className="border-2 border-white/20 px-6 py-2 bg-black/40 rotate-[-12deg]">
+            <span className="text-white text-xs font-black uppercase tracking-[0.3em]">Sold_Out</span>
+          </div>
+        </div>
+      )}
+
+      {/* Desktop hover actions overlay */}
+      <div 
+        className="absolute inset-0 bg-[#001133]/60 opacity-0 group-hover:opacity-100 transition-all duration-300 md:flex hidden items-center justify-center backdrop-blur-sm"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (product.stock <= 0) return;
+          const defaultSize = product.sizes?.[0] || 'M';
+          const defaultColor = product.colors?.[0];
+          addToCart(product, defaultSize, defaultColor, 1, true);
+        }}
+      >
+        <div className="flex flex-row gap-2 w-full px-2.5 justify-center items-center">
+          <button 
+            className={`flex-1 bg-gradient-to-r from-[#0055ff] to-[#0088ff] text-white py-2.5 px-2 text-[9px] font-black uppercase tracking-wider rounded-xl shadow-[0_4px_12px_rgba(0,150,255,0.4)] border border-[#80c0ff] hover:scale-105 active:scale-95 transition-all text-center flex items-center justify-center gap-1.5 ${product.stock <= 0 ? 'opacity-20 grayscale cursor-not-allowed' : ''}`}
+            onClick={(e) => {
+              if (product.stock <= 0) return;
+              e.stopPropagation();
+              const defaultSize = product.sizes?.[0] || 'M';
+              const defaultColor = product.colors?.[0];
+              addToCart(product, defaultSize, defaultColor, 1, false, true);
+            }}
+            title="Adds one item with default options to your cart"
+          >
+            <ShoppingBag size={11} className="flex-shrink-0" />
+            <span className="truncate">{product.stock <= 0 ? 'Sold Out' : 'Buy'}</span>
+          </button>
+          
+          <button 
+            className="flex-1 bg-white/10 backdrop-blur-md text-white py-2.5 px-2 text-[9px] font-black uppercase tracking-wider rounded-xl border border-white/20 hover:bg-white/20 hover:scale-105 active:scale-95 transition-all text-center flex items-center justify-center gap-1.5"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedSize('');
+              setQuickViewProduct(product);
+            }}
+          >
+            <Eye size={11} className="flex-shrink-0" />
+            <span className="truncate font-black">View</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const Navbar: React.FC<{ 
   cartCount: number; 
@@ -359,123 +549,231 @@ const Footer: React.FC<{
       <div className="max-w-7xl mx-auto">
         <NewsletterSubscription />
         
-        <div id="footer-links-grid" className="grid grid-cols-1 md:grid-cols-4 gap-12 pt-4">
+        <div className="border-t border-zinc-900/60 my-12" id="footer-divider" />
+        
+        <div id="footer-links-grid" className="grid grid-cols-1 md:grid-cols-4 gap-y-10 gap-x-8 md:gap-12 pt-6 md:pt-4 pb-4 md:pb-0 max-w-7xl mx-auto w-full">
         <div className="col-span-1 md:col-span-2 space-y-6">
-          <h3 className="text-3xl font-black heading-font italic uppercase">STREET THREADX.</h3>
-          <div 
-            onClick={() => {
-              if (isLiveEditMode && setSelectedLiveElement) {
-                setSelectedLiveElement('aboutText');
-              }
-            }}
-            className={`relative group/live transition-all ${
-              isLiveEditMode 
-                ? `cursor-pointer ring-2 ${selectedLiveElement === 'aboutText' ? 'ring-[#0055ff] bg-zinc-900/60' : 'ring-transparent hover:ring-[#0055ff]/50 bg-black/10 hover:bg-black/30'} p-4 -ml-4 rounded-sm` 
-                : ''
-            }`}
-          >
-            {isLiveEditMode && (
-              <span className="absolute top-1 left-2 text-[8px] uppercase tracking-wider bg-[#0055ff] text-white px-1 font-mono font-bold z-20">Edit About Text</span>
-            )}
-            <p className="text-zinc-500 max-w-sm" style={{ color: socialSettings.siteContent?.aboutTextColor || undefined }}>
-              {socialSettings.siteContent?.aboutText || "Premium streetwear engineered for the modern nomad. Quality materials, minimalist design, maximum impact."}
-            </p>
-          </div>
-          <div className="flex gap-4">
-            {socialSettings.visibility?.facebook && (
-              <a href={socialSettings.facebook} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-none border border-zinc-700 flex items-center justify-center cursor-pointer hover:bg-[#0055ff] hover:border-[#0055ff] transition-all">
-                <Facebook size={18} />
-              </a>
-            )}
-            {socialSettings.visibility?.instagram && (
-              <a href={socialSettings.instagram} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-none border border-zinc-700 flex items-center justify-center cursor-pointer hover:bg-[#0055ff] hover:border-[#0055ff] transition-all">
-                <Instagram size={18} />
-              </a>
-            )}
-            {socialSettings.visibility?.linkedin && (
-              <a href={socialSettings.linkedin} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-none border border-zinc-700 flex items-center justify-center cursor-pointer hover:bg-[#0055ff] hover:border-[#0055ff] transition-all">
-                <Linkedin size={18} />
-              </a>
-            )}
-            {socialSettings.visibility?.x && (
-              <a href={socialSettings.x} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-none border border-zinc-700 flex items-center justify-center cursor-pointer hover:bg-[#0055ff] hover:border-[#0055ff] transition-all">
-                <Twitter size={18} />
-              </a>
-            )}
-            {socialSettings.visibility?.behance && socialSettings.behance && (
-              <a href={socialSettings.behance} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-none border border-zinc-700 flex items-center justify-center cursor-pointer hover:bg-[#0055ff] hover:border-[#0055ff] transition-all">
-                <BehanceIcon size={18} />
-              </a>
-            )}
-          </div>
-          
-          <div className="pt-6 mt-8 border-t border-zinc-900/50">
-            <div className="flex items-center gap-3 mb-4">
-              <Share2 size={14} className="text-[#0055ff]" />
-              <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400">Share_the_Brand</h4>
+          <div className="flex flex-col items-center justify-center text-center md:items-start md:text-left w-full space-y-6">
+            <h3 className="text-3xl font-black heading-font italic uppercase">STREET THREADX.</h3>
+            <div 
+              onClick={() => {
+                if (isLiveEditMode && setSelectedLiveElement) {
+                  setSelectedLiveElement('aboutText');
+                }
+              }}
+              className={`relative group/live transition-all ${
+                isLiveEditMode 
+                  ? `cursor-pointer ring-2 ${selectedLiveElement === 'aboutText' ? 'ring-[#0055ff] bg-zinc-900/60' : 'ring-transparent hover:ring-[#0055ff]/50 bg-black/10 hover:bg-black/30'} p-4 -ml-4 rounded-sm` 
+                  : ''
+              }`}
+            >
+              {isLiveEditMode && (
+                <span className="absolute top-1 left-2 text-[8px] uppercase tracking-wider bg-[#0055ff] text-white px-1 font-mono font-bold z-20">Edit About Text</span>
+              )}
+              <p className="text-zinc-500 max-w-sm" style={{ color: socialSettings.siteContent?.aboutTextColor || undefined }}>
+                {socialSettings.siteContent?.aboutText || "Premium streetwear engineered for the modern nomad. Quality materials, minimalist design, maximum impact."}
+              </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <button 
-                onClick={() => window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}`, '_blank')} 
-                className="w-10 h-10 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-[#1877F2] hover:border-[#1877F2] transition-all"
-                title="Share on Facebook"
-              >
-                <Facebook size={16} />
-              </button>
-              <button 
-                onClick={() => window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent('Check out this awesome streetwear!')}`, '_blank')} 
-                className="w-10 h-10 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-black hover:border-black transition-all"
-                title="Share on X"
-              >
-                <Twitter size={16} />
-              </button>
-              <button 
-                onClick={() => window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.href)}`, '_blank')} 
-                className="w-10 h-10 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-[#0A66C2] hover:border-[#0A66C2] transition-all"
-                title="Share on LinkedIn"
-              >
-                <Linkedin size={16} />
-              </button>
-              <button 
-                onClick={() => {
-                  navigator.clipboard.writeText(window.location.href);
-                  showToast('Store link copied to clipboard!');
-                }} 
-                className="w-10 h-10 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-700 transition-all focus:ring-1 focus:ring-[#0055ff] outline-none"
-                title="Copy Store Link"
-              >
-                <Link size={16} />
-              </button>
+            <div className="flex gap-4">
+              {socialSettings.visibility?.facebook && (
+                <a href={socialSettings.facebook} target="_blank" rel="noopener noreferrer" aria-label="Visit our Facebook page" className="w-10 h-10 rounded-none border border-zinc-700 flex items-center justify-center cursor-pointer hover:bg-[#0055ff] hover:border-[#0055ff] transition-all">
+                  <Facebook size={18} />
+                </a>
+              )}
+              {socialSettings.visibility?.instagram && (
+                <a href={socialSettings.instagram} target="_blank" rel="noopener noreferrer" aria-label="Visit our Instagram profile" className="w-10 h-10 rounded-none border border-zinc-700 flex items-center justify-center cursor-pointer hover:bg-[#0055ff] hover:border-[#0055ff] transition-all">
+                  <Instagram size={18} />
+                </a>
+              )}
+              {socialSettings.visibility?.linkedin && (
+                <a href={socialSettings.linkedin} target="_blank" rel="noopener noreferrer" aria-label="Visit our LinkedIn profile" className="w-10 h-10 rounded-none border border-zinc-700 flex items-center justify-center cursor-pointer hover:bg-[#0055ff] hover:border-[#0055ff] transition-all">
+                  <Linkedin size={18} />
+                </a>
+              )}
+              {socialSettings.visibility?.x && (
+                <a href={socialSettings.x} target="_blank" rel="noopener noreferrer" aria-label="Visit our X profile" className="w-10 h-10 rounded-none border border-zinc-700 flex items-center justify-center cursor-pointer hover:bg-[#0055ff] hover:border-[#0055ff] transition-all">
+                  <Twitter size={18} />
+                </a>
+              )}
+              {socialSettings.visibility?.behance && socialSettings.behance && (
+                <a href={socialSettings.behance} target="_blank" rel="noopener noreferrer" aria-label="Visit our Behance portfolio" className="w-10 h-10 rounded-none border border-zinc-700 flex items-center justify-center cursor-pointer hover:bg-[#0055ff] hover:border-[#0055ff] transition-all">
+                  <BehanceIcon size={18} />
+                </a>
+              )}
+            </div>
+            
+            <div className="pt-6 mt-8 border-t border-zinc-900/50 w-full flex flex-col items-center justify-center md:items-start md:justify-start">
+              <div className="flex items-center gap-3 mb-4">
+                <Share2 size={14} className="text-[#0055ff]" />
+                <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400">Share_the_Brand</h4>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button 
+                  onClick={() => window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}`, '_blank')} 
+                  className="w-10 h-10 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-[#1877F2] hover:border-[#1877F2] transition-all"
+                  title="Share on Facebook"
+                  aria-label="Share this brand on Facebook"
+                >
+                  <Facebook size={16} />
+                </button>
+                <button 
+                  onClick={() => window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent('Check out this awesome streetwear!')}`, '_blank')} 
+                  className="w-10 h-10 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-black hover:border-black transition-all"
+                  title="Share on X"
+                  aria-label="Share this brand on X"
+                >
+                  <Twitter size={16} />
+                </button>
+                <button 
+                  onClick={() => window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.href)}`, '_blank')} 
+                  className="w-10 h-10 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-[#0A66C2] hover:border-[#0A66C2] transition-all"
+                  title="Share on LinkedIn"
+                  aria-label="Share this brand on LinkedIn"
+                >
+                  <Linkedin size={16} />
+                </button>
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(window.location.href);
+                    showToast('Store link copied to clipboard!');
+                  }} 
+                  className="w-10 h-10 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-700 transition-all focus:ring-1 focus:ring-[#0055ff] outline-none"
+                  title="Copy Store Link"
+                  aria-label="Copy store link to clipboard"
+                >
+                  <Link size={16} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
-        <div className="space-y-4">
-          <h4 className="text-xs font-bold tracking-widest text-[#0055ff]">Support</h4>
-          <ul className="text-sm text-zinc-500 space-y-2 uppercase">
-            {['Shipping', 'Returns', 'Sizing', 'Contact'].map(topic => (
-              <li 
-                key={topic} 
-                onClick={() => onSupportNavigate(topic)} 
-                className="hover:text-white cursor-pointer transition-colors"
-              >
-                {topic}
-              </li>
-            ))}
-          </ul>
+        <div className="space-y-4 pt-6 md:pt-0">
+          <div className="flex flex-col items-center justify-center text-center md:items-start md:text-left w-full space-y-4">
+            <h4 className="text-xs font-bold tracking-widest text-[#0055ff]">Support</h4>
+            <ul className="text-sm text-zinc-500 space-y-2 uppercase w-full">
+              {['Shipping', 'Returns', 'Sizing', 'Contact'].map(topic => (
+                <li 
+                  key={topic} 
+                  onClick={() => onSupportNavigate(topic)} 
+                  className="hover:text-white cursor-pointer transition-colors"
+                  aria-label={`Navigate to ${topic} support page`}
+                >
+                  {topic}
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
-        <div className="space-y-4">
-          <h4 className="text-xs font-bold tracking-widest text-[#0055ff]">Staff</h4>
-          <p className="text-xs text-zinc-500 uppercase tracking-tighter">Authorized access only.</p>
-          <button 
-            onClick={onAdminNavigate}
-            className="bg-zinc-900 border border-zinc-800 text-[10px] font-black uppercase px-6 py-3 tracking-[0.3em] hover:bg-white hover:text-black transition-all"
-          >
-            System Admin
-          </button>
+        <div className="space-y-4 pt-6 md:pt-0">
+          <div className="flex flex-col items-center justify-center text-center md:items-start md:text-left w-full space-y-4">
+            <h4 className="text-xs font-bold tracking-widest text-[#0055ff]">Staff</h4>
+            <p className="text-xs text-zinc-500 uppercase tracking-tighter">Authorized access only.</p>
+            <button 
+              onClick={onAdminNavigate}
+              className="bg-zinc-900 border border-zinc-800 text-[10px] font-black uppercase px-6 py-3 tracking-[0.3em] hover:bg-white hover:text-black transition-all"
+              aria-label="Navigate to system administration panel"
+            >
+              System Admin
+            </button>
+          </div>
         </div>
       </div>
       </div>
     </footer>
+  );
+};
+
+const StockProgressBar: React.FC<{ stock: number, maxCapacity?: number }> = ({ stock, maxCapacity = 50 }) => {
+  if (stock <= 0) return null;
+  const percentage = Math.min(100, (stock / maxCapacity) * 100);
+  const colorClass = stock < 5 ? 'bg-rose-500' : stock < 15 ? 'bg-amber-500' : 'bg-[#0055ff]';
+  return (
+    <div className="mt-2 space-y-1 block w-full px-2 pb-1">
+      <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden flex">
+        <div 
+          className={`h-full rounded-full transition-all duration-500 ${colorClass}`} 
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+    </div>
+  );
+};
+
+interface TiltCardProps extends React.ComponentProps<typeof motion.div> {
+  children: React.ReactNode;
+}
+
+const TiltCard: React.FC<TiltCardProps> = ({ children, className, style, ...props }) => {
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+
+  // rotation limits: max 8 degrees for a subtle, professional feel
+  const rotateX = useTransform(y, [-0.5, 0.5], [8, -8]);
+  const rotateY = useTransform(x, [-0.5, 0.5], [-8, 8]);
+
+  const springConfig = { damping: 25, stiffness: 200, mass: 0.5 };
+  const rotateXSpring = useSpring(rotateX, springConfig);
+  const rotateYSpring = useSpring(rotateY, springConfig);
+
+  // glare/shine mapping
+  const glareX = useTransform(x, [-0.5, 0.5], ['0%', '100%']);
+  const glareY = useTransform(y, [-0.5, 0.5], ['0%', '100%']);
+  // when mouse is in the center/not hovering, opacity is 0. when moving, it builds up to 0.12 opacity
+  const glareOpacity = useSpring(
+    useTransform(x, (val) => (val === 0 ? 0 : 0.12)),
+    springConfig
+  );
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const rect = el.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+    
+    const relativeX = (e.clientX - rect.left) / width - 0.5;
+    const relativeY = (e.clientY - rect.top) / height - 0.5;
+
+    x.set(relativeX);
+    y.set(relativeY);
+  };
+
+  const handleMouseLeave = () => {
+    x.set(0);
+    y.set(0);
+  };
+
+  return (
+    <motion.div
+      {...props}
+      style={{
+        ...style,
+        rotateX: rotateXSpring,
+        rotateY: rotateYSpring,
+        transformStyle: 'preserve-3d',
+        perspective: '1000px',
+      }}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={(e) => {
+        handleMouseLeave();
+        if (props.onMouseLeave) props.onMouseLeave(e);
+      }}
+      className={`${className || ''} relative`}
+    >
+      {/* Glare effect overlay */}
+      <motion.div
+        style={{
+          background: `radial-gradient(circle at var(--glare-x, 50%) var(--glare-y, 50%), rgba(255, 255, 255, 0.15) 0%, transparent 65%)`,
+          '--glare-x': glareX,
+          '--glare-y': glareY,
+          opacity: glareOpacity,
+        } as any}
+        className="absolute inset-0 pointer-events-none z-30 rounded-[2rem]"
+      />
+      {/* 3D layer lift container */}
+      <div style={{ transform: 'translateZ(10px)', transformStyle: 'preserve-3d' }} className="w-full h-full flex flex-col">
+        {children}
+      </div>
+    </motion.div>
   );
 };
 
@@ -491,6 +789,8 @@ export default function App() {
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.STORE);
+  const [previewOrder, setPreviewOrder] = useState<Order | null>(null);
+  const [previewOrderBackView, setPreviewOrderBackView] = useState<ViewState>(ViewState.STORE);
   const {
     socialSettings,
     setSocialSettings,
@@ -544,6 +844,38 @@ function AppContent() {
   }, []);
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('recentSearches');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const addRecentSearch = (query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed || trimmed.length < 2) return;
+    setRecentSearches(prev => {
+      const filtered = prev.filter(q => q.toLowerCase() !== trimmed.toLowerCase());
+      const updated = [trimmed, ...filtered].slice(0, 5);
+      localStorage.setItem('recentSearches', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const clearRecentSearch = (query: string) => {
+    setRecentSearches(prev => {
+      const updated = prev.filter(q => q.toLowerCase() !== query.toLowerCase());
+      localStorage.setItem('recentSearches', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const clearAllRecentSearches = () => {
+    setRecentSearches([]);
+    localStorage.removeItem('recentSearches');
+  };
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [toasts, setToasts] = useState<{id: string, message: React.ReactNode | ((dismiss: () => void) => React.ReactNode), type?: 'default' | 'quickBuy'}[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -554,6 +886,7 @@ function AppContent() {
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [zoomStyle, setZoomStyle] = useState<React.CSSProperties>({});
   const [supportTopic, setSupportTopic] = useState<string>('Shipping');
+  const [openSupportAccordion, setOpenSupportAccordion] = useState<string | null>('Shipping');
   const [customizerProduct, setCustomizerProduct] = useState<string>('');
   const [customizerColor, setCustomizerColor] = useState<string>('#121214');
   const [customizerGraphic, setCustomizerGraphic] = useState<string>('ThreatX Shield');
@@ -561,15 +894,160 @@ function AppContent() {
   const [customizerTextColor, setCustomizerTextColor] = useState<string>('#0055ff');
   const [customizerPrintPosition, setCustomizerPrintPosition] = useState<'Chest' | 'Back'>('Chest');
   const [customizerActiveScale, setCustomizerActiveScale] = useState<number>(1);
-  const [shopFilter, setShopFilter] = useState<string>('ALL');
-  const [colorFilter, setColorFilter] = useState<string>('');
-  const [sizeFilter, setSizeFilter] = useState<string>('');
-  const [priceRange, setPriceRange] = useState<number>(50000); // Max price allowed
-  const [sortType, setSortType] = useState<string>('Newest');
+  const [shopFilter, setShopFilter] = useState<string>(() => {
+    try {
+      return localStorage.getItem('shopFilter') || 'ALL';
+    } catch {
+      return 'ALL';
+    }
+  });
+  const [colorFilter, setColorFilter] = useState<string>(() => {
+    try {
+      return localStorage.getItem('colorFilter') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [sizeFilter, setSizeFilter] = useState<string>(() => {
+    try {
+      return localStorage.getItem('sizeFilter') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [priceRange, setPriceRange] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('priceRange');
+      return saved ? Number(saved) : 50000;
+    } catch {
+      return 50000;
+    }
+  });
+  const [sortType, setSortType] = useState<string>(() => {
+    try {
+      return localStorage.getItem('sortType') || 'Newest';
+    } catch {
+      return 'Newest';
+    }
+  });
   const [pendingScroll, setPendingScroll] = useState<boolean>(false);
   const [compareList, setCompareList] = useState<Product[]>([]);
   const [isCompareOpen, setIsCompareOpen] = useState(false);
   const [isSizeGuideOpen, setIsSizeGuideOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('shopFilter', shopFilter);
+      localStorage.setItem('colorFilter', colorFilter);
+      localStorage.setItem('sizeFilter', sizeFilter);
+      localStorage.setItem('priceRange', String(priceRange));
+      localStorage.setItem('sortType', sortType);
+    } catch (e) {
+      console.warn('Failed to save filters to localStorage', e);
+    }
+  }, [shopFilter, colorFilter, sizeFilter, priceRange, sortType]);
+
+  const [fbtSelections, setFbtSelections] = useState<Record<string, boolean>>({});
+  const [fbtSizes, setFbtSizes] = useState<Record<string, string>>({});
+
+  const frequentlyBoughtTogether = useMemo(() => {
+    if (!selectedProduct) return [];
+    const selectedTags = selectedProduct.tags || [];
+    
+    // Find products matching tags
+    const matchedByTags = products
+      .filter(p => p.id !== selectedProduct.id && p.status === 'Published')
+      .map(p => {
+        const matchCount = (p.tags || []).filter(t => selectedTags.some(st => st.toLowerCase() === t.toLowerCase())).length;
+        return { product: p, matchCount };
+      })
+      .filter(item => item.matchCount > 0)
+      .sort((a, b) => b.matchCount - a.matchCount || Math.abs(a.product.price - selectedProduct.price) - Math.abs(b.product.price - selectedProduct.price));
+
+    let suggested = matchedByTags.map(item => item.product);
+
+    // If we need more to reach 2, fill with same category
+    if (suggested.length < 2) {
+      const spaceLeft = 2 - suggested.length;
+      const fallbackItems = products
+        .filter(p => p.id !== selectedProduct.id && p.category === selectedProduct.category && p.status === 'Published' && !suggested.some(s => s.id === p.id))
+        .slice(0, spaceLeft);
+      suggested = [...suggested, ...fallbackItems];
+    }
+
+    // If still under 2, fill with optional overall products
+    if (suggested.length < 2) {
+      const spaceLeft = 2 - suggested.length;
+      const overallFallback = products
+        .filter(p => p.id !== selectedProduct.id && p.status === 'Published' && !suggested.some(s => s.id === p.id))
+        .slice(0, spaceLeft);
+      suggested = [...suggested, ...overallFallback];
+    }
+
+    return suggested.slice(0, 2);
+  }, [selectedProduct, products]);
+
+  // Combined price calculated dynamically
+  const fbtTotalPrice = useMemo(() => {
+    if (!selectedProduct) return 0;
+    let total = fbtSelections[selectedProduct.id] ? selectedProduct.price : 0;
+    frequentlyBoughtTogether.forEach(p => {
+      if (fbtSelections[p.id]) {
+        total += p.price;
+      }
+    });
+    return total;
+  }, [selectedProduct, frequentlyBoughtTogether, fbtSelections]);
+
+  // Effect to reset/set starting states of FBT items
+  useEffect(() => {
+    if (selectedProduct && frequentlyBoughtTogether.length > 0) {
+      const initialSelections: Record<string, boolean> = {
+        [selectedProduct.id]: true
+      };
+      const initialSizes: Record<string, string> = {
+        [selectedProduct.id]: selectedSize || selectedProduct.sizes?.[0] || 'M'
+      };
+      
+      frequentlyBoughtTogether.forEach(p => {
+        initialSelections[p.id] = true;
+        initialSizes[p.id] = p.sizes?.[0] || 'M';
+      });
+      
+      setFbtSelections(initialSelections);
+      setFbtSizes(initialSizes);
+    } else {
+      setFbtSelections({});
+      setFbtSizes({});
+    }
+  }, [selectedProduct, frequentlyBoughtTogether]);
+
+  const handleAddFbtToCart = () => {
+    if (!selectedProduct) return;
+    let addedCount = 0;
+    
+    // 1. Selected product
+    if (fbtSelections[selectedProduct.id]) {
+      const sizeToUse = selectedSize || selectedProduct.sizes?.[0] || 'M';
+      const colorToUse = selectedColor || selectedProduct.colors?.[0] || 'Default';
+      addToCart(selectedProduct, sizeToUse, colorToUse, selectedQuantity, false);
+      addedCount++;
+    }
+    
+    // 2. FBT suggestions
+    frequentlyBoughtTogether.forEach(p => {
+      if (fbtSelections[p.id]) {
+        const sizeToUse = fbtSizes[p.id] || p.sizes?.[0] || 'M';
+        const colorToUse = p.colors?.[0] || 'Default';
+        addToCart(p, sizeToUse, colorToUse, 1, false);
+        addedCount++;
+      }
+    });
+
+    if (addedCount > 0) {
+      showToast(`Group Purchase: Added ${addedCount} optimized items to your tactical rig!`);
+    }
+  };
 
   const toggleCompare = (product: Product) => {
     setCompareList(prev => {
@@ -620,6 +1098,7 @@ function AppContent() {
     cardExpiry: '',
     cardCvc: '',
     notes: '',
+    deliveryInstructions: '',
   });
   
   const [isUploadingScreenshot, setIsUploadingScreenshot] = useState(false);
@@ -863,9 +1342,17 @@ function AppContent() {
       setChatSessions(prev => {
         const index = prev.findIndex(s => s.id === sessionId);
         if (index === -1) {
-          // If session doesn't exist in local state yet, we can't add messages to it
-          // But it SHOULD exist because subscribeToSession would have added it
-          return prev;
+          // If session doesn't exist in local state yet, create a placeholder
+          return [...prev, {
+            id: sessionId,
+            customerName: customerInfo.name || 'GUEST',
+            customerEmail: chatIdentity,
+            status: 'ACTIVE',
+            lastMessage: messages[messages.length - 1]?.text || '',
+            lastTimestamp: messages[messages.length - 1]?.timestamp || new Date().toISOString(),
+            isPresenceActive: true,
+            messages
+          }];
         }
         const next = [...prev];
         next[index] = { ...next[index], messages };
@@ -928,9 +1415,9 @@ function AppContent() {
       }
     }
     
-    // Ensure session exists. If it's admin, we just update the admin part if valid
-    if (!isAdmin || emailToUse) {
-      await chatService.getOrCreateSession(emailToUse || sessionId, isAdmin ? 'ADMIN' : (customerInfo.name || 'GUEST'));
+    // Ensure session exists. Only needed for customer-side messages to initiate the room.
+    if (!isAdmin && emailToUse) {
+      await chatService.getOrCreateSession(emailToUse, customerInfo.name || 'GUEST');
     }
 
     const newMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
@@ -987,12 +1474,17 @@ function AppContent() {
   };
 
   const [orderComplete, setOrderComplete] = useState(false);
+  const [lastEmailPreviewUrl, setLastEmailPreviewUrl] = useState<string>('');
   const [checkoutErrors, setCheckoutErrors] = useState<Record<string, string>>({});
 
   // Discount Code States
   const [discountCodes, setDiscountCodes] = useState<DiscountCode[]>([
     { id: '1', code: 'STREET20', type: 'PERCENTAGE', value: 20, usageCount: 0, isActive: true },
     { id: '2', code: 'WELCOME100', type: 'FIXED', value: 100, usageCount: 0, isActive: true },
+    { id: '3', code: 'STREETMIN5000', type: 'PERCENTAGE', value: 15, usageCount: 0, isActive: true, minPurchase: 5000 },
+    { id: '4', code: 'DRIFT30', type: 'PERCENTAGE', value: 30, usageCount: 0, isActive: true, expiryDate: '2023-01-01' },
+    { id: '5', code: 'LIMITED5', type: 'PERCENTAGE', value: 25, usageCount: 5, usageLimit: 5, isActive: true },
+    { id: '6', code: 'INACTIVE10', type: 'PERCENTAGE', value: 10, usageCount: 0, isActive: false },
   ]);
   const [appliedDiscount, setAppliedDiscount] = useState<DiscountCode | null>(null);
   const [discountInput, setDiscountInput] = useState('');
@@ -1010,6 +1502,68 @@ function AppContent() {
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [reviewSortType, setReviewSortType] = useState<'Recent' | 'Highest'>('Recent');
   const COMMENT_LIMIT = 500;
+  const [expandedReviewImage, setExpandedReviewImage] = useState<string | null>(null);
+
+  const [attachedImages, setAttachedImages] = useState<string[]>([]);
+  const [isWebcamActive, setIsWebcamActive] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const reviewVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      setCameraStream(stream);
+      setIsWebcamActive(true);
+      setTimeout(() => {
+        if (reviewVideoRef.current) {
+          reviewVideoRef.current.srcObject = stream;
+        }
+      }, 100);
+    } catch (err) {
+      console.error("Failed to access camera:", err);
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setIsWebcamActive(false);
+  };
+
+  const capturePhoto = () => {
+    if (reviewVideoRef.current) {
+      const video = reviewVideoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        setAttachedImages(prev => [...prev, dataUrl]);
+      }
+    }
+  };
+
+  const handleReviewFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      Array.from(e.target.files).forEach(file => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            setAttachedImages(prev => [...prev, reader.result as string]);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+  };
+
+  const removeAttachedImage = (idxToRemove: number) => {
+    setAttachedImages(prev => prev.filter((_, idx) => idx !== idxToRemove));
+  };
 
   const getRatingLabel = (rating: number) => {
     switch (rating) {
@@ -1025,7 +1579,7 @@ function AppContent() {
   // Admin & Security States
   // currentView is defined at top
 
-  // Deep linking logic for shared products
+  // Deep linking logic for shared products and order tracking
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.startsWith('#product=')) {
@@ -1034,6 +1588,8 @@ function AppContent() {
       if (product) {
         setSelectedProduct(product);
       }
+    } else if (hash.startsWith('#track=')) {
+      setCurrentView(ViewState.TRACK_ORDER);
     }
   }, [products]);
 
@@ -1511,30 +2067,41 @@ function AppContent() {
   const handleApplyDiscount = (e: React.FormEvent) => {
     e.preventDefault();
     setDiscountError('');
-    const code = discountCodes.find(c => c.code.toUpperCase() === discountInput.toUpperCase() && c.isActive);
+    if (!discountInput.trim()) {
+      setDiscountError('EMPTY');
+      return;
+    }
+
+    const code = discountCodes.find(c => c.code.toUpperCase() === discountInput.toUpperCase());
     
     if (!code) {
-      setDiscountError('INVALID_CODE');
+      setDiscountError(`INVALID:${discountInput.toUpperCase()}`);
+      return;
+    }
+
+    if (!code.isActive) {
+      setDiscountError(`INACTIVE:${code.code}`);
       return;
     }
 
     if (code.minPurchase && cartSubtotal < code.minPurchase) {
-      setDiscountError(`MIN_PURCHASE: ৳${code.minPurchase}`);
+      setDiscountError(`MIN_PURCHASE:${code.code}:${code.minPurchase}:${cartSubtotal}`);
       return;
     }
 
     if (code.usageLimit && code.usageCount >= code.usageLimit) {
-      setDiscountError('USAGE_LIMIT_REACHED');
+      setDiscountError(`USAGE_LIMIT:${code.code}`);
       return;
     }
 
     if (code.expiryDate && new Date(code.expiryDate) < new Date()) {
-      setDiscountError('CODE_EXPIRED');
+      setDiscountError(`EXPIRED:${code.code}:${code.expiryDate}`);
       return;
     }
 
     setAppliedDiscount(code);
     setDiscountInput('');
+    setDiscountError('');
   };
 
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -1580,6 +2147,34 @@ function AppContent() {
       showToast("An error occurred during gateway communication.");
       setIsProcessingPayment(false);
     }
+  };
+
+  const resetCheckoutAndCart = () => {
+    setCart([]);
+    setIsCheckoutOpen(false);
+    setOrderComplete(false);
+    setIsCartOpen(false);
+    setCheckoutStep(1);
+    setLastEmailPreviewUrl('');
+    setCustomerInfo({
+      name: '',
+      email: '',
+      phone: '',
+      address: '',
+      billingAddress: '',
+      city: 'Dhaka',
+      zip: '',
+      paymentMethod: 'bKash',
+      trxId: '',
+      senderNumber: '',
+      transactionScreenshot: '',
+      isBillingSame: true,
+      cardNumber: '',
+      cardExpiry: '',
+      cardCvc: '',
+      notes: '',
+      deliveryInstructions: '',
+    });
   };
 
   const handleFinalCheckout = (e: React.FormEvent) => {
@@ -1630,6 +2225,7 @@ function AppContent() {
       advancePaid: advancePaid,
       dueAmount: dueAmount,
       notes: customerInfo.notes,
+      deliveryInstructions: customerInfo.deliveryInstructions,
       isEmailVerified: isEmailVerified,
       isPhoneVerified: isPhoneVerified,
       items: cart.reduce((acc, item) => acc + item.quantity, 0),
@@ -1664,7 +2260,15 @@ function AppContent() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ order: newOrder })
-        }).catch(err => console.error('Failed to trigger confirmation email', err));
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.previewUrl) {
+            setLastEmailPreviewUrl(data.previewUrl);
+            console.log("Automated confirmation email triggered successfully! Preview URL:", data.previewUrl);
+          }
+        })
+        .catch(err => console.error('Failed to trigger confirmation email', err));
 
         // Update customer records
         const existing = customers.find(c => c.email.toLowerCase() === customerInfo.email.toLowerCase());
@@ -1711,30 +2315,9 @@ function AppContent() {
         });
         
         setTimeout(() => {
-          setCart([]);
-          setIsCheckoutOpen(false);
-          setOrderComplete(false);
-          setIsCartOpen(false);
-          setCheckoutStep(1);
-          setCustomerInfo({
-            name: '',
-            email: '',
-            phone: '',
-            address: '',
-            billingAddress: '',
-            city: 'Dhaka',
-            zip: '',
-            paymentMethod: 'bKash',
-            trxId: '',
-            senderNumber: '',
-            transactionScreenshot: '',
-            isBillingSame: true,
-            cardNumber: '',
-            cardExpiry: '',
-            cardCvc: '',
-            notes: '',
-          });
-        }, 3000);
+          // Fallback auto-reset if the customer hasn't exited manually
+          resetCheckoutAndCart();
+        }, 15000);
       } catch (err: any) {
         console.error("CRITICAL_ORDER_FAILURE:", err);
         setLoginError(`ORDER_ERROR: ${err.message || 'DATABASE_SYNC_FAILED'}`);
@@ -1747,6 +2330,7 @@ function AppContent() {
 
   const handleGoogleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loginError === 'INITIATING GOOGLE SECURE HANDSHAKE...') return;
     setLoginError('INITIATING GOOGLE SECURE HANDSHAKE...');
     try {
       const user = await signInWithGoogle();
@@ -1785,8 +2369,10 @@ function AppContent() {
       }
     } catch (err: any) {
       console.error(err);
-      if (err.code === 'auth/popup-closed-by-user') {
-        setLoginError('AUTH_FAILURE: GOOGLE POPUP CLOSED. PLEASE ALLOW POPUPS OR OPEN IN A NEW TAB.');
+      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+        setLoginError('AUTH_FAILURE: GOOGLE POPUP CLOSED OR CANCELLED. PLEASE ALLOW POPUPS OR OPEN IN A NEW TAB.');
+      } else if (err.code === 'auth/popup-blocked') {
+        setLoginError('AUTH_FAILURE: GOOGLE POPUP BLOCKED. PLEASE ALLOW POPUPS OR OPEN IN A NEW TAB.');
       } else if (err.code === 'auth/operation-not-allowed' || (err.message && err.message.includes('operation-not-allowed'))) {
         setLoginError('GOOGLE_LOGIN_NOT_ENABLED: Please go to Firebase Console > Authentication > Sign-in method, click "Add new provider", select Google, and enable it.');
       } else {
@@ -1833,6 +2419,10 @@ function AppContent() {
       let msg = `Verification Failed: ${error?.code || 'AUTH_ERR'}`;
       if (error?.code === 'auth/unauthorized-domain' || error?.message?.includes('unauthorized domain')) {
         msg = "Domain not authorized. Please add this URL to Firebase Console > Authentication > Settings > Authorized domains.";
+      } else if (error?.code === 'auth/popup-blocked') {
+        msg = "Google Sign-In popup was blocked by your browser. Please allow popups or open the app in a new tab.";
+      } else if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') {
+        msg = "Google Sign-In was cancelled or blocked by the browser. Please allow popups or open in a new tab.";
       }
       
       const toasts = [{id: Math.random().toString(), message: msg}];
@@ -1841,6 +2431,7 @@ function AppContent() {
   };
 
   const handleGoogleAuthDiagnostics = async () => {
+    if (isDiagnosticRunning) return;
     setIsDiagnosticRunning(true);
     setShowDiagnosticModal(true);
     
@@ -1996,11 +2587,14 @@ function AppContent() {
         comment: newReviewComment,
         author: customerInfo.name.toUpperCase().replace(/\s/g, '_'),
         date: new Date().toISOString().split('T')[0],
-        status: 'PENDING'
+        status: 'PENDING',
+        images: attachedImages.length > 0 ? attachedImages : undefined
       };
       setReviews(prev => [newReview, ...prev]);
       setNewReviewComment('');
       setNewReviewRating(5);
+      setAttachedImages([]);
+      stopCamera();
       setIsSubmittingReview(false);
     }, 600);
   };
@@ -2022,6 +2616,31 @@ function AppContent() {
     if (filteredReviews.length === 0) return 0;
     return filteredReviews.reduce((acc, r) => acc + r.rating, 0) / filteredReviews.length;
   }, [filteredReviews]);
+
+  const getProductRatingDetails = (productId: string) => {
+    const prodReviews = reviews.filter(r => r.productId === productId && r.status === 'APPROVED');
+    if (prodReviews.length > 0) {
+      const totalRating = prodReviews.reduce((sum, r) => sum + r.rating, 0);
+      const avg = totalRating / prodReviews.length;
+      return {
+        average: avg,
+        count: prodReviews.length,
+        hasRealReviews: true
+      };
+    } else {
+      let seed = 0;
+      for (let i = 0; i < productId.length; i++) {
+        seed += productId.charCodeAt(i);
+      }
+      const average = 4.2 + (seed % 8) * 0.1;
+      const count = 8 + (seed % 35);
+      return {
+        average,
+        count,
+        hasRealReviews: false
+      };
+    }
+  };
 
   const filteredProducts = useMemo(() => {
     let result = products;
@@ -2077,8 +2696,8 @@ function AppContent() {
     return result;
   }, [products, shopFilter, colorFilter, sizeFilter, priceRange, sortType]);
 
-  const renderSupportContent = () => {
-    switch (supportTopic) {
+  const renderSupportContent = (topic: string) => {
+    switch (topic) {
       case 'Shipping':
         return (
           <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -2577,6 +3196,7 @@ function AppContent() {
               cardExpiry: '',
               cardCvc: '',
               notes: '',
+              deliveryInstructions: '',
             });
           }}
         />
@@ -2742,11 +3362,39 @@ function AppContent() {
                       </div>
                    </div>
                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8 lg:gap-10">
-                     {products.filter(p => p.isNewArrival).slice(0, 4).map(product => (
-                       <div key={`latest-${product.id}`} className="group relative flex flex-col cursor-pointer p-4 md:p-5 bg-[#010816] md:bg-gradient-to-b md:from-[#030b1c] md:to-[#01050e] border border-[#0033aa]/50 rounded-[2rem] shadow-[0_10px_30px_-10px_rgba(0,50,200,0.2)] hover:shadow-[0_20px_40px_-10px_rgba(0,100,255,0.4)] transform hover:-translate-y-2 transition-all duration-500" onClick={() => { setSelectedSize(''); setQuickViewProduct(product); }}>
+                     {products.filter(p => p.isNewArrival).slice(0, 4).map((product, index) => (
+                       <TiltCard 
+                           key={`latest-${product.id}`} 
+                           initial={{ opacity: 0, y: 30 }}
+                           whileInView={{ opacity: 1, y: 0 }}
+                           viewport={{ once: true, margin: "-50px" }}
+                           transition={{ duration: 0.6, delay: index * 0.1, ease: [0.16, 1, 0.3, 1] }}
+                           whileHover={{ y: -8, transition: { duration: 0.3 } }}
+                           onClick={() => { setSelectedSize(''); setQuickViewProduct(product); }}
+                           className="group relative flex flex-col cursor-pointer p-4 md:p-5 bg-[#010816] md:bg-gradient-to-b md:from-[#030b1c] md:to-[#01050e] border border-[#0033aa]/50 rounded-[2rem] shadow-[0_10px_30px_-10px_rgba(0,50,200,0.2)] hover:shadow-[0_20px_40px_-10px_rgba(0,100,255,0.4)] transition-all duration-500"
+                         >
                          <div className="relative w-full aspect-[1/1] sm:aspect-[4/5] object-contain overflow-hidden rounded-xl bg-[#001433] border border-[#0044cc]/40 shadow-[inset_0_0_25px_rgba(0,60,255,0.1)] transition-all duration-300 group-hover:border-[#0066ff]">
                            <img loading="lazy" src={product.images?.[0] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800'} className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-110" alt={product.name} referrerPolicy="no-referrer" />
-                           <div className="absolute top-4 left-4 bg-gradient-to-r from-[#0044cc] to-[#0099ff] border border-[#66bcff] shadow-[0_5px_15px_rgba(0,150,255,0.5)] rounded-md text-white text-[9px] font-black px-3 py-1.5 uppercase tracking-widest z-10">New</div>
+                           <div className="absolute top-4 left-4 flex flex-col gap-2 z-10">
+                             <div className="bg-gradient-to-r from-[#0044cc] to-[#0099ff] border border-[#66bcff] shadow-[0_5px_15px_rgba(0,150,255,0.5)] rounded-md text-white text-[9px] font-black px-3 py-1.5 uppercase tracking-widest w-fit">New</div>
+                             {product.stock > 0 && product.stock < 5 && (
+                               <div className="bg-rose-500/90 backdrop-blur-md border border-rose-400 shadow-[0_5px_15px_rgba(244,63,94,0.5)] rounded-md text-white text-[9px] font-black px-3 py-1.5 uppercase tracking-widest flex items-center gap-1 w-fit animate-pulse">
+                                 <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                 Low Stock
+                               </div>
+                             )}
+                           </div>
+                           <button 
+                             onClick={(e) => { 
+                               e.stopPropagation(); 
+                               setSelectedSize('');
+                               setQuickViewProduct(product);
+                             }}
+                             className="absolute top-24 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center bg-black/40 backdrop-blur-md text-zinc-400 hover:text-[#0055ff] hover:bg-white border border-white/10 shadow-lg active:scale-95 transition-all"
+                             title="Quick View"
+                           >
+                             <Maximize2 size={13} />
+                           </button>
                            <button 
                              onClick={(e) => { e.stopPropagation(); toggleCompare(product); }}
                              className={`absolute top-4 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all ${compareList.find(p => p.id === product.id) ? 'bg-[#0055ff] text-white shadow-[0_0_15px_rgba(0,85,255,0.6)]' : 'bg-black/40 backdrop-blur-md text-zinc-400 hover:text-white border border-white/10'}`}
@@ -2778,9 +3426,9 @@ function AppContent() {
                                addToCart(product, defaultSize, defaultColor, 1, true);
                              }}
                            >
-                             <div className="flex flex-col gap-3 w-full px-6">
+                             <div className="flex flex-row gap-2 w-full px-2.5 justify-center items-center">
                                <button 
-                                 className={`bg-gradient-to-r from-[#0055ff] to-[#0088ff] text-white py-3 text-[10px] font-black uppercase tracking-[0.2em] rounded-full shadow-[0_8px_25px_rgba(0,150,255,0.8)] border border-[#80c0ff] hover:scale-105 active:scale-95 transition-all w-full ${product.stock <= 0 ? 'opacity-20 grayscale cursor-not-allowed' : ''}`}
+                                 className={`flex-1 bg-gradient-to-r from-[#0055ff] to-[#0088ff] text-white py-2.5 px-2 text-[9px] font-black uppercase tracking-wider rounded-xl shadow-[0_4px_12px_rgba(0,150,255,0.4)] border border-[#80c0ff] hover:scale-105 active:scale-95 transition-all text-center flex items-center justify-center gap-1.5 ${product.stock <= 0 ? 'opacity-20 grayscale cursor-not-allowed' : ''}`}
                                  onClick={(e) => {
                                    if (product.stock <= 0) return;
                                    e.stopPropagation();
@@ -2789,32 +3437,55 @@ function AppContent() {
                                    addToCart(product, defaultSize, defaultColor, 1, false, true);
                                  }}
                                  title="Adds one item with default options to your cart"
-                               >
-                                 {product.stock <= 0 ? 'Out of Stock' : 'Quick Buy'}
+                                >
+                                  <ShoppingBag size={11} className="flex-shrink-0" />
+                                  <span className="truncate">{product.stock <= 0 ? 'Sold Out' : 'Buy'}</span>
                                </button>
                                <button 
-                                 className="bg-white/10 backdrop-blur-md text-white py-3 text-[10px] font-black uppercase tracking-[0.2em] rounded-full border border-white/20 hover:bg-white/20 hover:scale-105 active:scale-95 transition-all w-full"
+                                 className="flex-1 bg-white/10 backdrop-blur-md text-white py-2.5 px-2 text-[9px] font-black uppercase tracking-wider rounded-xl border border-white/20 hover:bg-white/20 hover:scale-105 active:scale-95 transition-all text-center flex items-center justify-center gap-1.5"
                                  onClick={(e) => {
                                    e.stopPropagation();
                                    setSelectedSize('');
                                    setQuickViewProduct(product);
                                  }}
                                >
-                                 Quick View
+                                 <Eye size={11} className="flex-shrink-0" />
+                                 <span className="truncate font-black">View</span>
                                </button>
                              </div>
                            </div>
                          </div>
                          <div className="mt-4 px-2 space-y-1">
                            <h4 className="font-black uppercase tracking-tighter text-sm text-white group-hover:text-[#4da6ff] drop-shadow-[0_0_10px_rgba(0,100,255,0.3)] transition-colors">{product.name}</h4>
+                            {/* Star Rating Row */}
+                            {(() => {
+                              const ratingDetails = getProductRatingDetails(product.id);
+                              return (
+                                <div className="flex items-center gap-1.5 mt-0.5" title={`${ratingDetails.average.toFixed(1)} out of 5 stars (${ratingDetails.count} reviews)`}>
+                                  <div className="flex items-center text-[#ffb800]">
+                                    {[1, 2, 3, 4, 5].map((star) => (
+                                      <Star
+                                        key={star}
+                                        size={9}
+                                        className={`${star <= Math.round(ratingDetails.average) ? 'fill-[#ffb800] text-[#ffb800]' : 'text-zinc-700 fill-none'}`}
+                                      />
+                                    ))}
+                                  </div>
+                                  <span className="text-[9px] font-mono font-black text-zinc-400">
+                                    {ratingDetails.average.toFixed(1)} ({ratingDetails.count})
+                                  </span>
+                                </div>
+                              );
+                            })()}
                            <div className="flex items-center gap-2">
                              <p className="text-[10px] text-[#3399ff] font-black drop-shadow-[0_2px_15px_rgba(0,150,255,0.5)]">৳{product.price.toLocaleString()}</p>
                              {product.originalPrice && product.originalPrice > product.price && (
                                <p className="text-[9px] text-zinc-500 line-through font-bold">৳{product.originalPrice.toLocaleString()}</p>
                              )}
                            </div>
+                           <StockProgressBar stock={product.stock} />
                          </div>
-                       </div>
+                       </TiltCard>
                      ))}
                    </div>
                  </div>
@@ -2908,85 +3579,24 @@ function AppContent() {
                </div>
                
                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8 lg:gap-10 min-h-[400px]">
-                {filteredProducts.length > 0 ? filteredProducts.map(product => (
-                  <div key={product.id} className="group relative flex flex-col cursor-pointer p-4 md:p-5 bg-[#010816] md:bg-gradient-to-b md:from-[#030b1c] md:to-[#01050e] border border-[#0033aa]/50 rounded-[2rem] shadow-[0_10px_30px_-10px_rgba(0,50,200,0.2)] hover:shadow-[0_20px_40px_-10px_rgba(0,100,255,0.4)] transform hover:-translate-y-2 transition-all duration-500">
-                    <div className="relative w-full aspect-[1/1] sm:aspect-[4/5] md:aspect-[3/4] object-contain overflow-hidden rounded-xl bg-[#001433] border border-[#0044cc]/40 shadow-[inset_0_0_25px_rgba(0,60,255,0.1)] transition-all duration-500 group-hover:border-[#0066ff]" onClick={() => {
-                      setSelectedSize('');
-                      setQuickViewProduct(product);
-                      ReactGA.event({
-                        category: "Ecommerce",
-                        action: "view_item",
-                        label: product.name,
-                        value: product.price
-                      });
-                    }}>
-                      <img loading="lazy" src={product.images?.[0] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800'} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt={product.name} referrerPolicy="no-referrer" />
-                      <div className="absolute top-4 left-4 flex flex-col gap-2 z-10">
-                        {product.isNewArrival && (
-                          <div className="bg-gradient-to-r from-[#0044cc] to-[#0099ff] border border-[#66bcff] shadow-[0_5px_15px_rgba(0,150,255,0.5)] rounded-md text-white text-[9px] font-black px-3 py-1.5 uppercase tracking-[0.2em] w-fit">New</div>
-                        )}
-                        {product.originalPrice && product.originalPrice > product.price && (
-                          <div className="bg-gradient-to-r from-rose-600 to-rose-400 border border-rose-300 shadow-[0_5px_15px_rgba(225,29,72,0.5)] rounded-md text-white text-[9px] font-black px-3 py-1.5 uppercase tracking-[0.2em] w-fit">Sale</div>
-                        )}
-                      </div>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); toggleCompare(product); }}
-                        className={`absolute top-4 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all ${compareList.find(p => p.id === product.id) ? 'bg-[#0055ff] text-white shadow-[0_0_15px_rgba(0,85,255,0.6)]' : 'bg-black/40 backdrop-blur-md text-zinc-400 hover:text-white border border-white/10'}`}
-                        title="Compare Product"
-                      >
-                        <ArrowRightLeft size={14} />
-                      </button>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); toggleWishlist(product); }}
-                        className={`absolute top-14 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all ${wishlist.some(p => p.id === product.id) ? 'bg-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.6)] border border-rose-400/30' : 'bg-black/40 backdrop-blur-md text-zinc-400 hover:text-rose-400 border border-white/10'}`}
-                        title={wishlist.some(p => p.id === product.id) ? "Remove from Wishlist" : "Add to Wishlist"}
-                      >
-                        <Heart size={14} className={wishlist.some(p => p.id === product.id) ? "fill-current" : ""} />
-                      </button>
-                      {product.stock <= 0 && (
-                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-20 backdrop-blur-[2px]">
-                          <div className="border-2 border-white/20 px-6 py-2 bg-black/40 rotate-[-12deg]">
-                            <span className="text-white text-xs font-black uppercase tracking-[0.3em]">Sold_Out</span>
-                          </div>
-                        </div>
-                      )}
-                      <div 
-                        className="absolute inset-0 bg-[#001133]/60 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center backdrop-blur-sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (product.stock <= 0) return;
-                          const defaultSize = product.sizes?.[0] || 'M';
-                          const defaultColor = product.colors?.[0];
-                          addToCart(product, defaultSize, defaultColor, 1, true);
-                        }}
-                      >
-                        <div className="flex flex-col gap-3 w-full px-6">
-                          <button 
-                            className={`bg-gradient-to-r from-[#0055ff] to-[#0088ff] text-white py-3 text-[10px] font-black uppercase tracking-[0.2em] rounded-full shadow-[0_8px_25px_rgba(0,150,255,0.8)] border border-[#80c0ff] hover:scale-105 active:scale-95 transition-all w-full ${product.stock <= 0 ? 'opacity-20 grayscale cursor-not-allowed' : ''}`}
-                            onClick={(e) => {
-                              if (product.stock <= 0) return;
-                              e.stopPropagation();
-                              const defaultSize = product.sizes?.[0] || 'M';
-                              const defaultColor = product.colors?.[0];
-                              addToCart(product, defaultSize, defaultColor, 1, false, true);
-                            }}
-                            title="Adds one item with default options to your cart"
-                          >
-                            {product.stock <= 0 ? 'Out of Stock' : 'Quick Buy'}
-                          </button>
-                          <button 
-                            className="bg-white/10 backdrop-blur-md text-white py-3 text-[10px] font-black uppercase tracking-[0.2em] rounded-full border border-white/20 hover:bg-white/20 hover:scale-105 active:scale-95 transition-all w-full"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedSize('');
-                              setQuickViewProduct(product);
-                            }}
-                          >
-                            Quick View
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+                {filteredProducts.length > 0 ? filteredProducts.map((product, index) => (
+                  <TiltCard
+                     initial={{ opacity: 0, y: 30 }}
+                     whileInView={{ opacity: 1, y: 0 }}
+                     viewport={{ once: true, margin: "-50px" }}
+                     transition={{ duration: 0.6, delay: (index % 4) * 0.1, ease: [0.16, 1, 0.3, 1] }}
+                     whileHover={{ y: -8, transition: { duration: 0.2 } }}
+                     key={product.id} className="group relative flex flex-col cursor-pointer p-4 md:p-5 bg-[#010816] md:bg-gradient-to-b md:from-[#030b1c] md:to-[#01050e] border border-[#0033aa]/50 rounded-[2rem] shadow-[0_10px_30px_-10px_rgba(0,50,200,0.2)] hover:shadow-[0_20px_40px_-10px_rgba(0,100,255,0.4)] transition-all duration-500">
+                    <ProductImageSwiper 
+                      product={product}
+                      compareList={compareList}
+                      wishlist={wishlist}
+                      toggleCompare={toggleCompare}
+                      toggleWishlist={toggleWishlist}
+                      setQuickViewProduct={setQuickViewProduct}
+                      setSelectedSize={setSelectedSize}
+                      addToCart={addToCart}
+                    />
                     <div className="mt-6 px-2 space-y-4">
                       <div className="flex justify-between items-start" onClick={() => {
                         setSelectedSize('');
@@ -2998,7 +3608,28 @@ function AppContent() {
                           value: product.price
                         });
                       }}>
-                        <div className="space-y-1"><h3 className="font-black uppercase tracking-tighter text-xl leading-tight text-white group-hover:text-[#4da6ff] drop-shadow-[0_0_10px_rgba(0,100,255,0.3)] transition-colors">{product.name}</h3><p className="text-[10px] text-[#0066ff] uppercase font-bold tracking-widest">{product.category}</p></div>
+                        <div className="space-y-1"><h3 className="font-black uppercase tracking-tighter text-xl leading-tight text-white group-hover:text-[#4da6ff] drop-shadow-[0_0_10px_rgba(0,100,255,0.3)] transition-colors">{product.name}</h3><p className="text-[10px] text-[#0066ff] uppercase font-bold tracking-widest">{product.category}</p>
+                          {/* Star Rating Row */}
+                          {(() => {
+                            const ratingDetails = getProductRatingDetails(product.id);
+                            return (
+                              <div className="flex items-center gap-1.5 mt-1" title={`${ratingDetails.average.toFixed(1)} out of 5 stars (${ratingDetails.count} reviews)`}>
+                                <div className="flex items-center text-[#ffb800]">
+                                  {[1, 2, 3, 4, 5].map((star) => (
+                                    <Star
+                                      key={star}
+                                      size={10}
+                                      className={`${star <= Math.round(ratingDetails.average) ? 'fill-[#ffb800] text-[#ffb800]' : 'text-zinc-700 fill-none'}`}
+                                    />
+                                  ))}
+                                </div>
+                                <span className="text-[9px] font-mono font-black text-zinc-400">
+                                  {ratingDetails.average.toFixed(1)} ({ratingDetails.count})
+                                </span>
+                              </div>
+                            );
+                          })()}
+                        </div>
                         <div className="flex flex-col items-end">
                           <span className="font-black text-xl heading-font tabular-nums text-[#3399ff] drop-shadow-[0_2px_15px_rgba(0,150,255,0.5)]">৳{product.price.toLocaleString()}</span>
                           {product.originalPrice && product.originalPrice > product.price && (
@@ -3006,8 +3637,9 @@ function AppContent() {
                           )}
                         </div>
                       </div>
+                      <StockProgressBar stock={product.stock} />
                     </div>
-                  </div>
+                  </TiltCard>
                 )) : (
                   <div className="col-span-full py-20 text-center space-y-4">
                     <p className="text-zinc-500 uppercase text-xs tracking-[0.3em]">No products found in this sector.</p>
@@ -3031,40 +3663,26 @@ function AppContent() {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8 lg:gap-10">
-                {wishlist.map(product => (
-                  <div key={`wishlist-${product.id}`} className="group relative flex flex-col p-4 md:p-5 bg-[#010816] md:bg-gradient-to-b md:from-[#030b1c] md:to-[#01050e] border border-[#0033aa]/50 rounded-[2rem] shadow-[0_10px_30px_-10px_rgba(0,50,200,0.2)] hover:shadow-[0_20px_40px_-10px_rgba(0,100,255,0.4)] transform hover:-translate-y-2 transition-all duration-500">
-                    <div className="relative w-full aspect-[1/1] sm:aspect-[4/5] object-contain overflow-hidden rounded-xl bg-[#001433] border border-[#0044cc]/40 shadow-[inset_0_0_25px_rgba(0,60,255,0.1)] transition-all duration-300 group-hover:border-[#0066ff] mb-4 cursor-pointer" onClick={() => { setSelectedSize(''); setQuickViewProduct(product); }}>
-                      <img loading="lazy" src={product.images?.[0] || 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800'} alt={product.name} className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-110 transition-all duration-700 ease-out" referrerPolicy="no-referrer" />
-                      <div className="absolute top-4 left-4 flex flex-col gap-2 z-10">
-                        {product.isNewArrival && (
-                          <div className="bg-gradient-to-r from-[#0044cc] to-[#0099ff] border border-[#66bcff] shadow-[0_5px_15px_rgba(0,150,255,0.5)] rounded-md text-white text-[9px] font-black px-3 py-1.5 uppercase tracking-[0.2em] w-fit">New</div>
-                        )}
-                        {product.originalPrice && product.originalPrice > product.price && (
-                          <div className="bg-gradient-to-r from-rose-600 to-rose-400 border border-rose-300 shadow-[0_5px_15px_rgba(225,29,72,0.5)] rounded-md text-white text-[9px] font-black px-3 py-1.5 uppercase tracking-[0.2em] w-fit">Sale</div>
-                        )}
-                      </div>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); toggleCompare(product); }}
-                        className={`absolute top-4 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all ${compareList.find(p => p.id === product.id) ? 'bg-[#0055ff] text-white shadow-[0_0_15px_rgba(0,85,255,0.6)]' : 'bg-black/40 backdrop-blur-md text-zinc-400 hover:text-white border border-white/10'}`}
-                        title="Compare Product"
-                      >
-                        <ArrowRightLeft size={14} />
-                      </button>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); toggleWishlist(product); }}
-                        className={`absolute top-14 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all ${wishlist.some(p => p.id === product.id) ? 'bg-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.6)] border border-rose-400/30' : 'bg-black/40 backdrop-blur-md text-zinc-400 hover:text-rose-400 border border-white/10'}`}
-                        title={wishlist.some(p => p.id === product.id) ? "Remove from Wishlist" : "Add to Wishlist"}
-                      >
-                        <Heart size={14} className={wishlist.some(p => p.id === product.id) ? "fill-current" : ""} />
-                      </button>
-                      {product.stock <= 0 && (
-                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-20 backdrop-blur-[2px]">
-                          <div className="border-2 border-white/20 px-6 py-2 bg-black/40 rotate-[-12deg]">
-                            <span className="text-white text-xs font-black uppercase tracking-[0.3em]">Sold_Out</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                {wishlist.map((product, index) => (
+                  <TiltCard 
+                    key={`wishlist-${product.id}`} 
+                    initial={{ opacity: 0, y: 30 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, margin: "-50px" }}
+                    transition={{ duration: 0.6, delay: (index % 4) * 0.1, ease: [0.16, 1, 0.3, 1] }}
+                    whileHover={{ y: -8, transition: { duration: 0.2 } }}
+                    className="group relative flex flex-col p-4 md:p-5 bg-[#010816] md:bg-gradient-to-b md:from-[#030b1c] md:to-[#01050e] border border-[#0033aa]/50 rounded-[2rem] shadow-[0_10px_30px_-10px_rgba(0,50,200,0.2)] hover:shadow-[0_20px_40px_-10px_rgba(0,100,255,0.4)] transition-all duration-500"
+                  >
+                    <ProductImageSwiper 
+                      product={product}
+                      compareList={compareList}
+                      wishlist={wishlist}
+                      toggleCompare={toggleCompare}
+                      toggleWishlist={toggleWishlist}
+                      setQuickViewProduct={setQuickViewProduct}
+                      setSelectedSize={setSelectedSize}
+                      addToCart={addToCart}
+                    />
                     <div className="flex flex-col gap-2 flex-1 px-2">
                       <div className="flex items-start justify-between">
                         <span className="text-[9px] uppercase font-black text-[#0066ff] tracking-widest mt-1">{product.category}</span>
@@ -3076,11 +3694,54 @@ function AppContent() {
                         </div>
                       </div>
                       <h3 className="font-black uppercase text-xs tracking-widest text-white leading-snug cursor-pointer group-hover:text-[#4da6ff] drop-shadow-[0_0_10px_rgba(0,100,255,0.3)] transition-colors" onClick={() => { setSelectedSize(''); setQuickViewProduct(product); }}>{product.name}</h3>
+                      {/* Star Rating Row */}
+                      {(() => {
+                        const ratingDetails = getProductRatingDetails(product.id);
+                        return (
+                          <div className="flex items-center gap-1.5 mt-1" title={`${ratingDetails.average.toFixed(1)} out of 5 stars (${ratingDetails.count} reviews)`}>
+                            <div className="flex items-center text-[#ffb800]">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <Star
+                                  key={star}
+                                  size={9}
+                                  className={`${star <= Math.round(ratingDetails.average) ? 'fill-[#ffb800] text-[#ffb800]' : 'text-zinc-700 fill-none'}`}
+                                />
+                              ))}
+                            </div>
+                            <span className="text-[9px] font-mono font-black text-zinc-400">
+                              {ratingDetails.average.toFixed(1)} ({ratingDetails.count})
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </div>
+                    <StockProgressBar stock={product.stock} />
+                    
+                    {/* Prominent Mobile View Button */}
+                    <div className="mt-3 sm:hidden">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedSize('');
+                          setQuickViewProduct(product);
+                          ReactGA.event({
+                            category: "Ecommerce",
+                            action: "view_item",
+                            label: product.name,
+                            value: product.price
+                          });
+                        }}
+                        className="w-full bg-gradient-to-r from-[#0055ff] to-[#0188ff] text-white py-2.5 px-4 text-[9px] font-black uppercase tracking-[0.2em] rounded-xl shadow-[0_5px_15px_rgba(0,85,255,0.4)] border border-[#80c0ff] flex items-center justify-center gap-2 active:scale-95 transition-all"
+                      >
+                        <Eye size={12} />
+                        View Product
+                      </button>
+                    </div>
+                    
                     <button onClick={() => toggleWishlist(product)} className="w-full mt-4 py-3 bg-gradient-to-r from-rose-900/40 to-rose-900/20 text-rose-400 border border-rose-500/30 hover:bg-rose-600 hover:text-white font-black uppercase text-[9px] tracking-widest transition-all rounded-full shadow-[0_5px_15px_rgba(225,29,72,0.2)]">
                       Remove
                     </button>
-                  </div>
+                  </TiltCard>
                 ))}
               </div>
             )}
@@ -3088,21 +3749,87 @@ function AppContent() {
         )}
 
         {currentView === ViewState.SUPPORT && (
-          <div className="pt-40 max-w-5xl mx-auto px-6 pb-20 min-h-[85vh]">
-            <div className="flex flex-col md:flex-row gap-16">
-              <aside className="w-full md:w-64 space-y-12">
-                <nav className="flex flex-col gap-4">
-                  {['Shipping', 'Returns', 'Sizing', 'Track Order', 'Contact', 'Preview'].map(topic => (
-                    <button key={topic} id={`support-aside-${topic.toLowerCase().replace(/\s+/g, '-')}`} onClick={() => setSupportTopic(topic)} className={`text-left text-[10px] font-black uppercase tracking-[0.2em] px-5 py-4 border transition-all duration-300 ${supportTopic === topic ? 'bg-[#0055ff] border-[#0055ff] text-white' : 'border-zinc-800 text-zinc-500 hover:text-white'}`}>{topic}</button>
-                  ))}
-                </nav>
-              </aside>
-              <div className="flex-1 space-y-12 animate-in slide-in-from-right-4 duration-700">
-                <h2 className="text-6xl md:text-8xl font-black uppercase heading-font italic tracking-tighter leading-none">{supportTopic}</h2>
-                <div className="min-h-[400px] border-l border-zinc-900 pl-8 md:pl-16">
-                  {renderSupportContent()}
-                </div>
-              </div>
+          <div className="pt-40 max-w-4xl mx-auto px-6 pb-20 min-h-[85vh]">
+            {/* Header section */}
+            <div className="space-y-4 text-center max-w-2xl mx-auto mb-12">
+              <h2 className="text-5xl md:text-7xl font-black uppercase heading-font italic tracking-tighter leading-none text-white">
+                SUPPORT_CENTRAL
+              </h2>
+              <div className="h-1 w-20 bg-[#0055ff] mx-auto opacity-80" />
+              <p className="text-[10px] md:text-xs font-mono uppercase tracking-[0.3em] text-[#0055ff]">
+                Frequently Asked Questions & Operational terminals
+              </p>
+            </div>
+
+            {/* Accordion List */}
+            <div className="space-y-4">
+              {['Shipping', 'Returns', 'Sizing', 'Track Order', 'Contact', 'Preview'].map((topic, idx) => {
+                const isOpen = openSupportAccordion === topic;
+                const serial = String(idx + 1).padStart(2, '0');
+                return (
+                  <div 
+                    key={topic} 
+                    className={`border transition-all duration-300 rounded-lg overflow-hidden ${
+                      isOpen 
+                        ? 'border-[#0055ff] bg-zinc-900/40 shadow-[0_10px_30px_rgba(0,85,255,0.08)]' 
+                        : 'border-zinc-800 bg-zinc-950/20 hover:border-zinc-700/80 hover:bg-zinc-900/10'
+                    }`}
+                  >
+                    {/* Header trigger */}
+                    <button
+                      onClick={() => setOpenSupportAccordion(isOpen ? null : topic)}
+                      className="w-full flex items-center justify-between p-6 text-left cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-center gap-6">
+                        <span className="text-xs font-mono font-bold text-zinc-650">
+                          [{serial}]
+                        </span>
+                        <span className="text-[14px] md:text-lg font-black uppercase tracking-wider text-white hover:text-[#0055ff] transition-colors">
+                          {topic === 'Preview' ? 'Virtual Customizer Lab (Preview)' : topic}
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center gap-4">
+                        <span className="hidden md:inline text-[9px] font-mono font-bold text-zinc-500 uppercase tracking-widest">
+                          {isOpen ? 'COLLAPSE' : 'EXPAND'}
+                        </span>
+                        <div className={`w-8 h-8 flex items-center justify-center rounded-full border border-zinc-800 bg-black/40 transition-colors ${
+                          isOpen ? 'border-[#0055ff]/50' : ''
+                        }`}>
+                          <motion.svg
+                            animate={{ rotate: isOpen ? 180 : 0 }}
+                            transition={{ duration: 0.2, ease: 'easeOut' }}
+                            className={`w-4 h-4 transition-colors ${isOpen ? 'text-[#0055ff]' : 'text-zinc-500'}`}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2.5}
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                          </motion.svg>
+                        </div>
+                      </div>
+                    </button>
+
+                    {/* Inline Content container */}
+                    <AnimatePresence initial={false}>
+                      {isOpen && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.3, ease: 'easeInOut' }}
+                          className="overflow-hidden bg-black/40 border-t border-zinc-900"
+                        >
+                          <div className="p-8">
+                            {renderSupportContent(topic)}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -3167,6 +3894,12 @@ function AppContent() {
                   await updateOrderStatus(orderId, 'CANCELLED');
                   setAdminLogs(p => [{ id: Math.random().toString(36).substr(2, 9), timestamp: new Date().toLocaleTimeString(), user: customerInfo.name, action: `Customer Cancelled Order: #${orderId}`, role: AdminRole.CUSTOMER }, ...p]);
                 }}
+                onOpenSmartPreview={(order: Order) => {
+                  setPreviewOrder(order);
+                  setPreviewOrderBackView(ViewState.CUSTOMER_PROFILE);
+                  setCurrentView(ViewState.ORDER_PREVIEW);
+                  window.scrollTo(0, 0);
+                }}
               />
             </Suspense>
           </div>
@@ -3174,7 +3907,15 @@ function AppContent() {
 
         {currentView === ViewState.TRACK_ORDER && (
           <div className="pt-20">
-            <OrderTracking onNavigateBack={() => { setCurrentView(ViewState.STORE); window.scrollTo(0, 0); }} />
+            <OrderTracking 
+              onNavigateBack={() => { setCurrentView(ViewState.STORE); window.scrollTo(0, 0); }} 
+              onOpenSmartPreview={(order: Order) => {
+                setPreviewOrder(order);
+                setPreviewOrderBackView(ViewState.TRACK_ORDER);
+                setCurrentView(ViewState.ORDER_PREVIEW);
+                window.scrollTo(0, 0);
+              }}
+            />
           </div>
         )}
 
@@ -3266,9 +4007,28 @@ function AppContent() {
                 onSendMessage={handleSendMessage}
                 adminUsersList={adminUsersList}
                 setAdminUsersList={setAdminUsersList}
+                onOpenSmartPreview={(order: Order) => {
+                  setPreviewOrder(order);
+                  setPreviewOrderBackView(ViewState.ADMIN_DASHBOARD);
+                  setCurrentView(ViewState.ORDER_PREVIEW);
+                  window.scrollTo(0, 0);
+                }}
               />
             </AdminProtectedRoute>
           </Suspense>
+        )}
+
+        {currentView === ViewState.ORDER_PREVIEW && previewOrder && (
+          <SmartOrderPreview 
+            order={previewOrder}
+            products={products}
+            isDarkMode={true}
+            onNavigateBack={() => {
+              setCurrentView(previewOrderBackView);
+              window.scrollTo(0, 0);
+            }}
+            onCopySuccess={() => showToast('Trace ID Copied')}
+          />
         )}
       </main>
 
@@ -3284,6 +4044,11 @@ function AppContent() {
                 placeholder="SEARCH_CATALOG" 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && searchQuery.trim().length >= 2) {
+                    addRecentSearch(searchQuery);
+                  }
+                }}
                 className="w-full bg-zinc-900/50 border border-zinc-800 px-6 py-4 text-sm font-bold text-white outline-none focus:border-[#0055ff] transition-all placeholder:opacity-40"
               />
               <svg xmlns="http://www.w3.org/2000/svg" className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -3291,6 +4056,41 @@ function AppContent() {
               </svg>
             </div>
             
+            {searchQuery.length === 0 && recentSearches.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-zinc-800">
+                <div className="flex justify-between items-center mb-3">
+                  <span className="text-xs font-black text-zinc-500 uppercase tracking-wider">Recent Searches</span>
+                  <button 
+                    onClick={clearAllRecentSearches}
+                    className="text-[10px] text-zinc-500 hover:text-rose-500 font-bold uppercase tracking-wider transition-colors"
+                  >
+                    Clear All
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {recentSearches.map((term, idx) => (
+                    <div 
+                      key={`recent-search-${idx}`}
+                      onClick={() => setSearchQuery(term)}
+                      className="group flex items-center gap-2 bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-sm hover:border-[#0055ff] hover:bg-zinc-950/80 cursor-pointer transition-all"
+                    >
+                      <span className="text-xs font-black text-zinc-300 group-hover:text-[#0055ff] transition-colors uppercase">{term}</span>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          clearRecentSearch(term);
+                        }}
+                        className="text-zinc-600 hover:text-rose-500 p-0.5"
+                        title="Remove"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {searchQuery.length > 0 && (
               <div className="mt-4 max-h-[60vh] overflow-y-auto no-scrollbar space-y-4 pt-4 border-t border-zinc-800">
                 {products.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.tags?.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()))).length > 0 ? (
@@ -3299,6 +4099,7 @@ function AppContent() {
                       key={product.id} 
                       className="flex items-center gap-4 cursor-pointer hover:bg-white/5 p-2 transition-colors border border-transparent hover:border-zinc-800"
                       onClick={() => {
+                        addRecentSearch(searchQuery);
                         setSelectedProduct(product);
                         setIsSearchOpen(false);
                       }}
@@ -3426,7 +4227,7 @@ function AppContent() {
                 </div>
                 <div className="space-y-2">
                   <h2 className="text-3xl font-black uppercase italic animate-pulse">Order_Synchronized</h2>
-                  <p className="text-zinc-500 uppercase text-[9px] tracking-[0.2em] font-black">A verification relay has been sent to {customerInfo.email}</p>
+                  <p className="text-zinc-400 uppercase text-[9px] tracking-[0.2em] font-black">An automated order confirmation email has been dispatched to {customerInfo.email}</p>
                 </div>
                 <div className="bg-zinc-900 border border-zinc-800 p-4 flex items-center justify-between w-full max-w-sm mx-auto group cursor-pointer" onClick={() => { navigator.clipboard.writeText(orders[0]?.id || ''); showToast('Order ID Copied'); }}>
                   <div className="text-left">
@@ -3435,12 +4236,53 @@ function AppContent() {
                   </div>
                   <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-zinc-600 group-hover:text-[#0055ff]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
                 </div>
-                <button 
-                  onClick={() => setIsCheckoutOpen(false)}
-                  className="bg-white text-black text-[10px] font-black uppercase px-12 py-4 tracking-[0.4em] hover:bg-[#0055ff] hover:text-white transition-all transform hover:scale-105 active:scale-95"
-                >
-                  Confirm_Exit
-                </button>
+
+                {lastEmailPreviewUrl && (
+                  <div className="bg-[#0055ff]/5 border border-[#0055ff]/20 p-5 w-full max-w-sm mx-auto space-y-2.5 text-center animate-in fade-in slide-in-from-bottom-2 duration-500">
+                    <p className="text-[#0055ff] text-[9px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-[#0055ff] animate-ping" />
+                      Email_Notification_Transmitted
+                    </p>
+                    <p className="text-[10px] text-zinc-400 font-mono">
+                      Confirmation dispatched to:
+                      <br />
+                      <strong className="text-white text-[11px] select-all">{customerInfo.email}</strong>
+                    </p>
+                    <a 
+                      href={lastEmailPreviewUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-[8px] font-black uppercase tracking-widest text-[#0055ff] hover:text-white bg-[#0055ff]/10 hover:bg-[#0055ff] px-4 py-2.5 border border-[#0055ff]/30 transition-all font-mono mt-1 w-full justify-center"
+                    >
+                      ✉️ Preview Automated Email
+                    </a>
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row justify-center gap-4 mt-6">
+                  <button 
+                    onClick={() => {
+                      const latestOrder = orders.find(o => o.customerEmail === customerInfo.email) || orders[0];
+                      if (latestOrder) {
+                        setPreviewOrder(latestOrder);
+                        setPreviewOrderBackView(ViewState.STORE);
+                        setCurrentView(ViewState.ORDER_PREVIEW);
+                        setIsCheckoutOpen(false);
+                      } else {
+                        showToast("NO_ORDERS_FOUND");
+                      }
+                    }}
+                    className="bg-[#0055ff] text-white text-[10px] font-black uppercase px-8 py-4 tracking-[0.2em] hover:bg-blue-600 transition-all font-mono shadow-[0_0_20px_rgba(0,85,255,0.4)] cursor-pointer"
+                  >
+                    👁️ View Smart Preview
+                  </button>
+                  <button 
+                    onClick={() => resetCheckoutAndCart()}
+                    className="bg-white text-black text-[10px] font-black uppercase px-8 py-4 tracking-[0.2em] hover:bg-zinc-200 hover:text-black transition-all cursor-pointer"
+                  >
+                    Confirm_Exit
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="space-y-10">
@@ -3551,13 +4393,26 @@ function AppContent() {
                             {checkoutErrors.city && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.city}</p>}
                           </div>
                           <div className="space-y-1">
-                            <label className="text-[9px] font-black uppercase text-zinc-500">Customer_Note / Special_Instructions</label>
+                            <label className="text-[9px] font-black uppercase text-zinc-500">Order_Notes / Gift_Messages</label>
                             <textarea 
                               id="checkout-notes" 
                               value={customerInfo.notes} 
                               onChange={e => handleCustomerInfoChange('notes', e.target.value)} 
-                              className="w-full bg-zinc-900/50 border border-zinc-800 px-4 py-3 text-xs font-bold text-white outline-none focus:border-[#0055ff] transition-all min-h-[80px]" 
-                              placeholder="GIFT MESSAGES, DELIVERY PROTOCOLS, ACCESS CODES..." 
+                              className="w-full bg-zinc-900/50 border border-zinc-800 px-4 py-3 text-xs font-bold text-white outline-none focus:border-[#0055ff] transition-all min-h-[60px]" 
+                              placeholder="GIFT MESSAGES, SPECIAL REQUESTS..." 
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black uppercase text-[#0055ff] flex items-center gap-2">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
+                              Courier_Delivery_Instructions
+                            </label>
+                            <textarea 
+                              id="checkout-delivery-instructions" 
+                              value={customerInfo.deliveryInstructions} 
+                              onChange={e => handleCustomerInfoChange('deliveryInstructions', e.target.value)} 
+                              className="w-full bg-[#0055ff]/5 border border-[#0055ff]/20 px-4 py-3 text-xs font-bold text-white outline-none focus:border-[#0055ff] transition-all min-h-[60px]" 
+                              placeholder="E.g. Call before delivery, leave with guard, specific landmark..." 
                             />
                           </div>
                         </div>
@@ -4023,28 +4878,104 @@ function AppContent() {
                           </div>
                         </div>
 
-                        {!appliedDiscount && (
-                          <div className="space-y-2">
-                            <label className="text-[9px] font-black uppercase text-zinc-500">Discount_Code</label>
-                            <div className="flex gap-2">
-                              <input 
-                                type="text" 
-                                value={discountInput}
-                                onChange={e => setDiscountInput(e.target.value)}
-                                className={`flex-1 bg-zinc-900/50 border px-4 py-3 text-xs font-bold text-white outline-none transition-all ${discountError ? 'border-rose-500' : 'border-zinc-800 focus:border-[#0055ff]'}`}
-                                placeholder="ENTER_CODE"
-                              />
-                              <button 
-                                type="button"
-                                onClick={handleApplyDiscount}
-                                className="px-6 py-3 bg-zinc-800 text-white text-[10px] font-black uppercase hover:bg-zinc-700 transition-all border border-zinc-700"
-                              >
-                                Apply
-                              </button>
+                        <div className="space-y-4">
+                          {!appliedDiscount ? (
+                            <div className="space-y-2">
+                              <label className="text-[9px] font-black uppercase text-zinc-500">Discount_Code</label>
+                              <div className="flex gap-2">
+                                <input 
+                                  type="text" 
+                                  value={discountInput}
+                                  onChange={e => setDiscountInput(e.target.value)}
+                                  className={`flex-1 bg-zinc-900/50 border px-4 py-3 text-xs font-bold text-white outline-none transition-all ${discountError && discountError !== 'EMPTY' ? 'border-rose-500/80 shadow-[0_0_10px_rgba(244,63,94,0.15)] bg-rose-950/10' : 'border-zinc-800 focus:border-[#0055ff]'}`}
+                                  placeholder="ENTER_CODE"
+                                />
+                                <button 
+                                  type="button"
+                                  onClick={handleApplyDiscount}
+                                  className="px-6 py-3 bg-zinc-800 text-white text-[10px] font-black uppercase hover:bg-zinc-700 transition-all border border-zinc-700 active:scale-95 transition-all"
+                                >
+                                  Apply
+                                </button>
+                              </div>
+                              
+                              {discountError && (() => {
+                                let feedbackTitle = "Invalid Code";
+                                let feedbackDesc = "The discount code you entered is invalid.";
+                                
+                                if (discountError === 'EMPTY') {
+                                  feedbackTitle = "Enter Code First";
+                                  feedbackDesc = "Please key in a valid coupon or tactical discount code before continuing.";
+                                } else if (discountError.startsWith('INVALID:')) {
+                                  const codeEntered = discountError.split(':')[1] || '';
+                                  feedbackTitle = "Code Not Active";
+                                  feedbackDesc = `Coupon "${codeEntered}" was not found. Please review for any spelling errors or check active store channels.`;
+                                } else if (discountError.startsWith('INACTIVE:')) {
+                                  const codeEntered = discountError.split(':')[1] || '';
+                                  feedbackTitle = "Deactivated Promo";
+                                  feedbackDesc = `The code "${codeEntered}" exists but is currently offline/disabled.`;
+                                } else if (discountError.startsWith('MIN_PURCHASE:')) {
+                                  const parts = discountError.split(':');
+                                  const codeEntered = parts[1] || '';
+                                  const minVal = Number(parts[2]) || 0;
+                                  const currentVal = Number(parts[3]) || 0;
+                                  const remaining = Math.max(0, minVal - currentVal);
+                                  feedbackTitle = "Minimum Order Value Required";
+                                  feedbackDesc = `Promo "${codeEntered}" is highly restricted. It requires a minimum cart subtotal of ৳${minVal.toLocaleString()}. Add ৳${remaining.toLocaleString()} worth of apparel to unlock.`;
+                                } else if (discountError.startsWith('USAGE_LIMIT:')) {
+                                  const codeEntered = discountError.split(':')[1] || '';
+                                  feedbackTitle = "Global Limit Reached";
+                                  feedbackDesc = `All slots for "${codeEntered}" have been claimed by other VIP shoppers.`;
+                                } else if (discountError.startsWith('EXPIRED:')) {
+                                  const parts = discountError.split(':');
+                                  const codeEntered = parts[1] || '';
+                                  const expiry = parts[2] || '';
+                                  feedbackTitle = "Expired Promo Claim";
+                                  feedbackDesc = `This code expired on ${new Date(expiry).toLocaleDateString()}. Campaign rewards have terminated.`;
+                                }
+
+                                return (
+                                  <motion.div 
+                                    initial={{ opacity: 0, y: -4 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs rounded-xl flex items-start gap-2.5 shadow-[0_4px_12px_rgba(244,63,94,0.1)]"
+                                  >
+                                    <AlertTriangle className="flex-shrink-0 text-rose-500 mt-0.5 animate-pulse" size={14} />
+                                    <div className="space-y-0.5" id="discount-error-feedback">
+                                      <p className="font-extrabold uppercase tracking-wider text-[9px] text-rose-400">{feedbackTitle}</p>
+                                      <p className="text-zinc-300 leading-relaxed font-medium text-[11px]">{feedbackDesc}</p>
+                                    </div>
+                                  </motion.div>
+                                );
+                              })()}
                             </div>
-                            {discountError && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{discountError}</p>}
-                          </div>
-                        )}
+                          ) : (
+                            <motion.div 
+                              initial={{ opacity: 0, scale: 0.98 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs rounded-xl flex items-start justify-between gap-3 shadow-[0_4px_12px_rgba(16,185,129,0.1)]"
+                            >
+                              <div className="flex items-start gap-2.5">
+                                <Tag className="flex-shrink-0 text-emerald-500 mt-0.5" size={14} />
+                                <div className="space-y-0.5">
+                                  <p className="font-extrabold uppercase tracking-wider text-[9px] text-emerald-400">Coupon Successfully Secured!</p>
+                                  <p className="text-zinc-300 leading-relaxed font-medium text-[11px]">
+                                    Code <span className="text-emerald-300 font-mono font-bold">{appliedDiscount.code}</span> is active and applying a <span className="font-bold text-white">{appliedDiscount.type === 'PERCENTAGE' ? `${appliedDiscount.value}%` : `৳${appliedDiscount.value}`}</span> deduction on matches.
+                                  </p>
+                                </div>
+                              </div>
+                              <button 
+                                onClick={() => {
+                                  setAppliedDiscount(null);
+                                  setDiscountError('');
+                                }} 
+                                className="text-[9px] text-zinc-400 hover:text-white uppercase font-black bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 px-2.5 py-1 rounded-md transition-all active:scale-95 flex-shrink-0"
+                              >
+                                Revoke
+                              </button>
+                            </motion.div>
+                          )}
+                        </div>
                         
                         <div className="bg-zinc-900/30 border border-zinc-800 p-4 space-y-2">
                           <h4 className="text-[10px] text-zinc-500 uppercase font-black">Shipping Details</h4>
@@ -4401,6 +5332,129 @@ function AppContent() {
 
               {/* BOTTOM LAYOUT container for Related and Reviews */}
               <div className="w-full max-w-[1400px] mx-auto p-4 md:p-6 lg:p-8 space-y-12">
+                
+                {/* Frequently Bought Together Section */}
+                {frequentlyBoughtTogether.length > 0 && (
+                  <div className="w-full border-t border-[#1C3A6E] pt-8">
+                    <h2 className="text-xl font-bold mb-2 text-white">Frequently Bought Together</h2>
+                    <p className="text-xs text-gray-400 mb-6">Build your setup with matching tags & complementary styles</p>
+                    
+                    <div className="flex flex-col lg:flex-row items-stretch gap-6 bg-[#061122]/55 border border-[#1C3A6E] p-6 rounded-[2rem]">
+                      {/* Products visual row */}
+                      <div className="flex-1 flex flex-wrap items-center gap-6">
+                        {/* 1. Base selected product */}
+                        <div className="flex items-center gap-4 min-w-[240px]">
+                          <label className="flex items-center cursor-pointer select-none">
+                            <input 
+                              type="checkbox"
+                              checked={!!fbtSelections[selectedProduct.id]}
+                              onChange={() => {
+                                setFbtSelections(prev => ({
+                                  ...prev,
+                                  [selectedProduct.id]: !prev[selectedProduct.id]
+                                }));
+                              }}
+                              className="w-4 h-4 rounded border-[#1C3A6E] text-[#0055ff] focus:ring-[#0055ff] bg-[#0c192d] mr-3"
+                            />
+                          </label>
+                          <div className="w-16 h-16 bg-[#0a1628] border border-zinc-800 rounded-lg overflow-hidden p-1 flex-shrink-0">
+                            <img src={selectedProduct.images?.[0]} alt={selectedProduct.name} className="w-full h-full object-contain" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-black text-white line-clamp-1">{selectedProduct.name}</p>
+                            <p className="text-xs text-[#4da6ff] font-bold">This item</p>
+                            <p className="text-sm font-black text-emerald-400">৳{selectedProduct.price.toLocaleString()}</p>
+                            <span className="inline-block mt-1 px-1.5 py-0.5 bg-zinc-800 text-[9px] text-zinc-400 rounded">
+                              Size: {selectedSize || selectedProduct.sizes?.[0] || 'M'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Plus sign */}
+                        {frequentlyBoughtTogether.map((item) => (
+                          <React.Fragment key={item.id}>
+                            <div className="text-zinc-500 font-light text-xl select-none">+</div>
+                            
+                            {/* Suggested Item */}
+                            <div className="flex items-center gap-4 min-w-[300px]">
+                              <label className="flex items-center cursor-pointer select-none">
+                                <input 
+                                  type="checkbox"
+                                  checked={!!fbtSelections[item.id]}
+                                  onChange={() => {
+                                    setFbtSelections(prev => ({
+                                      ...prev,
+                                      [item.id]: !prev[item.id]
+                                    }));
+                                  }}
+                                  className="w-4 h-4 rounded border-[#1C3A6E] text-[#0055ff] focus:ring-[#0055ff] bg-[#0c192d] mr-3"
+                                />
+                              </label>
+                              <div 
+                                className="w-16 h-16 bg-[#0a1628] border border-zinc-800 rounded-lg overflow-hidden p-1 flex-shrink-0 cursor-pointer"
+                                onClick={() => {
+                                  setSelectedProduct(item);
+                                  setSelectedImageIndex(0);
+                                  const modalEl = document.querySelector('.overflow-y-auto.no-scrollbar');
+                                  if (modalEl) modalEl.scrollTo({ top: 0, behavior: 'smooth' });
+                                }}
+                              >
+                                <img src={item.images?.[0]} alt={item.name} className="w-full h-full object-contain" />
+                              </div>
+                              <div>
+                                <p 
+                                  className="text-xs font-black text-white hover:text-[#4da6ff] transition-colors line-clamp-1 cursor-pointer"
+                                  onClick={() => {
+                                    setSelectedProduct(item);
+                                    setSelectedImageIndex(0);
+                                    const modalEl = document.querySelector('.overflow-y-auto.no-scrollbar');
+                                    if (modalEl) modalEl.scrollTo({ top: 0, behavior: 'smooth' });
+                                  }}
+                                >
+                                  {item.name}
+                                </p>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-xs text-zinc-400">Size:</span>
+                                  <select 
+                                    value={fbtSizes[item.id] || item.sizes?.[0] || 'M'}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setFbtSizes(prev => ({
+                                        ...prev,
+                                        [item.id]: val
+                                      }));
+                                    }}
+                                    className="bg-[#0c192d] border border-[#1cb96e]/30 hover:border-[#4da6ff] text-white text-[10px] font-bold py-0.5 px-1 rounded outline-none"
+                                  >
+                                    {item.sizes.map(size => (
+                                      <option key={size} value={size}>{size}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <p className="text-sm font-black text-emerald-400 mt-1">৳{item.price.toLocaleString()}</p>
+                              </div>
+                            </div>
+                          </React.Fragment>
+                        ))}
+                      </div>
+
+                      {/* Action block with price and CTA */}
+                      <div className="border-t lg:border-t-0 lg:border-l border-[#1C3A6E] pt-4 lg:pt-0 lg:pl-8 flex flex-col justify-center min-w-[240px]">
+                        <p className="text-xs text-zinc-400 uppercase tracking-widest font-black">Total Bundle Price</p>
+                        <p className="text-2xl font-black text-emerald-400 mt-1">৳{fbtTotalPrice.toLocaleString()}</p>
+                        
+                        <button 
+                          onClick={handleAddFbtToCart}
+                          disabled={Object.values(fbtSelections).filter(Boolean).length === 0}
+                          className="w-full mt-4 px-6 py-3 rounded-full bg-gradient-to-r from-teal-500 to-[#0055ff] text-white font-black uppercase text-[10px] tracking-widest shadow-[0_5px_15px_rgba(0,85,255,0.3)] hover:shadow-[0_8px_25px_rgba(0,85,255,0.5)] transition-all transform hover:-translate-y-0.5 disabled:opacity-40 disabled:pointer-events-none"
+                        >
+                          Add Checked to Cart ({Object.values(fbtSelections).filter(Boolean).length})
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Related Products Section */}
                 <div className="w-full border-t border-[#1C3A6E] pt-8">
                   <h2 className="text-xl font-bold mb-6 text-[#4da6ff]">Customers also viewed</h2>
@@ -4434,6 +5488,7 @@ function AppContent() {
                             </div>
                             <p className="text-base font-medium text-emerald-400 mt-1">৳{relProduct.price.toLocaleString()}</p>
                           </div>
+                          <StockProgressBar stock={relProduct.stock} />
                         </div>
                       ))
                     }
@@ -4504,6 +5559,82 @@ function AppContent() {
                                 required
                               />
                             </div>
+
+                            {/* Attached Review Images Section */}
+                            {attachedImages.length > 0 && (
+                              <div className="mt-4 animate-in fade-in duration-300">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-[#4da6ff] block mb-2">Attached review photo ({attachedImages.length})</label>
+                                <div className="flex flex-wrap gap-2">
+                                  {attachedImages.map((img, idx) => (
+                                    <div key={idx} className="relative w-16 h-16 border border-[#1c3a6e] rounded group overflow-hidden">
+                                      <img src={img} alt={`Attached ${idx + 1}`} className="w-full h-full object-cover" />
+                                      <button
+                                        type="button"
+                                        onClick={() => removeAttachedImage(idx)}
+                                        className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 flex items-center justify-center text-rose-500 transition-opacity"
+                                        title="Remove Image"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Camera Snap and File Upload Actions */}
+                            <div className="mt-3 space-y-3">
+                              <div className="flex flex-wrap gap-2">
+                                {isWebcamActive ? (
+                                  <button
+                                    type="button"
+                                    onClick={stopCamera}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 border border-rose-500 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[10px] font-black uppercase tracking-widest transition-colors rounded"
+                                  >
+                                    <X size={12} /> Stop Camera
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={startCamera}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 border border-[#4da6ff] bg-[#4da6ff]/10 hover:bg-[#4da6ff]/20 text-[#4da6ff] text-[10px] font-black uppercase tracking-widest transition-colors rounded"
+                                  >
+                                    <Camera size={12} /> Open Camera
+                                  </button>
+                                )}
+
+                                <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-black uppercase tracking-widest transition-colors rounded">
+                                  <Upload size={12} /> Upload Photo
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    onChange={handleReviewFileUpload}
+                                    className="hidden"
+                                  />
+                                </label>
+                              </div>
+
+                              {isWebcamActive && (
+                                <div className="relative border border-[#1cb96e]/30 bg-[#061122] max-w-sm rounded overflow-hidden p-2">
+                                  <video
+                                    ref={reviewVideoRef}
+                                    autoPlay
+                                    playsInline
+                                    className="w-full h-48 object-cover rounded bg-zinc-950"
+                                  />
+                                  <div className="absolute inset-x-0 bottom-4 flex justify-center">
+                                    <button
+                                      type="button"
+                                      onClick={capturePhoto}
+                                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-[10px] font-black uppercase tracking-wider rounded-full shadow-lg border border-blue-400 flex items-center gap-1.5 transition-all"
+                                    >
+                                      <Camera size={14} /> Capture Photo
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                             <button 
                               type="submit"
                               disabled={isSubmittingReview || !newReviewComment}
@@ -4561,6 +5692,19 @@ function AppContent() {
                             </div>
                             <p className="text-xs text-gray-400 mb-2">Reviewed on {review.date}</p>
                             <p className="text-gray-300 text-sm whitespace-pre-line">{review.comment}</p>
+                            {review.images && review.images.length > 0 && (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {review.images.map((img, idx) => (
+                                  <div 
+                                    key={idx} 
+                                    onClick={() => setExpandedReviewImage(img)}
+                                    className="relative w-16 h-16 sm:w-20 sm:h-20 rounded border border-[#1C3A6E] bg-black overflow-hidden hover:opacity-80 transition-opacity cursor-zoom-in"
+                                  >
+                                    <img src={img} alt={`Review photo ${idx + 1}`} className="w-full h-full object-cover" />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                             <div className="mt-3 flex gap-4 text-xs text-gray-400 items-center">
                               <button className="border border-[#1C3A6E] bg-[#061122] px-3 py-1.5 rounded-full hover:bg-[#112A4A] transition-colors shadow-sm">Helpful</button>
                               <span className="cursor-pointer hover:underline text-[#4da6ff]">Report abuse</span>
@@ -4622,6 +5766,7 @@ function AppContent() {
                                 Matched by {aiProduct.category.toLowerCase()}
                             </p>
                           </div>
+                          <StockProgressBar stock={aiProduct.stock} />
                         </div>
                       ))
                     }
@@ -4764,12 +5909,12 @@ function AppContent() {
                 <>
                   <motion.div 
                     layoutId="mobile-nav-bg"
-                    className="absolute inset-0 bg-[#0055ff]/10 rounded-lg -z-10"
+                    style={{ backgroundColor: 'rgba(0, 85, 255, 0.1)' }} className="absolute inset-0 rounded-lg -z-10"
                     transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                   />
                   <motion.div 
                     layoutId="mobile-nav-underline"
-                    className="absolute bottom-0 left-2 right-2 h-1 bg-[#0055ff]"
+                    style={{ backgroundColor: '#0055ff' }} className="absolute bottom-0 left-2 right-2 h-1"
                     transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                   />
                 </>
@@ -4795,12 +5940,12 @@ function AppContent() {
                 <>
                   <motion.div 
                     layoutId="mobile-nav-bg"
-                    className="absolute inset-0 bg-[#0055ff]/10 rounded-lg -z-10"
+                    style={{ backgroundColor: 'rgba(0, 85, 255, 0.1)' }} className="absolute inset-0 rounded-lg -z-10"
                     transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                   />
                   <motion.div 
                     layoutId="mobile-nav-underline"
-                    className="absolute bottom-0 left-2 right-2 h-1 bg-[#0055ff]"
+                    style={{ backgroundColor: '#0055ff' }} className="absolute bottom-0 left-2 right-2 h-1"
                     transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                   />
                 </>
@@ -4826,12 +5971,12 @@ function AppContent() {
                 <>
                   <motion.div 
                     layoutId="mobile-nav-bg"
-                    className="absolute inset-0 bg-[#0055ff]/10 rounded-lg -z-10"
+                    style={{ backgroundColor: 'rgba(0, 85, 255, 0.1)' }} className="absolute inset-0 rounded-lg -z-10"
                     transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                   />
                   <motion.div 
                     layoutId="mobile-nav-underline"
-                    className="absolute bottom-0 left-2 right-2 h-1 bg-[#0055ff]"
+                    style={{ backgroundColor: '#0055ff' }} className="absolute bottom-0 left-2 right-2 h-1"
                     transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                   />
                 </>
@@ -4866,12 +6011,12 @@ function AppContent() {
                 <>
                   <motion.div 
                     layoutId="mobile-nav-bg"
-                    className="absolute inset-0 bg-[#0055ff]/10 rounded-lg -z-10"
+                    style={{ backgroundColor: 'rgba(0, 85, 255, 0.1)' }} className="absolute inset-0 rounded-lg -z-10"
                     transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                   />
                   <motion.div 
                     layoutId="mobile-nav-underline"
-                    className="absolute bottom-0 left-2 right-2 h-1 bg-[#0055ff]"
+                    style={{ backgroundColor: '#0055ff' }} className="absolute bottom-0 left-2 right-2 h-1"
                     transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                   />
                 </>
@@ -4904,12 +6049,12 @@ function AppContent() {
                 <>
                   <motion.div 
                     layoutId="mobile-nav-bg"
-                    className="absolute inset-0 bg-[#0055ff]/10 rounded-lg -z-10"
+                    style={{ backgroundColor: 'rgba(0, 85, 255, 0.1)' }} className="absolute inset-0 rounded-lg -z-10"
                     transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                   />
                   <motion.div 
                     layoutId="mobile-nav-underline"
-                    className="absolute bottom-0 left-2 right-2 h-1 bg-[#0055ff]"
+                    style={{ backgroundColor: '#0055ff' }} className="absolute bottom-0 left-2 right-2 h-1"
                     transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                   />
                 </>
@@ -5176,6 +6321,29 @@ function AppContent() {
                 Dismiss
               </button>
             </footer>
+          </div>
+        </div>
+      )}
+
+      {expandedReviewImage && (
+        <div 
+          className="fixed inset-0 bg-black/95 z-[250] flex items-center justify-center p-4 animate-in fade-in duration-200 cursor-zoom-out"
+          onClick={() => setExpandedReviewImage(null)}
+        >
+          <button 
+            type="button"
+            onClick={() => setExpandedReviewImage(null)}
+            className="absolute top-6 right-6 text-white hover:opacity-70 p-2 cursor-pointer z-[260]"
+            title="Close Lightbox"
+          >
+            <X size={24} />
+          </button>
+          <div className="relative max-w-4xl max-h-[85vh] flex items-center justify-center" onClick={e => e.stopPropagation()}>
+            <img 
+              src={expandedReviewImage} 
+              alt="Review snapshot zoom" 
+              className="max-w-full max-h-[80vh] object-contain border border-zinc-800" 
+            />
           </div>
         </div>
       )}

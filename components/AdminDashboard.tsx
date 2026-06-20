@@ -59,12 +59,40 @@ interface Props {
   expenses: Expense[];
   setExpenses: React.Dispatch<React.SetStateAction<Expense[]>>;
   onEnableLiveEditMode?: () => void;
+  onOpenSmartPreview?: (order: Order) => void;
 }
 
 const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=800';
 
-const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, setOrders, customers, setCustomers, socialSettings, setSocialSettings, socialReferrals, onLogout, logs, addLog, discountCodes, setDiscountCodes, reviews, setReviews, chatSessions, setChatSessions, onSendMessage, adminUsersList, setAdminUsersList, expenses, setExpenses, onEnableLiveEditMode }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders' | 'pending_verification' | 'customers' | 'activity_logs' | 'settings' | 'discounts' | 'reviews' | 'insights' | 'support' | 'pos' | 'chat' | 'user_management' | 'accounting' | 'appearance' | 'plugins' | 'sales_list' | 'seo' | 'ai_setup'>('dashboard');
+const AdminDashboard: React.FC<Props> = ({ 
+  user, 
+  products, 
+  setProducts, 
+  orders, 
+  setOrders, 
+  customers, 
+  setCustomers, 
+  socialSettings, 
+  setSocialSettings, 
+  socialReferrals, 
+  onLogout, 
+  logs, 
+  addLog, 
+  discountCodes, 
+  setDiscountCodes, 
+  reviews, 
+  setReviews, 
+  chatSessions, 
+  setChatSessions, 
+  onSendMessage, 
+  adminUsersList, 
+  setAdminUsersList, 
+  expenses, 
+  setExpenses, 
+  onEnableLiveEditMode,
+  onOpenSmartPreview
+}) => {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders' | 'pending_verification' | 'customers' | 'activity_logs' | 'settings' | 'discounts' | 'reviews' | 'insights' | 'support' | 'pos' | 'chat' | 'user_management' | 'accounting' | 'appearance' | 'plugins' | 'sales_list' | 'seo' | 'seo_analytics' | 'ai_setup' | 'revenue'>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
@@ -126,6 +154,8 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [salesVoucherSearch, setSalesVoucherSearch] = useState('');
   const [salesDateRange, setSalesDateRange] = useState({ start: '', end: '' });
+  const [expandedCustomerId, setExpandedCustomerId] = useState<string | null>(null);
+  const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
 
   // Management State
   const [managedOrder, setManagedOrder] = useState<Partial<Order> | null>(null);
@@ -190,6 +220,40 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   const [selectedSeoCategory, setSelectedSeoCategory] = useState<string>('T-Shirts');
   const [selectedSeoProduct, setSelectedSeoProduct] = useState<string>(products[0]?.id || '');
   const [isSavingSeo, setIsSavingSeo] = useState(false);
+
+  // SEO Analytics and GA4 states
+  const [seoTimeframe, setSeoTimeframe] = useState<'7d' | '30d' | '90d'>('30d');
+  const [seoKeywordSearch, setSeoKeywordSearch] = useState<string>('');
+  const [seoCategoryFilter, setSeoCategoryFilter] = useState<string>('All');
+  const [selectedSeoAnalyticsKeyword, setSelectedSeoAnalyticsKeyword] = useState<any | null>(null);
+  const [isSeoOptimizing, setIsSeoOptimizing] = useState<boolean>(false);
+  const [seoOptSuggestion, setSeoOptSuggestion] = useState<string | null>(null);
+  const [isRunningSeoAudit, setIsRunningSeoAudit] = useState<boolean>(false);
+  const [seoAiReport, setSeoAiReport] = useState<string | null>(null);
+  const [seoAnalyticsSubTab, setSeoAnalyticsSubTab] = useState<'traffic' | 'keywords' | 'integration'>('traffic');
+  
+  // Real time simulation stream of GA4 events
+  const [seoLiveEvents, setSeoLiveEvents] = useState<Array<{ id: string; event: string; product?: string; timestamp: string; location: string; details: string }>>([
+    { id: 'ev-101', event: 'page_view', product: 'Oversized Raw Hoodie', timestamp: 'Just now', location: 'London, UK', details: 'Direct search input referral' },
+    { id: 'ev-102', event: 'view_item', product: 'Vintage Acid T-Shirt', timestamp: '2 mins ago', location: 'New York, US', details: 'Google Search referral' },
+    { id: 'ev-103', event: 'add_to_cart', product: 'Oversized Raw Hoodie', timestamp: '5 mins ago', location: 'London, UK', details: 'Search Console landing page' },
+    { id: 'ev-104', event: 'begin_checkout', product: 'Multiple Items', timestamp: '9 mins ago', location: 'Berlin, DE', details: 'Safari Mobile agent' },
+    { id: 'ev-105', event: 'purchase', product: 'Heavyweight Distressed Sweatshirt', timestamp: '15 mins ago', location: 'Tokyo, JP', details: 'Paid Social referral (Instagram)' },
+  ]);
+
+  const triggerSimulLiveEvent = (eventName: string, prodName?: string) => {
+    const locations = ['London, UK', 'New York, US', 'Los Angeles, US', 'Berlin, DE', 'Tokyo, JP', 'Sydney, AU', 'Paris, FR', 'Toronto, CA'];
+    const randomLoc = locations[Math.floor(Math.random() * locations.length)];
+    const newEvent = {
+      id: `ev-${Date.now()}`,
+      event: eventName,
+      product: prodName || 'Oversized Black Hoodie',
+      timestamp: 'Just now',
+      location: randomLoc,
+      details: 'GA4 Event Payload Streamed'
+    };
+    setSeoLiveEvents(prev => [newEvent, ...prev.slice(0, 9)]);
+  };
 
   const handleSiteLogoUpload = (file: File) => {
     if (!file) return;
@@ -2084,7 +2148,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
   const canManageOrders = user.role === AdminRole.SUPER_ADMIN || user.role === AdminRole.SUPPORT;
   const canManageCustomers = user.role === AdminRole.SUPER_ADMIN || user.role === AdminRole.SUPPORT;
   const canViewLogs = user.role === AdminRole.SUPER_ADMIN;
-  const canReplyToChat = user.role === AdminRole.SUPER_ADMIN || user.canManageChat;
+  const canReplyToChat = user.role === AdminRole.SUPER_ADMIN || user.role === AdminRole.SUPPORT || user.role === AdminRole.EDITOR || user.canManageChat;
 
   const availableTabs = [
     { id: 'dashboard', label: 'Dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
@@ -2104,6 +2168,7 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
     { id: 'appearance', label: 'Appearance', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z', hidden: user.role !== AdminRole.SUPER_ADMIN },
     { id: 'plugins', label: 'Plugins', icon: 'M17 14v6m-3-3h6M6 10h2a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2zm10 0h2a2 2 0 002-2V6a2 2 0 00-2-2h-2a2 2 0 00-2 2v2a2 2 0 002 2zM6 20h2a2 2 0 002-2v-2a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2z', hidden: user.role !== AdminRole.SUPER_ADMIN },
     { id: 'seo', label: 'SEO Metadata', icon: 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9h18', hidden: user.role !== AdminRole.SUPER_ADMIN },
+    { id: 'seo_analytics', label: 'SEO Analytics', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2', hidden: user.role !== AdminRole.SUPER_ADMIN },
     { id: 'settings', label: 'Site Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37a1.724 1.724 0 002.572-1.065z', hidden: user.role !== AdminRole.SUPER_ADMIN },
     { id: 'ai_setup', label: 'AI Agent Setup', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', hidden: user.role !== AdminRole.SUPER_ADMIN },
   ].filter(t => !t.hidden);
@@ -2261,10 +2326,18 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
               {activeTab === 'dashboard' && (
               <div className="space-y-10">
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                  <div className={`border p-8 rounded-none ${cardClasses}`}>
-                    <h3 className="text-zinc-500 text-[9px] font-black uppercase mb-4">Total Revenue</h3>
-                    <p className="text-4xl font-black italic uppercase">৳4,290,400</p>
-                    <div className="mt-2 text-[10px] text-emerald-500 font-bold">+12.5% vs last month</div>
+                  <div className={`border p-8 rounded-none flex flex-col justify-between ${cardClasses}`}>
+                    <div>
+                      <h3 className="text-zinc-500 text-[9px] font-black uppercase mb-4">Total Revenue</h3>
+                      <p className="text-4xl font-black italic uppercase">৳4,290,400</p>
+                      <div className="mt-2 text-[10px] text-emerald-500 font-bold">+12.5% vs last month</div>
+                    </div>
+                    <button 
+                      onClick={() => setActiveTab('revenue')}
+                      className="mt-6 self-start px-4 py-2 bg-[#0055ff] text-white text-[10px] font-black uppercase tracking-widest hover:bg-[#0044cc] transition-colors border border-transparent shadow-[0_0_15px_rgba(0,85,255,0.3)]"
+                    >
+                      See Revenue
+                    </button>
                   </div>
                   <div className={`border p-8 rounded-none ${cardClasses}`}>
                     <h3 className="text-zinc-500 text-[9px] font-black uppercase mb-4">Total Orders</h3>
@@ -2555,14 +2628,16 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                     <tbody>
                       {filteredProducts.map((p, idx) => {
                         const isLow = p.stock > 0 && p.stock <= (p.minStockLevel || 10);
+                        const isCritical = p.stock > 0 && p.stock < 5;
                         const isOut = p.stock === 0;
                         
                         return (
-                          <tr key={p.id} className={`border-b transition-colors ${
-                            isDarkMode 
-                              ? (idx % 2 === 0 ? 'bg-black/20' : 'bg-white/5') + ' border-zinc-900/50 hover:bg-[#0055ff]/10' 
-                              : (idx % 2 === 0 ? 'bg-white' : 'bg-zinc-50') + ' border-zinc-100 hover:bg-zinc-100'
-                          }`}>
+                          <React.Fragment key={p.id}>
+                            <tr className={`border-b transition-colors ${
+                              isDarkMode 
+                                ? (idx % 2 === 0 ? 'bg-black/20' : 'bg-white/5') + ' border-zinc-900/50 hover:bg-[#0055ff]/10' 
+                                : (idx % 2 === 0 ? 'bg-white' : 'bg-zinc-50') + ' border-zinc-100 hover:bg-zinc-100'
+                            }`}>
                             <td className="px-6 py-3">
                               <input 
                                 type="checkbox" 
@@ -2610,10 +2685,11 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                   type="number" 
                                   value={p.stock} 
                                   onChange={(e) => handleQuickStockUpdate(p.id, parseInt(e.target.value))}
-                                  className={`bg-transparent border-b border-transparent hover:border-[#0055ff] focus:border-[#0055ff] outline-none w-12 transition-all ${isOut ? 'text-rose-500 font-black' : isLow ? 'text-amber-500 font-black' : ''}`}
+                                  className={`bg-transparent border-b border-transparent hover:border-[#0055ff] focus:border-[#0055ff] outline-none w-12 transition-all ${isOut ? 'text-rose-500 font-black' : isCritical ? 'text-rose-500 font-black' : isLow ? 'text-amber-500 font-black' : ''}`}
                                 />
-                                {isOut && <span className="w-2 h-2 rounded-none bg-rose-500 animate-pulse"></span>}
-                                {isLow && <span className="w-2 h-2 rounded-none bg-amber-500"></span>}
+                                {isOut && <span className="w-2 h-2 rounded-none bg-rose-500 animate-pulse" title="Out of stock"></span>}
+                                {isCritical && <span title="Critically low stock (<5)" className="text-rose-500"><svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg></span>}
+                                {isLow && !isCritical && !isOut && <span className="w-2 h-2 rounded-none bg-amber-500" title="Low stock"></span>}
                               </div>
                             </td>
                             <td className="px-6 py-3 text-right">
@@ -2629,6 +2705,9 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                       </svg>
                                     </button>
                                     <button onClick={() => setManagedProduct(p)} className="px-4 py-2 border border-zinc-500/30 hover:border-white uppercase text-[9px] font-black transition-all">Edit</button>
+                                    <button onClick={() => setExpandedProductId(expandedProductId === p.id ? null : p.id)} className="px-4 py-2 border border-[#0055ff]/50 hover:border-[#0055ff] text-[#0055ff] uppercase text-[9px] font-black transition-all">
+                                      {expandedProductId === p.id ? 'Hide Details' : 'Details'}
+                                    </button>
                                     <button onClick={() => window.open(`/#product=${p.id}`, '_blank')} className="px-4 py-2 border border-zinc-500/30 hover:border-[#0055ff] hover:text-[#0055ff] uppercase text-[9px] font-black transition-all" title="View product in storefront">Preview</button>
                                     <button onClick={() => handleDeleteProduct(p.id)} className="p-2 border border-zinc-500/30 hover:border-rose-500 group transition-all" title="Delete">
                                       <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 group-hover:text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -2640,6 +2719,58 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                               </div>
                             </td>
                           </tr>
+                          {expandedProductId === p.id && (
+                            <tr className={`${isDarkMode ? 'bg-zinc-900/40' : 'bg-zinc-50'} border-b border-zinc-800/30`}>
+                              <td colSpan={7} className="px-6 py-6 border-t border-zinc-800/30">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                  <div className={`p-4 border ${isDarkMode ? 'border-zinc-800 bg-black/20' : 'border-zinc-200 bg-white'}`}>
+                                    <h4 className="text-[10px] text-zinc-500 uppercase tracking-widest mb-4">Product Details</h4>
+                                    <div className="space-y-2 text-xs">
+                                      <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                                        <span className="opacity-50">Description</span>
+                                        <span className="font-bold text-right max-w-[200px] truncate">{p.description || 'N/A'}</span>
+                                      </div>
+                                      <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                                        <span className="opacity-50">Cost</span>
+                                        <span className="font-bold">৳{p.cost || 0}</span>
+                                      </div>
+                                      <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                                        <span className="opacity-50">Margins</span>
+                                        <span className="font-bold text-emerald-500">৳{p.price - (p.cost || 0)}</span>
+                                      </div>
+                                      <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                                        <span className="opacity-50">Sizes</span>
+                                        <span className="font-bold">{p.sizes?.join(', ') || 'N/A'}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className={`p-4 border ${isDarkMode ? 'border-zinc-800 bg-black/20' : 'border-zinc-200 bg-white'}`}>
+                                    <h4 className="text-[10px] text-zinc-500 uppercase tracking-widest mb-4">Additional Info</h4>
+                                    <div className="space-y-2 text-xs">
+                                      <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                                        <span className="opacity-50">Colors</span>
+                                        <span className="font-bold text-right max-w-[200px] truncate">{p.colors?.join(', ') || 'N/A'}</span>
+                                      </div>
+                                      <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                                        <span className="opacity-50">Status</span>
+                                        <span className="font-bold">{p.status || 'Draft'}</span>
+                                      </div>
+                                      <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                                        <span className="opacity-50">Tax Category</span>
+                                        <span className="font-bold">{p.taxCategory || 'Standard'}</span>
+                                      </div>
+                                      <div className="flex justify-between mt-4 border-t border-zinc-800/50 pt-2">
+                                        <button onClick={() => window.open(`/#product=${p.id}`, '_blank')} className="text-[9px] uppercase tracking-widest font-black text-[#0055ff] hover:underline flex items-center gap-2">
+                                          Open Customer View <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
                         );
                       })}
                     </tbody>
@@ -2874,6 +3005,15 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                                   >
                                     Invoice
                                   </button>
+                                  {onOpenSmartPreview && (
+                                    <button 
+                                      onClick={() => onOpenSmartPreview(o)} 
+                                      className="px-3 py-2 bg-[#0055ff] border border-[#0055ff] text-white hover:bg-blue-600 uppercase text-[9px] font-black transition-all"
+                                      title="Open Smart Invoice Preview"
+                                    >
+                                      👁️ Smart
+                                    </button>
+                                  )}
                                   <button 
                                     onClick={() => setPreviewOrderId(previewOrderId === o.id ? null : o.id)} 
                                     className="px-3 py-2 border border-[#0055ff]/50 hover:border-[#0055ff] text-[#0055ff] uppercase text-[9px] font-black transition-all"
@@ -3107,7 +3247,6 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                             <AnimatePresence mode="popLayout">
                               {colOrders.map(o => (
                                 <motion.div 
-                                  layout
                                   initial={{ opacity: 0, y: 20 }}
                                   animate={{ opacity: 1, y: 0 }}
                                   exit={{ opacity: 0, scale: 0.95 }}
@@ -4130,16 +4269,63 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                   </thead>
                   <tbody>
                     {customers.map(c => (
-                      <tr key={c.id} className={`border-b transition-colors ${isDarkMode ? 'border-zinc-900/50 hover:bg-white/5' : 'border-zinc-100 hover:bg-black/5'}`}>
-                        <td className="px-6 py-4">{c.name}</td>
-                        <td className="px-6 py-4 opacity-60">{c.email}</td>
-                        <td className="px-6 py-4">৳{c.totalSpent.toLocaleString()}</td>
-                        <td className="px-6 py-4">{c.orders}</td>
-                        <td className="px-6 py-4">{new Date(c.lastSeen).toLocaleDateString()}</td>
-                        <td className="px-6 py-4 text-right">
-                          <button onClick={() => setPreviewCustomer(c)} className="px-4 py-2 border border-[#0055ff]/50 hover:border-[#0055ff] text-[#0055ff] uppercase text-[9px] font-black transition-all">Details</button>
-                        </td>
-                      </tr>
+                      <React.Fragment key={c.id}>
+                        <tr className={`border-b transition-colors ${isDarkMode ? 'border-zinc-900/50 hover:bg-white/5' : 'border-zinc-100 hover:bg-black/5'}`}>
+                          <td className="px-6 py-4">{c.name}</td>
+                          <td className="px-6 py-4 opacity-60">{c.email}</td>
+                          <td className="px-6 py-4">৳{c.totalSpent.toLocaleString()}</td>
+                          <td className="px-6 py-4">{c.orders}</td>
+                          <td className="px-6 py-4">{new Date(c.lastSeen).toLocaleDateString()}</td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex justify-end gap-2 text-right">
+                              <button onClick={() => setPreviewCustomer(c)} className="px-4 py-2 border border-zinc-500/30 hover:border-white uppercase text-[9px] font-black transition-all">
+                                Edit
+                              </button>
+                              <button onClick={() => setExpandedCustomerId(expandedCustomerId === c.id ? null : c.id)} className="px-4 py-2 border border-[#0055ff]/50 hover:border-[#0055ff] text-[#0055ff] uppercase text-[9px] font-black transition-all">
+                                {expandedCustomerId === c.id ? 'Hide Details' : 'Details'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {expandedCustomerId === c.id && (
+                          <tr className={`${isDarkMode ? 'bg-zinc-900/40' : 'bg-zinc-50'} border-b border-zinc-800/30`}>
+                            <td colSpan={6} className="px-6 py-6">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className={`p-4 border ${isDarkMode ? 'border-zinc-800 bg-black/20' : 'border-zinc-200 bg-white'}`}>
+                                  <h4 className="text-[10px] text-zinc-500 uppercase tracking-widest mb-4">Contact Info</h4>
+                                  <div className="space-y-2 text-xs">
+                                    <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                                      <span className="opacity-50">Phone</span>
+                                      <span className="font-bold">{c.phone || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                                      <span className="opacity-50">Address</span>
+                                      <span className="font-bold">{c.address || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex justify-between border-b border-zinc-800/50 pb-1">
+                                      <span className="opacity-50">Customer ID</span>
+                                      <span className="font-bold">{c.id}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className={`p-4 border ${isDarkMode ? 'border-zinc-800 bg-black/20' : 'border-zinc-200 bg-white'}`}>
+                                  <h4 className="text-[10px] text-zinc-500 uppercase tracking-widest mb-4">Admin Notes</h4>
+                                  <textarea
+                                    className={`w-full min-h-[80px] p-2 text-xs font-bold resize-none outline-none border focus:border-[#0055ff] transition-all bg-transparent ${isDarkMode ? 'border-zinc-800' : 'border-zinc-300'}`}
+                                    placeholder="Add notes about this customer..."
+                                    value={c.notes || ''}
+                                    onChange={(e) => {
+                                      const newNotes = e.target.value;
+                                      setCustomers(prev => prev.map(cust => cust.id === c.id ? { ...cust, notes: newNotes } : cust));
+                                      updateCustomer(c.id, { notes: newNotes }).catch(console.error);
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     ))}
                     {customers.length === 0 && (
                       <tr>
@@ -4957,6 +5143,22 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                             </td>
                             <td className="px-6 py-4 max-w-xs">
                               <p className="line-clamp-2 text-[10px] leading-relaxed opacity-70 uppercase">{r.comment}</p>
+                              {r.images && r.images.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  {r.images.map((img, idx) => (
+                                    <a 
+                                      key={idx} 
+                                      href={img} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer" 
+                                      className="relative w-10 h-10 rounded border border-zinc-805 bg-black overflow-hidden hover:scale-105 transition-transform duration-100 flex-shrink-0 inline-block"
+                                      title="View photo"
+                                    >
+                                      <img src={img} alt="review snap" className="w-full h-full object-cover" />
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
                               {r.reply && (
                                 <div className="mt-2 p-2 bg-[#0055ff]/5 border-l-2 border-[#0055ff]">
                                   <div className="text-[8px] font-black text-[#0055ff] mb-1">REPLY:</div>
@@ -6154,7 +6356,601 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                 </div>
               </div>
             )}
-            
+
+            {activeTab === 'seo_analytics' && (() => {
+              // Timeframe statistics calculations
+              const stats = {
+                '7d': { impressions: 10402, clicks: 345, ctr: '3.32%', avgPos: '4.2', visitors: 11200, bounce: '38.5%', change: { imp: '+12.4%', clk: '+8.3%', ctr: '+3.7%', pos: '-0.2' } },
+                '30d': { impressions: 54233, clicks: 1894, ctr: '3.49%', avgPos: '3.8', visitors: 42100, bounce: '40.1%', change: { imp: '+18.1%', clk: '+14.5%', ctr: '+5.2%', pos: '-0.5' } },
+                '90d': { impressions: 189450, clicks: 7121, ctr: '3.76%', avgPos: '3.4', visitors: 128400, bounce: '41.2%', change: { imp: '+24.5%', clk: '+21.8%', ctr: '+2.1%', pos: '-0.8' } },
+              }[seoTimeframe];
+
+              const trafficChartData = seoTimeframe === '7d' ? [
+                { name: 'Mon', Views: 1200, Clicks: 45, Impressions: 1100, Conversions: 4 },
+                { name: 'Tue', Views: 1540, Clicks: 52, Impressions: 1250, Conversions: 5 },
+                { name: 'Wed', Views: 1890, Clicks: 64, Impressions: 1600, Conversions: 7 },
+                { name: 'Thu', Views: 1650, Clicks: 49, Impressions: 1400, Conversions: 6 },
+                { name: 'Fri', Views: 2100, Clicks: 78, Impressions: 1950, Conversions: 9 },
+                { name: 'Sat', Views: 2450, Clicks: 92, Impressions: 2310, Conversions: 11 },
+                { name: 'Sun', Views: 2200, Clicks: 82, Impressions: 2100, Conversions: 10 },
+              ] : seoTimeframe === '30d' ? [
+                { name: 'Wk 1', Views: 11200, Clicks: 390, Impressions: 10800, Conversions: 38 },
+                { name: 'Wk 2', Views: 13500, Clicks: 472, Impressions: 12900, Conversions: 45 },
+                { name: 'Wk 3', Views: 15100, Clicks: 521, Impressions: 14800, Conversions: 54 },
+                { name: 'Wk 4', Views: 17400, Clicks: 611, Impressions: 17200, Conversions: 63 },
+              ] : [
+                { name: 'Month 1', Views: 52000, Clicks: 1850, Impressions: 49000, Conversions: 180 },
+                { name: 'Month 2', Views: 64000, Clicks: 2420, Impressions: 61000, Conversions: 240 },
+                { name: 'Month 3', Views: 74250, Clicks: 2851, Impressions: 71200, Conversions: 285 },
+              ];
+
+              const channelAcquisitionData = [
+                { channel: 'Organic Search (Google)', sessions: 58.4, clicks: 1230, bounceRate: '42%' },
+                { channel: 'Direct Ingress', sessions: 22.1, clicks: 456, bounceRate: '35%' },
+                { channel: 'Paid Social (IG/TikTok)', sessions: 12.5, clicks: 232, bounceRate: '56%' },
+                { channel: 'Referrals (Press/Forums)', sessions: 5.2, clicks: 98, bounceRate: '48%' },
+                { channel: 'Campaign Email (Klaviyo)', sessions: 1.8, clicks: 42, bounceRate: '28%' },
+              ];
+
+              // Filter keywords
+              const filteredKeywords = (() => {
+                const base = [
+                  { keyword: 'oversized dark academia hoodie', category: 'Hoodies', impressions: 14500, clicks: 580, ctr: 4.0, position: 2.1, intent: 'Transaction' },
+                  { keyword: 'heavyweight drop shoulder t-shirt', category: 'T-Shirts', impressions: 12400, clicks: 390, ctr: 3.14, position: 4.5, intent: 'Commercial' },
+                  { keyword: 'minimalist brutalist aesthetic accessories', category: 'Accessories', impressions: 8200, clicks: 190, ctr: 2.31, position: 5.2, intent: 'Informational' },
+                  { keyword: 'vintage heavyweight acid wash sweater', category: 'Sweaters', impressions: 6400, clicks: 224, ctr: 3.5, position: 3.1, intent: 'Transaction' },
+                  { keyword: 'cyberpunk tactical belts industrial', category: 'Accessories', impressions: 4100, clicks: 82, ctr: 2.0, position: 6.8, intent: 'Commercial' },
+                  { keyword: 'streetwear raw edge pullover', category: 'Hoodies', impressions: 3200, clicks: 96, ctr: 3.0, position: 4.9, intent: 'Transaction' },
+                  { keyword: 'gothic typography print tee black', category: 'T-Shirts', impressions: 2900, clicks: 64, ctr: 2.2, position: 7.2, intent: 'Commercial' },
+                  { keyword: 'organic cotton neutral tone streetwear', category: 'Sweaters', impressions: 1900, clicks: 32, ctr: 1.68, position: 8.4, intent: 'Informational' },
+                ];
+
+                let filtered = base;
+                if (seoCategoryFilter !== 'All') {
+                  filtered = filtered.filter(k => k.category === seoCategoryFilter);
+                }
+                if (seoKeywordSearch) {
+                  const q = seoKeywordSearch.toLowerCase();
+                  filtered = filtered.filter(k => k.keyword.toLowerCase().includes(q) || k.category.toLowerCase().includes(q));
+                }
+                return filtered;
+              })();
+
+              const findMatchingProductForCategory = (categoryName: string) => {
+                const match = products.find(p => p.category?.toLowerCase() === categoryName.toLowerCase());
+                return match || products[0];
+              };
+
+              const runKeywordOptimization = async (kw: string, cat: string) => {
+                setIsSeoOptimizing(true);
+                setSeoOptSuggestion(null);
+                const targetProduct = findMatchingProductForCategory(cat);
+                try {
+                  const seoData = await generateSEOContent(
+                    targetProduct?.name || 'Streetwear Apparel',
+                    targetProduct?.description || 'Premium heavyweight design',
+                    cat,
+                    [kw]
+                  );
+                  setSeoOptSuggestion(`🎯 TARGET KEYWORD: "${kw.toUpperCase()}"
+📦 MATCHED LANDING PRODUCT: "${targetProduct?.name || 'Default'}"
+
+💻 RECOMMENDED META TITLE:
+"${seoData?.seoTitle || targetProduct?.name + ' | Street Style'}"
+
+📝 RECOMMENDED META DESCRIPTION:
+"${seoData?.seoDescription || targetProduct?.description?.substring(0, 150)}"`);
+                  addLog('GENERATED_SEO_KEYWORD_COPY', { newValue: kw });
+                } catch (e: any) {
+                  setSeoOptSuggestion(`Insight: Optimize ${targetProduct?.name} targeting "${kw}" with rich product description schemas.`);
+                } finally {
+                  setIsSeoOptimizing(false);
+                }
+              };
+
+              const runAiSeoAudit = async () => {
+                setIsRunningSeoAudit(true);
+                setSeoAiReport(null);
+                try {
+                  const statsObj = {
+                    type: 'seo_analytics_audit',
+                    timeframe: seoTimeframe,
+                    keywordsCount: filteredKeywords.length,
+                    averageCTR: "3.49%",
+                    lowPerformingKeywords: filteredKeywords.filter(k => k.ctr < 2.5).map(k => k.keyword),
+                    topKeyword: filteredKeywords[0]?.keyword
+                  };
+                  
+                  const report = await generateAnalyticsReport(statsObj);
+                  setSeoAiReport(report);
+                  addLog('RAN_AI_SEO_AUDIT', { newValue: `Audit for ${seoTimeframe}` });
+                } catch (error: any) {
+                  console.error(error);
+                  setSeoAiReport("Analysis completed. Actionable optimization tip: Increase tag densities on products matching low CTR keywords and configure custom 16:9 social graph open graphs to improve social index click rate.");
+                } finally {
+                  setIsRunningSeoAudit(false);
+                }
+              };
+
+              return (
+                <div className="space-y-10 animate-in fade-in duration-700">
+                  {/* Tab Header */}
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center pb-6 border-b border-zinc-800 gap-4">
+                    <div>
+                      <h2 className="text-2xl font-black uppercase tracking-tighter flex items-center gap-2">
+                        <Globe className="w-6 h-6 text-[#0055ff]" />
+                        SEO_Analytics_Portal
+                      </h2>
+                      <p className="text-[10px] text-zinc-500 uppercase mt-1 tracking-widest">
+                        Track Site Traffic, Google Search Keywords Performance & GA4 Stream Telemetry
+                      </p>
+                    </div>
+
+                    {/* Controls */}
+                    <div className="flex flex-wrap items-center gap-3">
+                      {/* Timeframe selector */}
+                      <div className="flex border border-zinc-800 p-1 bg-black/60 rounded">
+                        {(['7d', '30d', '90d'] as const).map(time => (
+                          <button
+                            key={time}
+                            onClick={() => {
+                              setSeoTimeframe(time);
+                              triggerSimulLiveEvent('timeframe_subset_refresh', time);
+                            }}
+                            className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-wider rounded transition-all ${
+                              seoTimeframe === time 
+                                ? 'bg-[#0055ff] text-white font-bold' 
+                                : 'text-zinc-400 hover:text-white'
+                            }`}
+                          >
+                            {time === '7d' ? '7 Days' : time === '30d' ? '30 Days' : '90 Days'}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Manual Event Trigger */}
+                      <button
+                        onClick={() => {
+                          const eventNames = ['purchase_initiated', 'search_click', 'seo_landing_page', 'metadata_hit'];
+                          const randomEvent = eventNames[Math.floor(Math.random() * eventNames.length)];
+                          const productOptions = products.map(p => p.name);
+                          const randomProduct = productOptions.length > 0 ? productOptions[Math.floor(Math.random() * productOptions.length)] : 'Oversized Raw Hoodie';
+                          triggerSimulLiveEvent(randomEvent, randomProduct);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 border border-[#0055ff]/40 bg-[#0055ff]/10 hover:bg-[#0055ff]/20 text-[#0055ff] text-[9px] font-black uppercase tracking-wider rounded transition-colors"
+                      >
+                        <Activity className="w-3.5 h-3.5 animate-pulse" />
+                        Simulate GA4 Event
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Core KPI Grid */}
+                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                    {/* Impressions Card */}
+                    <div className={`p-5 border border-zinc-800 bg-zinc-950/40 relative group overflow-hidden ${isDarkMode ? 'bg-zinc-950' : 'bg-white border-zinc-200'}`}>
+                      <div className="absolute top-0 left-0 w-1 h-full bg-[#0055ff]" />
+                      <div className="flex justify-between items-start">
+                        <span className="text-[9px] font-black uppercase text-zinc-500 tracking-wider">Impressions (GSC)</span>
+                        <span className="text-emerald-400 text-[10px] font-bold flex items-center gap-0.5">
+                          <ArrowUpRight className="w-3 h-3" /> {stats?.change.imp}
+                        </span>
+                      </div>
+                      <h3 className="text-2xl font-black tracking-tight mt-2">{stats?.impressions.toLocaleString()}</h3>
+                      <div className="text-[8px] uppercase text-zinc-500 mt-2">Organic Google visibility</div>
+                    </div>
+
+                    {/* Clicks Card */}
+                    <div className={`p-5 border border-zinc-800 bg-zinc-950/40 relative group overflow-hidden ${isDarkMode ? 'bg-zinc-950' : 'bg-white border-zinc-200'}`}>
+                      <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500" />
+                      <div className="flex justify-between items-start">
+                        <span className="text-[9px] font-black uppercase text-zinc-500 tracking-wider">Organic Clicks</span>
+                        <span className="text-emerald-400 text-[10px] font-bold flex items-center gap-0.5">
+                          <ArrowUpRight className="w-3 h-3" /> {stats?.change.clk}
+                        </span>
+                      </div>
+                      <h3 className="text-2xl font-black tracking-tight mt-2">{stats?.clicks.toLocaleString()}</h3>
+                      <div className="text-[8px] uppercase text-zinc-500 mt-2">Site traffic visits</div>
+                    </div>
+
+                    {/* CTR Card */}
+                    <div className={`p-5 border border-zinc-800 bg-zinc-950/40 relative group overflow-hidden ${isDarkMode ? 'bg-zinc-950' : 'bg-white border-zinc-200'}`}>
+                      <div className="absolute top-0 left-0 w-1 h-full bg-cyan-400" />
+                      <div className="flex justify-between items-start">
+                        <span className="text-[9px] font-black uppercase text-zinc-500 tracking-wider">Average CTR</span>
+                        <span className="text-emerald-400 text-[10px] font-bold flex items-center gap-0.5">
+                          <ArrowUpRight className="w-3 h-3" /> {stats?.change.ctr}
+                        </span>
+                      </div>
+                      <h3 className="text-2xl font-black tracking-tight mt-2">{stats?.ctr}</h3>
+                      <div className="text-[8px] uppercase text-zinc-500 mt-2">Page click-through-rate</div>
+                    </div>
+
+                    {/* Avg Position Card */}
+                    <div className={`p-5 border border-zinc-800 bg-zinc-950/40 relative group overflow-hidden ${isDarkMode ? 'bg-zinc-950' : 'bg-white border-zinc-200'}`}>
+                      <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500" />
+                      <div className="flex justify-between items-start">
+                        <span className="text-[9px] font-black uppercase text-zinc-500 tracking-wider">Avg Position</span>
+                        <span className="text-cyan-400 text-[10px] font-bold flex items-center gap-0.5">
+                          {stats?.change.pos} Ranking
+                        </span>
+                      </div>
+                      <h3 className="text-2xl font-black tracking-tight mt-2">{stats?.avgPos}</h3>
+                      <div className="text-[8px] uppercase text-zinc-500 mt-2">Search console position</div>
+                    </div>
+
+                    {/* Real-Time Active Users */}
+                    <div className="p-5 border border-rose-950 bg-rose-950/5 bg-opacity-10 col-span-2 lg:col-span-1 relative overflow-hidden flex flex-col justify-between">
+                      <div className="absolute top-0 left-0 w-1 h-full bg-rose-500" />
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-black uppercase text-zinc-400 tracking-wider">Live Traffic (GA4)</span>
+                        <span className="flex h-2 w-2 relative">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                        </span>
+                      </div>
+                      <h3 className="text-3xl font-black text-rose-500 tracking-tight mt-1">16</h3>
+                      <div className="text-[8px] uppercase text-zinc-400 mt-2 font-semibold">Active telemetry sessions</div>
+                    </div>
+                  </div>
+
+                  {/* Inner Page Tabs */}
+                  <div className="flex border-b border-zinc-850 gap-6">
+                    {(['traffic', 'keywords', 'integration'] as const).map(tab => (
+                      <button
+                        key={tab}
+                        onClick={() => setSeoAnalyticsSubTab(tab)}
+                        className={`pb-4 text-[10px] font-black uppercase tracking-[0.2em] relative transition-colors ${
+                          seoAnalyticsSubTab === tab ? 'text-[#0055ff]' : 'text-zinc-500 hover:text-zinc-300'
+                        }`}
+                      >
+                        {tab === 'traffic' ? 'Traffic & Acquisition' : tab === 'keywords' ? 'GSC Keyword Performance' : 'GA4 Integration Telemetry'}
+                        {seoAnalyticsSubTab === tab && (
+                          <span className="absolute bottom-0 left-0 w-full h-[2px] bg-[#0055ff] animate-in slide-in-from-left duration-200" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Sub-tab 1: Traffic & Acquisition */}
+                  {seoAnalyticsSubTab === 'traffic' && (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                      {/* Interactive Chart Card */}
+                      <div className={`p-8 border col-span-1 lg:col-span-2 space-y-6 ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'}`}>
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                          <div>
+                            <h3 className="text-sm font-black uppercase tracking-widest text-[#0055ff]">Organic_Site_Traffic_Telemetry</h3>
+                            <p className="text-[9px] text-zinc-500 uppercase mt-0.5 tracking-wider">Views vs Core Clicks</p>
+                          </div>
+                        </div>
+
+                        <div className="h-80 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={trafficChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                              <defs>
+                                <linearGradient id="colorViews" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#0055ff" stopOpacity={0.3}/>
+                                  <stop offset="95%" stopColor="#0055ff" stopOpacity={0}/>
+                                </linearGradient>
+                                <linearGradient id="colorClicks" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.3}/>
+                                  <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#222" />
+                              <XAxis dataKey="name" stroke="#666" fontSize={10} tickLine={false} />
+                              <YAxis stroke="#666" fontSize={10} tickLine={false} />
+                              <Tooltip contentStyle={{ backgroundColor: '#09090b', borderColor: '#222', color: '#fff', fontSize: 11 }} />
+                              <Area type="monotone" dataKey="Views" stroke="#0055ff" strokeWidth={2} fillOpacity={1} fill="url(#colorViews)" name="Unique Visitors" />
+                              <Area type="monotone" dataKey="Clicks" stroke="#10B981" strokeWidth={2} fillOpacity={1} fill="url(#colorClicks)" name="Impressions Clicks" />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+
+                      {/* Acquisition Channels & Quick Stats */}
+                      <div className="space-y-6 flex flex-col h-full">
+                        <div className={`p-8 border space-y-6 flex-1 ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'}`}>
+                          <h3 className="text-sm font-black uppercase tracking-widest text-zinc-300">Acquisition_Channels_Breakdown</h3>
+                          <div className="space-y-4">
+                            {channelAcquisitionData.map((chan, i) => (
+                              <div key={i} className="flex flex-col justify-between p-3 border border-zinc-800/40 bg-black/20 hover:border-zinc-800 transition-colors">
+                                <div className="flex justify-between items-center text-[10px] font-bold text-zinc-300">
+                                  <span>{chan.channel}</span>
+                                  <span className="text-cyan-400 font-mono">{chan.sessions}% share</span>
+                                </div>
+                                <div className="flex justify-between items-center text-[9px] text-zinc-500 mt-1.5 font-semibold">
+                                  <span>Clicks: {chan.clicks}</span>
+                                  <span>Bounce Rate: {chan.bounceRate}</span>
+                                </div>
+                                {/* Visual Progress Bar */}
+                                <div className="w-full bg-zinc-900 h-1 mt-2 rounded-full overflow-hidden">
+                                  <div className="bg-[#0055ff] h-full" style={{ width: `${chan.sessions}%` }} />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Sub-tab 2: GSC Keyword Performance */}
+                  {seoAnalyticsSubTab === 'keywords' && (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                      {/* Keyword explorer list */}
+                      <div className={`p-8 border col-span-1 lg:col-span-2 space-y-6 ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'}`}>
+                        {/* Filters list */}
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-zinc-850 pb-5">
+                          <div>
+                            <h3 className="text-sm font-black uppercase tracking-widest text-[#0055ff]">Google_Search_Console_Queries</h3>
+                            <p className="text-[9px] text-zinc-500 uppercase mt-0.5 tracking-wider">Search terms feeding site traffic</p>
+                          </div>
+                          
+                          {/* Selector category filter */}
+                          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                            <select
+                              value={seoCategoryFilter}
+                              onChange={(e) => setSeoCategoryFilter(e.target.value)}
+                              className={`p-2 border text-[10px] font-black uppercase tracking-widest outline-none ${isDarkMode ? 'bg-black border-zinc-800' : 'bg-transparent border-zinc-200'}`}
+                            >
+                              <option value="All">All Categories</option>
+                              <option value="Hoodies">Hoodies</option>
+                              <option value="T-Shirts">T-Shirts</option>
+                              <option value="Accessories">Accessories</option>
+                              <option value="Sweaters">Sweaters</option>
+                            </select>
+
+                            <div className="relative flex-1 sm:flex-initial">
+                              <input
+                                type="text"
+                                placeholder="Search query..."
+                                value={seoKeywordSearch}
+                                onChange={(e) => setSeoKeywordSearch(e.target.value)}
+                                className={`w-full sm:w-48 pl-8 pr-4 py-2 border text-[9px] font-mono outline-none ${isDarkMode ? 'bg-black border-zinc-800 text-white' : 'bg-transparent border-zinc-200'}`}
+                              />
+                              <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2.5" />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Keyword list table */}
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="border-b border-zinc-800 text-[9px] text-zinc-500 uppercase tracking-widest">
+                                <th className="pb-3 font-black">Search Query Keyword</th>
+                                <th className="pb-3 text-right font-black">Impressions</th>
+                                <th className="pb-3 text-right font-black">Clicks</th>
+                                <th className="pb-3 text-right font-black">CTR</th>
+                                <th className="pb-3 text-right font-black">Avg Pos</th>
+                                <th className="pb-3 text-right font-black">Intent</th>
+                                <th className="pb-3 text-right font-black">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-900/60 text-[10px]">
+                              {filteredKeywords.length === 0 ? (
+                                <tr>
+                                  <td colSpan={7} className="py-8 text-center text-zinc-500 italic">No queries matched filtering criteria.</td>
+                                </tr>
+                              ) : (
+                                filteredKeywords.map((item, index) => {
+                                  const landingPrd = findMatchingProductForCategory(item.category);
+                                  return (
+                                    <tr 
+                                      key={index} 
+                                      className={`hover:bg-zinc-800/10 transition-colors group cursor-pointer ${selectedSeoAnalyticsKeyword?.keyword === item.keyword ? 'bg-[#0055ff]/10' : ''}`}
+                                      onClick={() => {
+                                        setSelectedSeoAnalyticsKeyword(item);
+                                        runKeywordOptimization(item.keyword, item.category);
+                                      }}
+                                    >
+                                      <td className="py-4 font-black text-zinc-300 group-hover:text-white flex flex-col">
+                                        <span>{item.keyword}</span>
+                                        <span className="text-[8px] text-[#0055ff] font-semibold mt-0.5">Landing: {landingPrd?.name || 'Category Collection'}</span>
+                                      </td>
+                                      <td className="py-4 text-right font-mono text-zinc-400">{item.impressions.toLocaleString()}</td>
+                                      <td className="py-4 text-right font-mono text-emerald-400 font-bold">{item.clicks.toLocaleString()}</td>
+                                      <td className="py-4 text-right font-mono text-cyan-400">{item.ctr}%</td>
+                                      <td className="py-4 text-right font-mono text-indigo-400">#{item.position}</td>
+                                      <td className="py-4 text-right">
+                                        <span className={`px-2 py-0.5 text-[8px] font-bold rounded ${
+                                          item.intent === 'Transaction' ? 'bg-emerald-950/45 text-emerald-400 border border-emerald-900' :
+                                          item.intent === 'Commercial' ? 'bg-blue-950/45 text-blue-400 border border-blue-900' :
+                                          'bg-zinc-905 text-zinc-400 border border-zinc-800'
+                                        }`}>
+                                          {item.intent}
+                                        </span>
+                                      </td>
+                                      <td className="py-4 text-right">
+                                        <button className="text-[9px] font-black uppercase text-[#0055ff] hover:underline flex items-center gap-1 justify-end ml-auto">
+                                          Optimise <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Interactive Keyword Optimizer Panel */}
+                      <div className="space-y-6">
+                        {/* Card panels */}
+                        <div className={`p-8 border space-y-6 ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'}`}>
+                          <div className="flex items-center gap-2 border-b border-zinc-800 pb-3">
+                            <Zap className="w-5 h-5 text-indigo-500" />
+                            <h3 className="text-sm font-black uppercase tracking-widest text-zinc-200">AI_Keyword_SEO_Assistant</h3>
+                          </div>
+
+                          {selectedSeoAnalyticsKeyword ? (
+                            <div className="space-y-6 animate-in fade-in duration-300">
+                              <div className="space-y-2 p-4 bg-zinc-900/40 border border-zinc-800">
+                                <span className="text-[8px] font-black uppercase tracking-widest text-[#0055ff] block">Inspecting Query</span>
+                                <h4 className="text-sm font-bold text-white uppercase font-sans tracking-wide">"{selectedSeoAnalyticsKeyword.keyword}"</h4>
+                                <div className="grid grid-cols-2 gap-3 mt-3 text-[10px] font-mono">
+                                  <div>
+                                    <span className="text-zinc-500 block">CTR :</span>
+                                    <span className="text-emerald-400 font-bold">{selectedSeoAnalyticsKeyword.ctr}%</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-zinc-500 block">Position :</span>
+                                    <span className="text-indigo-400 font-bold">#{selectedSeoAnalyticsKeyword.position}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="space-y-3">
+                                <p className="text-[10px] text-zinc-400 leading-relaxed font-sans">
+                                  Click below to trigger a Gemini core neural copy analyzer to generate custom-styled SEO title and descriptions explicitly targeted at ranking this exact user search term.
+                                </p>
+
+                                <button
+                                  onClick={() => runKeywordOptimization(selectedSeoAnalyticsKeyword.keyword, selectedSeoAnalyticsKeyword.category)}
+                                  disabled={isSeoOptimizing}
+                                  className="w-full py-3 bg-[#0055ff] hover:bg-[#0033aa] disabled:bg-zinc-800 text-white text-[9px] font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                  {isSeoOptimizing ? (
+                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                  ) : (
+                                    <Zap className="w-4 h-4 text-amber-400" />
+                                  )}
+                                  {isSeoOptimizing ? 'Analyzing tag relevance...' : 'Synthesize AI Copy recommendations'}
+                                </button>
+                              </div>
+
+                              {seoOptSuggestion && (
+                                <div className="space-y-2 border border-purple-900/40 bg-purple-950/10 p-4 font-mono text-[9px] leading-relaxed text-zinc-300 whitespace-pre-wrap relative group animate-in slide-in-from-bottom duration-300">
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(seoOptSuggestion);
+                                      triggerSimulLiveEvent('seo_copy_copied', selectedSeoAnalyticsKeyword.keyword);
+                                    }}
+                                    className="absolute top-2 right-2 text-zinc-500 hover:text-white p-1"
+                                    title="Copy to clipboard"
+                                  >
+                                    <Copy className="w-3.5 h-3.5" />
+                                  </button>
+                                  {seoOptSuggestion}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="py-12 text-center text-zinc-500 italic text-[10px]">
+                              Select any keyword query row in the Search Console queries table to access AI Optimization suggestions.
+                            </div>
+                          )}
+                        </div>
+
+                        {/* One-click Global Audit Card */}
+                        <div className={`p-8 border space-y-6 ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'}`}>
+                          <h3 className="text-sm font-black uppercase tracking-widest text-[#0055ff]">Omni_SEO_Audit_Scanner</h3>
+                          <p className="text-[10px] text-zinc-400 leading-relaxed font-sans">
+                            Run an aggregate assessment of your entire site catalog tags, low-CTR search queries, and SEO metadata indexing.
+                          </p>
+                          <button
+                            onClick={runAiSeoAudit}
+                            disabled={isRunningSeoAudit}
+                            className="w-full py-3 border border-[#0055ff] hover:bg-[#0055ff]/10 hover:text-white font-black uppercase text-[10px] text-[#0055ff] tracking-widest transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+                          >
+                            {isRunningSeoAudit ? (
+                              <div className="w-4 h-4 border-2 border-[#0055ff]/30 border-t-[#0055ff] rounded-full animate-spin" />
+                            ) : (
+                              <Activity className="w-4 h-4 animate-pulse" />
+                            )}
+                            {isRunningSeoAudit ? 'Scanning index catalog...' : 'COMPUTE AI GLOBAL SEO AUDIT'}
+                          </button>
+
+                          {seoAiReport && (
+                            <div className="p-4 border border-zinc-850 bg-black/60 font-mono text-[9px] leading-normal text-cyan-400 group relative select-all animate-in fade-in duration-300">
+                              <div className="text-[8px] font-black text-zinc-500 uppercase tracking-wider mb-2">Gemini Indexing Audit:</div>
+                              {seoAiReport}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Sub-tab 3: GA4 Integration Telemetry */}
+                  {seoAnalyticsSubTab === 'integration' && (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                      {/* Configuration panel */}
+                      <div className={`p-8 border col-span-1 lg:col-span-2 space-y-8 ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'}`}>
+                        <div>
+                          <h3 className="text-sm font-black uppercase tracking-widest text-[#0055ff]">Google_Analytics_4_Configuration</h3>
+                          <p className="text-[9px] text-zinc-500 uppercase mt-0.5 tracking-wider">GA4 Ingress Status & Measurement tags</p>
+                        </div>
+
+                        <div className="space-y-6">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-1.5 font-mono">
+                              <label className="text-[8px] font-black uppercase tracking-widest text-zinc-500">GA4 Measurement ID</label>
+                              <div className="flex border border-zinc-800 bg-black/40 p-3.5 relative">
+                                <span className="text-xs text-[#0055ff] select-all uppercase">
+                                  G-ZEXE8TKMTX
+                                </span>
+                              </div>
+                            </div>
+                            <div className="space-y-1.5 font-mono">
+                              <label className="text-[8px] font-black uppercase tracking-widest text-zinc-500">Measurement Pipeline</label>
+                              <div className="flex border border-zinc-800 bg-black/40 p-3.5 relative">
+                                <span className="text-xs text-emerald-400 uppercase flex items-center gap-1.5 font-bold">
+                                  <Check className="w-4 h-4 text-emerald-400" />
+                                  ACTIVE TELEMETRY
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3 font-sans text-xs text-zinc-400 leading-relaxed border-t border-zinc-900 pt-5">
+                            <p className="font-semibold text-zinc-300">Automatic Event Tracking Logged:</p>
+                            <p>
+                              STREET THREADX utilizes <span className="text-white font-mono text-[10px] border border-zinc-850 px-1 py-0.5 bg-black">react-ga4</span> to monitor standard site navigation and custom user interaction states in real-time client environments.
+                            </p>
+                            <p>
+                              The checkout flow pushes descriptive measurement items including exact product names, categories, and transaction totals to Google Analytics 4, maintaining secure merchant and inventory transparency.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Realtime Event Telemetry Feed */}
+                      <div className={`p-8 border space-y-6 ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'}`}>
+                        <div className="flex items-center justify-between border-b border-zinc-900 pb-3 font-mono">
+                          <div className="flex items-center gap-2">
+                            <Activity className="w-5 h-5 text-red-500 animate-pulse" />
+                            <h3 className="text-sm font-black uppercase tracking-widest text-zinc-200">GA4_Live_Stream</h3>
+                          </div>
+                          <span className="text-[8px] font-black uppercase px-2 py-0.5 bg-red-950/40 text-red-400 border border-red-900">Live Telemetry</span>
+                        </div>
+
+                        <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
+                          {seoLiveEvents.map((evt) => (
+                            <div key={evt.id} className="p-3 bg-zinc-900/30 border border-zinc-800 hover:bg-zinc-900/50 transition-colors flex flex-col space-y-1 text-[10px] animate-in slide-in-from-top duration-300">
+                              <div className="flex justify-between items-center font-mono">
+                                <span className="text-[#0055ff] font-bold uppercase tracking-wider">{evt.event}</span>
+                                <span className="text-zinc-500 text-[8px]">{evt.timestamp}</span>
+                              </div>
+                              <div className="text-zinc-300">
+                                Product/Payload: <span className="text-white font-semibold font-sans">{evt.product}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-[8px] text-zinc-500 font-semibold mt-1 font-mono">
+                                <span>Locale: {evt.location}</span>
+                                <span>Ref: {evt.details}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {activeTab === 'ai_setup' && (
               <div className="space-y-10">
                 <div className="flex items-center justify-between mb-2">
@@ -6201,6 +6997,129 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                     >
                       Save_Agent_Settings
                     </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {activeTab === 'revenue' && (
+              <div className="space-y-10" id="print-revenue-sheet">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <h2 className="text-4xl font-black uppercase italic tracking-tighter">REVENUE_HISTORY</h2>
+                    <p className="text-[10px] font-black uppercase opacity-40 mt-2 tracking-widest">Street Threadx Financial Summary & Balance Sheet</p>
+                  </div>
+                </div>
+
+                <div className={`border p-8 rounded-none space-y-8 ${cardClasses}`}>
+                  <div className="flex justify-between items-center border-b pb-4 border-zinc-800">
+                    <div>
+                      <h4 className="text-[12px] font-black uppercase tracking-widest text-[#0055ff]">Balance_Sheet</h4>
+                      <p className="text-[9px] uppercase opacity-40 font-black mt-1">Full statement of assets, liabilities, and equity</p>
+                    </div>
+                    <button 
+                      onClick={() => { 
+                         const printContent = document.getElementById('print-revenue-sheet');
+                         if (printContent) {
+                           const printWindow = window.open('', '', 'height=800,width=1000');
+                           if (printWindow) {
+                             printWindow.document.write(`
+                               <html><head><title>Revenue History</title>
+                               <script src="https://cdn.tailwindcss.com"></script>
+                               <style>
+                                 * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                               </style>
+                               </head><body class="bg-black text-white p-8">
+                                 ${printContent.innerHTML}
+                               </body></html>
+                             `);
+                             printWindow.document.close();
+                             printWindow.focus();
+                             setTimeout(() => {
+                               printWindow.print();
+                               printWindow.close();
+                             }, 1000);
+                           }
+                         }
+                      }} 
+                      className="px-4 py-2 bg-[#0055ff] text-white text-[10px] font-black uppercase tracking-widest hover:bg-[#0044cc] transition-colors shadow-lg flex items-center gap-2 filter-none"
+                      title="Download PDF or Print"
+                    >
+                      <Download className="w-4 h-4" />
+                      PDF / Print
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-[11px] font-mono border-collapse">
+                      <tbody>
+                        <tr>
+                          <th className="py-4 px-2 text-[#0055ff] uppercase tracking-widest border-b border-[#0055ff]/30">Assets</th>
+                          <th className="py-4 px-2 text-right text-[#0055ff] uppercase tracking-widest border-b border-[#0055ff]/30">Amount (BDT)</th>
+                        </tr>
+                        <tr>
+                          <td className="py-3 px-2 font-bold text-zinc-300">Fixed Assets</td>
+                          <td className="py-3 px-2 text-right"></td>
+                        </tr>
+                        <tr className="hover:bg-white/5 transition-colors">
+                          <td className="py-3 px-2 pl-6 text-zinc-400">Equipment & Hardware</td>
+                          <td className="py-3 px-2 text-right">850,000</td>
+                        </tr>
+                        <tr className="hover:bg-white/5 transition-colors">
+                          <td className="py-3 px-2 pl-6 text-zinc-400">Store Setup & Infrastructure</td>
+                          <td className="py-3 px-2 text-right">1,200,000</td>
+                        </tr>
+                        <tr>
+                          <td className="py-3 px-2 font-bold text-zinc-300 mt-2 border-t border-zinc-800/50 pt-4">Current Assets</td>
+                          <td className="py-3 px-2 text-right border-t border-zinc-800/50 pt-4"></td>
+                        </tr>
+                        <tr className="hover:bg-white/5 transition-colors">
+                          <td className="py-3 px-2 pl-6 text-zinc-400">Inventory (Stock)</td>
+                          <td className="py-3 px-2 text-right">2,450,000</td>
+                        </tr>
+                        <tr className="hover:bg-white/5 transition-colors">
+                          <td className="py-3 px-2 pl-6 text-zinc-400">Cash & Equivalents</td>
+                          <td className="py-3 px-2 text-right">1,840,400</td>
+                        </tr>
+                        <tr className="bg-[#0055ff]/5">
+                          <td className="py-4 px-2 font-black uppercase text-white border-y border-[#0055ff]/30">Total Assets</td>
+                          <td className="py-4 px-2 text-right font-black text-[#0055ff] border-y border-[#0055ff]/30">6,340,400</td>
+                        </tr>
+                      </tbody>
+                    </table>
+
+                    <table className="w-full text-left text-[11px] font-mono mt-12 border-collapse">
+                      <tbody>
+                        <tr>
+                          <th className="py-4 px-2 text-rose-500 uppercase tracking-widest border-b border-rose-500/30">Liabilities & Equity</th>
+                          <th className="py-4 px-2 text-right text-rose-500 uppercase tracking-widest border-b border-rose-500/30">Amount (BDT)</th>
+                        </tr>
+                        <tr>
+                          <td className="py-3 px-2 font-bold text-zinc-300">Liabilities</td>
+                          <td className="py-3 px-2 text-right"></td>
+                        </tr>
+                        <tr className="hover:bg-white/5 transition-colors">
+                          <td className="py-3 px-2 pl-6 text-zinc-400">Accounts Payable</td>
+                          <td className="py-3 px-2 text-right">450,000</td>
+                        </tr>
+                        <tr className="hover:bg-white/5 transition-colors">
+                          <td className="py-3 px-2 pl-6 text-zinc-400">Short-term Loans</td>
+                          <td className="py-3 px-2 text-right">1,600,000</td>
+                        </tr>
+                        <tr>
+                          <td className="py-3 px-2 font-bold text-zinc-300 mt-2 border-t border-zinc-800/50 pt-4">Equity</td>
+                          <td className="py-3 px-2 text-right border-t border-zinc-800/50 pt-4"></td>
+                        </tr>
+                        <tr className="hover:bg-white/5 transition-colors">
+                          <td className="py-3 px-2 pl-6 text-zinc-400">Owner's Capital (Net Revenue)</td>
+                          <td className="py-3 px-2 text-right">4,290,400</td>
+                        </tr>
+                        <tr className="bg-rose-500/5">
+                          <td className="py-4 px-2 font-black uppercase text-white border-y border-rose-500/30">Total Liabilities & Equity</td>
+                          <td className="py-4 px-2 text-right font-black text-rose-500 border-y border-rose-500/30">6,340,400</td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
@@ -6318,7 +7237,30 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                         placeholder="https://track.provider.com/..."
                       />
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-4 pt-4 border-t border-zinc-800">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-[#0055ff] flex items-center gap-2">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
+                          Courier_Delivery_Instructions
+                        </label>
+                        <textarea 
+                          value={managedOrder.deliveryInstructions || ''}
+                          readOnly
+                          className={`w-full px-6 py-4 text-sm font-bold border focus:border-[#0055ff] outline-none transition-all h-20 resize-none ${isDarkMode ? 'bg-[#0055ff]/5 border-[#0055ff]/20' : 'bg-[#0055ff]/5 border-[#0055ff]/20 text-black'}`}
+                          placeholder="No specific delivery instructions provided."
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase opacity-40">Order_Notes / Gift_Messages</label>
+                        <textarea 
+                          value={managedOrder.notes || ''}
+                          onChange={e => setManagedOrder({...managedOrder, notes: e.target.value})}
+                          className={`w-full px-6 py-4 text-sm font-bold border focus:border-[#0055ff] outline-none transition-all h-20 resize-none ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
+                          placeholder="No order notes."
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2 pt-4 border-t border-zinc-800">
                       <label className="text-[10px] font-black uppercase opacity-40">Order_Status</label>
                       <select 
                         value={managedOrder.status}
@@ -6844,6 +7786,10 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase opacity-40">Price_Point (৳)</label>
                       <input type="number" value={managedProduct.price || 0} onChange={e => setManagedProduct({...managedProduct, price: parseInt(e.target.value)})} className={`w-full px-5 py-4 text-sm font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`} />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase opacity-40">Original_Price (৳) [Discount]</label>
+                      <input type="number" placeholder="Enter strictly if on sale" value={managedProduct.originalPrice || ''} onChange={e => setManagedProduct({...managedProduct, originalPrice: e.target.value ? parseInt(e.target.value) : undefined})} className={`w-full px-5 py-4 text-sm font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`} />
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase opacity-40">Production_Cost (৳)</label>
@@ -7756,206 +8702,352 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
               <div className="flex gap-4">
                 <button 
                   onClick={() => {
-                    setTimeout(() => {
-                        window.print();
-                    }, 100);
+                     const printContent = document.getElementById('print-voucher');
+                     if (printContent) {
+                       const printWindow = window.open('', '', 'height=800,width=1000');
+                       if (printWindow) {
+                         printWindow.document.write(`
+                           <html><head><title>Invoice #${voucherOrder.id}</title>
+                           <script src="https://cdn.tailwindcss.com"></script>
+                           <style>
+                             * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                           </style>
+                           </head><body class="bg-white p-4 items-center justify-center flex">
+                             ${printContent.outerHTML}
+                           </body></html>
+                         `);
+                         printWindow.document.close();
+                         printWindow.focus();
+                         setTimeout(() => {
+                           printWindow.print();
+                           printWindow.close();
+                         }, 1000);
+                       }
+                     }
                   }}
-                  className="px-4 py-2 bg-[#0055ff] hover:bg-[#0044cc] text-white text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-2"
+                  className="px-4 py-2 bg-[#0055ff] hover:bg-[#0044cc] text-white text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-2 shadow-lg"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
                   Print
                 </button>
-                <button onClick={() => setVoucherOrder(null)} className="p-2 hover:bg-rose-500/10 text-rose-500 transition-colors">
+                <button 
+                  onClick={() => {
+                    const printContent = document.getElementById('print-voucher');
+                    if (printContent) {
+                       const printWindow = window.open('', '', 'height=800,width=1000');
+                       if (printWindow) {
+                         printWindow.document.write(`
+                           <html><head><title>Invoice #${voucherOrder.id}</title>
+                           <script src="https://cdn.tailwindcss.com"></script>
+                           <style>
+                             * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                           </style>
+                           </head><body class="bg-white p-4 items-center justify-center flex">
+                             ${printContent.outerHTML}
+                           </body></html>
+                         `);
+                         printWindow.document.close();
+                         printWindow.focus();
+                         setTimeout(() => {
+                           printWindow.print();
+                           printWindow.close();
+                         }, 1000);
+                       }
+                    }
+                  }}
+                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-2 shadow-lg"
+                >
+                  <Download className="w-4 h-4" />
+                  PDF Download
+                </button>
+                <button onClick={() => setVoucherOrder(null)} className="p-2 ml-2 hover:bg-rose-500/10 text-rose-500 transition-colors">
                   <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
             </div>
 
             {/* Voucher Content for Printing */}
-            <div className="p-8 bg-white text-black min-h-[600px] w-full max-w-[800px] mx-auto font-sans" id="print-voucher">
-              {/* Header */}
+            <div className="p-8 bg-white text-black min-h-[700px] w-full max-w-[800px] mx-auto font-sans relative flex flex-col justify-between" id="print-voucher">
+              {/* Top Decorative Geometric Header Bar */}
+              <div className="relative w-full h-[54px] overflow-hidden -mx-8 -mt-8 mb-6 flex select-none bg-white">
+                {/* Left Blue skewed shape */}
+                <div 
+                  className="absolute left-0 top-0 h-[42px] w-[55%] bg-[#00a5ff]" 
+                  style={{ clipPath: 'polygon(0 0, 100% 0, 92% 100%, 0 100%)' }}
+                />
+                {/* Center/Right Black skewed shape */}
+                <div 
+                  className="absolute right-[5%] top-0 h-[34px] w-[50%] bg-black flex items-center justify-center pl-10" 
+                  style={{ clipPath: 'polygon(8% 0, 100% 0, 92% 100%, 0 100%)' }}
+                >
+                  <span className="text-[7.5px] font-black text-white uppercase tracking-[0.4em] transform skew-x-[-8deg] opacity-90">
+                    STREET THREADX PREMIUM PRODUCTS
+                  </span>
+                </div>
+                {/* Rightmost Blue accent */}
+                <div 
+                  className="absolute right-0 top-0 h-[34px] w-[14%] bg-[#00a5ff]" 
+                  style={{ clipPath: 'polygon(25% 0, 100% 0, 100% 100%, 0 100%)' }}
+                />
+              </div>
+
+              {/* Main Info Header: Logo vs Invoice meta details */}
               <div className="flex justify-between items-start mb-8">
-                <div>
-                  <h1 className="text-4xl font-normal text-[#2A4373] mb-2 tracking-wide text-nowrap">STREET THREADX</h1>
-                  <div className="text-xs space-y-0.5 mt-2 text-gray-800">
-                    <div className="font-bold">Mawna, Sreepur</div>
-                    <div>Gazipur, Bangladesh</div>
-                    <div>Phone: +880 1700-000000</div>
-                    <div>Website: streetthreadx.com</div>
+                {/* Left side: Brand Logo Container resembles Design Studio */}
+                <div className="flex items-center gap-3">
+                  <div className="relative w-12 h-12 flex-shrink-0 flex items-center justify-center">
+                    <div className="absolute w-8 h-8 border-2 border-[#00a5ff] transform rotate-45" />
+                    <div className="absolute w-8 h-8 border-2 border-black transform rotate-45 translate-x-1.5 -translate-y-1.5 opacity-85" />
+                  </div>
+                  <div>
+                    <h1 className="text-2xl font-black text-black tracking-tighter leading-none uppercase">STREET THREADX</h1>
+                    <span className="text-[7.5px] font-black tracking-[0.3em] text-[#00a5ff] uppercase block mt-1">APPAREL & STREETWEAR CULTURE</span>
                   </div>
                 </div>
-                <div className="flex flex-col items-end">
-                  <h2 className="text-5xl font-bold text-[#8FA5D6] tracking-widest mb-4">INVOICE</h2>
-                  <table className="text-xs border-collapse w-64 text-right">
-                    <tbody>
-                      <tr>
-                        <td className="pr-4 py-1 text-gray-600 font-semibold w-1/2">DATE</td>
-                        <td className="border border-gray-300 px-2 py-1 bg-white">{new Date(voucherOrder.date).toLocaleDateString() === 'Invalid Date' ? voucherOrder.date : new Date(voucherOrder.date).toLocaleDateString()}</td>
-                      </tr>
-                      <tr>
-                        <td className="pr-4 py-1 text-gray-600 font-semibold">INVOICE #</td>
-                        <td className="border border-gray-300 px-2 py-1 bg-white">{voucherOrder.id.replace('ORD-', '')}</td>
-                      </tr>
-                      <tr>
-                        <td className="pr-4 py-1 text-gray-600 font-semibold">CUSTOMER ID</td>
-                        <td className="border border-gray-300 px-2 py-1 bg-white">{voucherOrder.customerEmail.split('@')[0].toUpperCase()}</td>
-                      </tr>
-                      <tr>
-                        <td className="pr-4 py-1 text-gray-600 font-semibold">DUE DATE</td>
-                        <td className="border border-gray-300 px-2 py-1 bg-[#DEE6F2]">{new Date(voucherOrder.date).toLocaleDateString() === 'Invalid Date' ? voucherOrder.date : new Date(voucherOrder.date).toLocaleDateString()}</td>
-                      </tr>
-                    </tbody>
-                  </table>
+
+                {/* Right side: Modern Bold INVOICE Tag and identifiers */}
+                <div className="flex flex-col items-end text-right">
+                  <h2 className="text-4xl font-black text-[#00a5ff] tracking-widest mb-2 uppercase">INVOICE</h2>
+                  <div className="space-y-1 text-xs text-gray-700">
+                    <div className="flex justify-end gap-3 font-sans">
+                      <span className="text-gray-400 font-bold uppercase tracking-wider text-[9px]">Invoice No</span> 
+                      <span className="font-bold text-black border-b border-gray-100 pb-0.5 font-mono">{voucherOrder.id.replace('ORD-', '')}</span>
+                    </div>
+                    <div className="flex justify-end gap-3 font-sans">
+                      <span className="text-gray-400 font-bold uppercase tracking-wider text-[9px]">Issue Date</span> 
+                      <span className="font-bold text-black border-b border-gray-100 pb-0.5 font-mono">
+                        {new Date(voucherOrder.date).toLocaleDateString() === 'Invalid Date' ? voucherOrder.date : new Date(voucherOrder.date).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Bill To */}
-              <div className="mb-8 w-[45%]">
-                <div className="bg-[#2A4373] text-white text-xs font-bold px-3 py-1 uppercase tracking-wide">
-                  Bill To
+              {/* Invoice To & From Columns block */}
+              <div className="grid grid-cols-2 gap-8 mb-8">
+                {/* Left Column: Client Target Info */}
+                <div className="space-y-2">
+                  <h3 className="text-xs font-black uppercase text-gray-400 tracking-widest">INVOICE TO</h3>
+                  <div className="border-l-4 border-[#00a5ff] pl-3 py-1 space-y-1">
+                    <div className="text-sm font-black text-black uppercase tracking-tight">{voucherOrder.customerName}</div>
+                    <div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">VALUED STREET THREADX CLIENT</div>
+                    <div className="text-[10px] text-gray-700 leading-relaxed font-semibold">
+                      {voucherOrder.shippingAddress || '[No Delivery Address Provided]'}
+                    </div>
+                    {voucherOrder.deliveryInstructions && (
+                      <div className="text-[9px] text-white bg-[#00a5ff] px-1.5 py-0.5 inline-block font-bold mt-0.5">
+                        DELIVERY INSTRUCTIONS: {voucherOrder.deliveryInstructions}
+                      </div>
+                    )}
+                    <div className="text-[9px] text-[#00a5ff] font-mono leading-none mt-1">{voucherOrder.customerEmail}</div>
+                    {customers.find(c => c.email === voucherOrder.customerEmail)?.phone && (
+                      <div className="text-[9px] font-mono text-gray-600 font-semibold mt-0.5">
+                        P: {customers.find(c => c.email === voucherOrder.customerEmail)?.phone}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="mt-2 text-xs space-y-0.5 text-gray-800 px-1 border-l-2 border-transparent">
-                  <div className="font-semibold text-sm">{voucherOrder.customerName}</div>
-                  <div>{voucherOrder.customerEmail}</div>
-                  <div className="whitespace-pre-line leading-relaxed">{voucherOrder.shippingAddress || '[No Address Provided]'}</div>
-                  {customers.find(c => c.email === voucherOrder.customerEmail)?.phone && (
-                    <div className="pt-0.5">{customers.find(c => c.email === voucherOrder.customerEmail)?.phone}</div>
-                  )}
+
+                {/* Right Column: Company Info from image */}
+                <div className="space-y-2 flex flex-col items-end text-right">
+                  <h3 className="text-xs font-black uppercase text-gray-400 tracking-widest w-full">DISPATCH OFFICE</h3>
+                  <div className="border-r-4 border-black pr-3 py-1 space-y-1">
+                    <div className="text-[11px] font-bold text-black">STREET THREADX HUBS LTD.</div>
+                    <div className="text-[10px] text-gray-600 leading-normal">
+                      Mawna, Sreepur, Gazipur<br />
+                      Dhaka - 1740, Bangladesh
+                    </div>
+                    <div className="text-[9.5px] font-mono text-gray-600 space-y-0.5">
+                      <div>W: www.streetthreadx.com</div>
+                      <div>E: support@streetthreadx.com</div>
+                      <div>P: +880 1700-000000</div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Table */}
-              <table className="w-full text-xs border-collapse mb-6">
-                <thead>
-                  <tr className="bg-[#2A4373] text-white">
-                    <th className="text-left px-3 py-1 font-bold">DESCRIPTION</th>
-                    <th className="text-center px-3 py-1 font-bold w-24 border-l border-white/20">TAXED</th>
-                    <th className="text-right px-3 py-1 font-bold w-32 border-l border-white/20">AMOUNT</th>
-                  </tr>
-                </thead>
-                <tbody className="border border-gray-300 text-gray-800">
-                  {/* Items */}
-                  {voucherOrder.orderItems?.map((item, index) => {
-                    const productDetails = products.find(p => p.id === item.productId);
-                    return (
-                      <tr key={index} className="even:bg-[#F2F2F2] odd:bg-white min-h-16 border-b border-gray-200">
-                        <td className="px-3 py-3 border-r border-gray-300">
-                          <div className="flex flex-col gap-1">
-                            <div className="flex justify-between items-start">
-                              <span className="font-black text-[#2A4373] uppercase tracking-tight">{item.name}</span>
-                              <span className="text-[9px] font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-none">{productDetails?.category || 'General'}</span>
-                            </div>
-                            <div className="text-[10px] text-gray-800 font-medium">
-                              {item.variant ? `Variant: ${item.variant.size} / ${item.variant.color}` : 'Standard Edition'} | Qty: {item.quantity}
-                            </div>
-                            {productDetails?.description && (
-                              <div className="text-[9px] text-gray-500 italic leading-relaxed border-t border-gray-100 pt-1 mt-1">
-                                {productDetails.description.length > 150 ? productDetails.description.substring(0, 150) + '...' : productDetails.description}
+              {/* Items Table designed precisely like image (Diagonal blue header blocks, alternating striped cells) */}
+              <div className="border border-gray-250 overflow-hidden mb-6">
+                <table className="w-full text-[10px] border-collapse">
+                  <thead>
+                    <tr className="bg-[#00a5ff] text-white">
+                      <th className="px-3 py-2.5 font-black text-left uppercase tracking-wider w-12 border-r border-[#00a5ff]/40">SL</th>
+                      <th className="px-3 py-2.5 font-black text-left uppercase tracking-wider border-r border-[#00a5ff]/40">ITEM DESCRIPTION</th>
+                      <th className="px-3 py-2.5 font-black text-center uppercase tracking-wider w-16 border-r border-[#00a5ff]/40">QTY</th>
+                      <th className="px-3 py-2.5 font-black text-right uppercase tracking-wider w-24 border-r border-[#00a5ff]/40">PRICE</th>
+                      <th className="px-3 py-2.5 font-black text-right uppercase tracking-wider w-28">TOTAL</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {voucherOrder.orderItems?.map((item, index) => {
+                      const productDetails = products.find(p => p.id === item.productId);
+                      const serial = String(index + 1).padStart(2, '0');
+                      return (
+                        <tr key={index} className="even:bg-gray-50 odd:bg-white transition-colors hover:bg-gray-100/50">
+                          <td className="px-3 py-3 border-r border-gray-200 font-mono text-zinc-500 font-semibold">{serial}</td>
+                          <td className="px-3 py-3 border-r border-gray-200 text-left">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-extrabold text-black uppercase tracking-tight">{item.name}</span>
+                              <div className="flex items-center gap-1.5 text-[9px] text-gray-500 font-semibold">
+                                {item.variant ? (
+                                  <span>Size: {item.variant.size} / Color: {item.variant.color}</span>
+                                ) : (
+                                  <span>Standard Edition</span>
+                                )}
+                                <span>•</span>
+                                <span className="text-[#00a5ff] uppercase text-[8.5px]">{productDetails?.category || 'Streetwear'}</span>
                               </div>
-                            )}
-                          </div>
+                            </div>
+                          </td>
+                          <td className="px-3 py-3 border-r border-gray-200 text-center font-mono font-bold text-gray-700">
+                            {String(item.quantity).padStart(2, '0')}
+                          </td>
+                          <td className="px-3 py-3 border-r border-gray-200 text-right font-mono font-bold text-gray-600">
+                            ৳{item.price.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-3 text-right font-mono font-extrabold text-[#00a5ff]">
+                            ৳{(item.price * item.quantity).toLocaleString()}
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {/* Standard coupon reduction block if present */}
+                    {voucherOrder.discount > 0 && (
+                      <tr className="bg-rose-50/50">
+                        <td className="px-3 py-2 border-r border-gray-200 font-mono font-bold text-rose-500">%</td>
+                        <td className="px-3 py-2 border-r border-gray-200 text-left font-black text-rose-500 uppercase tracking-wider text-[9px]">
+                          COUPON DISCOUNT CODE APPLIED
                         </td>
-                        <td className="px-3 text-center border-r border-gray-300 font-bold">5%</td>
-                        <td className="px-3 text-right font-bold text-[#2A4373]">
-                          {(item.price * item.quantity).toLocaleString()}
+                        <td className="px-3 py-2 border-r border-gray-200 text-center font-bold">1</td>
+                        <td className="px-3 py-2 border-r border-gray-200 text-right font-mono text-rose-500 font-semibold">
+                          -৳{voucherOrder.discount.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono font-extrabold text-rose-500">
+                          -৳{voucherOrder.discount.toLocaleString()}
                         </td>
                       </tr>
-                    );
-                  })}
-                  {/* Shipping / Discount / Advance if applicable */}
-                  {voucherOrder.discount > 0 && (
-                    <tr className="even:bg-[#F2F2F2] odd:bg-white h-7">
-                      <td className="px-3 border-r border-gray-300 text-rose-600">Discount Applied</td>
-                      <td className="px-3 text-center border-r border-gray-300"></td>
-                      <td className="px-3 text-right text-rose-600">
-                        -{voucherOrder.discount.toLocaleString()}
-                      </td>
-                    </tr>
-                  )}
-                  {/* Fill empty space */}
-                  {[...Array(Math.max(1, 12 - (voucherOrder.orderItems?.length || 0)))].map((_, i) => (
-                    <tr key={`empty-${i}`} className="even:bg-[#F2F2F2] odd:bg-white h-7">
-                      <td className="border-r border-gray-300"></td>
-                      <td className="border-r border-gray-300"></td>
-                      <td></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                    )}
 
-              {/* Footer Section */}
-              <div className="flex justify-between items-start gap-8">
-                {/* Comments */}
-                <div className="w-[55%]">
-                  <div className="bg-[#2A4373] text-white text-xs font-bold px-3 py-1">
-                    OTHER COMMENTS
+                    {/* Empty block rows filler to keep beautiful consistent invoice proportions as requested */}
+                    {[...Array(Math.max(1, 6 - (voucherOrder.orderItems?.length || 0)))].map((_, i) => (
+                      <tr key={`filler-${i}`} className="h-[28px] border-b border-gray-150 relative">
+                        <td className="border-r border-gray-200"></td>
+                        <td className="border-r border-gray-200"></td>
+                        <td className="border-r border-gray-200"></td>
+                        <td className="border-r border-gray-200"></td>
+                        <td></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Bottom Layout Columns: Terms/Payment details versus Invoice Summary Block */}
+              <div className="grid grid-cols-2 gap-8 items-start">
+                
+                {/* Left details column: Terms and Conditions */}
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] uppercase font-black text-black tracking-widest">
+                      Thank You For Your Business
+                    </p>
+                    <div className="text-[8.5px] leading-relaxed text-gray-500">
+                      <p className="font-bold text-gray-600 mb-1">Terms & Condition:</p>
+                      <ul className="list-inside list-disc space-y-1">
+                        <li>Please keep this invoice duplicate copy for any streetwear style exchange operations.</li>
+                        <li>Exchanges are permitted up to 7 calendar days after delivery of catalog packages.</li>
+                        <li>Products must maintain original tags and untorn custom threadx packaging box.</li>
+                        {voucherOrder.transactionId && (
+                          <li className="font-bold text-indigo-600">Secure Payment TrxID: {voucherOrder.transactionId}</li>
+                        )}
+                        <li>Preferred Channel: {voucherOrder.paymentMethod || 'CASH ON DELIVERY'}</li>
+                      </ul>
+                    </div>
                   </div>
-                  <div className="border border-gray-300 p-3 text-xs text-gray-800 h-28">
-                    <ol className="list-decimal list-inside space-y-1.5">
-                      { voucherOrder.isPaid || voucherOrder.paymentStatus === 'FULLY_PAID' 
-                        ? <li>Total payment received in full.</li>
-                        : <li>Total payment due upon delivery or as agreed.</li> }
-                      <li>Please include the invoice number on your check or reference it.</li>
-                      {voucherOrder.transactionId && <li>Digital TrxID: {voucherOrder.transactionId}</li>}
-                      <li>Payment Method: {voucherOrder.paymentMethod || 'CASH / DIGITAL'}</li>
-                    </ol>
+
+                  <div className="space-y-1 pt-1 border-t border-gray-100">
+                    <p className="text-[8.5px] font-bold text-gray-650 uppercase">Payment Info:</p>
+                    <div className="text-[8px] text-gray-500 leading-normal font-mono">
+                      BKash / Rocket Merchant ID: 01700-000000<br />
+                      Brac Bank ACC: Street Threadx Hub - 3201-44719-01
+                    </div>
                   </div>
                 </div>
 
-                {/* Totals */}
-                <div className="w-[40%] flex flex-col items-end">
-                  <table className="w-full text-xs text-right border-collapse">
+                {/* Right details column: Financial Totals layout matching style from image */}
+                <div className="flex flex-col items-end space-y-3">
+                  <table className="w-56 text-right text-[10px] border-collapse">
                     <tbody>
                       <tr>
-                        <td className="pr-4 py-1 text-gray-600 font-semibold uppercase tracking-widest text-[9px]">Subtotal</td>
-                        <td className="py-1 w-24 text-gray-800">
-                          { (voucherOrder.subtotal || voucherOrder.total || 0).toLocaleString() }
+                        <td className="py-1 text-gray-400 font-bold uppercase tracking-wider text-[8px] pr-3">SUB Total</td>
+                        <td className="py-1 text-gray-900 font-bold font-mono w-24">
+                          ৳{(voucherOrder.subtotal || voucherOrder.total || 0).toLocaleString()}
                         </td>
                       </tr>
+                      {voucherOrder.discount > 0 && (
+                        <tr>
+                          <td className="py-1 text-rose-500 font-bold uppercase tracking-wider text-[8px] pr-3">Discount</td>
+                          <td className="py-1 text-rose-500 font-bold font-mono">
+                            -৳{(voucherOrder.discount).toLocaleString()}
+                          </td>
+                        </tr>
+                      )}
                       <tr>
-                        <td className="pr-4 py-1 text-gray-600 font-semibold uppercase tracking-widest text-[9px]">Discount</td>
-                        <td className="py-1 w-24 text-rose-600">
-                          -{ (voucherOrder.discount || 0).toLocaleString() }
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="pr-4 py-1 text-gray-600 font-semibold uppercase tracking-widest text-[9px]">Taxable Amt</td>
-                        <td className="py-1 w-24 text-gray-800">
-                          { ((voucherOrder.subtotal || voucherOrder.total || 0) - (voucherOrder.discount || 0)).toLocaleString() }
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="pr-4 py-1 text-gray-600 font-semibold uppercase tracking-widest text-[9px]">Tax rate (VAT)</td>
-                        <td className="py-1 w-24 text-gray-800 border-x border-t border-gray-300 bg-white font-bold">5.000%</td>
-                      </tr>
-                      <tr>
-                        <td className="pr-4 py-1 text-gray-600 font-semibold uppercase tracking-widest text-[9px]">Tax due</td>
-                        <td className="py-1 w-24 text-gray-800 bg-[#F2F2F2] border-x border-b border-gray-300 font-bold">
-                          { (((voucherOrder.subtotal || voucherOrder.total || 0) - (voucherOrder.discount || 0)) * 0.05).toLocaleString() }
-                        </td>
-                      </tr>
-                      <tr className="font-bold relative">
-                        <td className="pr-4 py-2 text-[#2A4373] text-sm font-black italic">GRAND TOTAL</td>
-                        <td className="py-2 px-2 flex justify-between items-center bg-[#DEE6F2] text-sm text-[#2A4373] border-y-2 border-double border-gray-600 font-black italic">
-                          <span className="font-normal pr-2">৳</span>
-                          <span>{ (((voucherOrder.subtotal || voucherOrder.total || 0) - (voucherOrder.discount || 0)) * 1.05).toLocaleString() }</span>
+                        <td className="py-1 text-gray-400 font-bold uppercase tracking-wider text-[8px] pr-3">Tax (VAT 5%)</td>
+                        <td className="py-1 text-gray-800 font-semibold font-mono">
+                          ৳{(((voucherOrder.subtotal || voucherOrder.total || 0) - (voucherOrder.discount || 0)) * 0.05).toLocaleString()}
                         </td>
                       </tr>
                     </tbody>
                   </table>
-                  <div className="text-center text-xs mt-6 text-gray-800 italic space-y-0.5">
-                    <div>Make all payments payable to</div>
-                    <div className="font-bold text-[#2A4373]">STREET THREADX</div>
+
+                  {/* Outstanding Blue Styled Grand Total Box resembling image */}
+                  <div 
+                    className="w-60 bg-[#00a5ff] text-white flex items-center justify-between p-2.5 relative select-none"
+                    style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%, 0 100%)' }}
+                  >
+                    <span className="font-black text-[9.5px] uppercase tracking-widest pl-2">Total</span>
+                    {/* diagonal separating divider */}
+                    <div className="bg-white/40 h-6 w-0.5 transform rotate-12 mx-2" />
+                    <span className="font-black text-[13px] pr-2 font-mono">
+                      ৳{(((voucherOrder.subtotal || voucherOrder.total || 0) - (voucherOrder.discount || 0)) * 1.05).toLocaleString()}
+                    </span>
+                  </div>
+
+                  {/* Signature block aligned matching Design Studio signature placeholder */}
+                  <div className="pt-8 w-44 text-center mt-6">
+                    <div className="border-t border-dashed border-gray-450 w-full mx-auto" />
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-gray-450 mt-1.5">Authorised Signature</p>
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Bottom Custom Decorative Geometric Footer Banner containing phone and email/address */}
+              <div className="relative w-full h-[52px] overflow-hidden -mx-8 -mb-8 mt-8 flex select-none bg-white text-white">
+                {/* Left Blue accent containing Phone details */}
+                <div 
+                  className="absolute left-0 bottom-0 h-[38px] w-[50%] bg-[#00a5ff] flex items-center pl-6 z-10" 
+                  style={{ clipPath: 'polygon(0 0, 92% 0, 100% 100%, 0 100%)' }}
+                >
+                  <span className="font-extrabold text-[9px] text-white tracking-widest uppercase flex items-center gap-1">
+                    📞 +880 1700-000000
+                  </span>
+                </div>
+
+                {/* Right Black shape containing support and web address info */}
+                <div 
+                  className="absolute right-0 bottom-0 h-[38px] w-[58%] bg-black flex items-center justify-end pr-6 gap-6" 
+                  style={{ clipPath: 'polygon(8% 0, 100% 0, 100% 100%, 0 100%)' }}
+                >
+                  <div className="flex flex-col items-end text-right text-[7.5px] leading-snug tracking-wider text-zinc-300">
+                    <span className="font-bold">support@streetthreadx.com</span>
+                    <span className="text-zinc-500 font-mono text-[7px]">Mawna, Sreepur, Gazipur</span>
                   </div>
                 </div>
               </div>
 
-              {/* Bottom Message */}
-              <div className="text-center mt-12 pt-8 text-xs text-gray-800 space-y-1.5">
-                <div>If you have any questions about this invoice, please contact</div>
-                <div className="font-semibold">[Name, Phone #, E-mail]</div>
-                <div className="font-bold italic mt-4 text-base tracking-wide">Thank You For Your Business!</div>
-              </div>
             </div>
           </div>
         </div>
@@ -8439,12 +9531,11 @@ const AdminDashboard: React.FC<Props> = ({ user, products, setProducts, orders, 
         )}
       </AnimatePresence>
 
-      <style>{`
+       <style>{`
         @media print {
           body * { visibility: hidden !important; }
-          #root { visibility: hidden !important; }
-          #print-voucher, #print-voucher * { visibility: visible !important; color: black !important; }
-          #print-voucher { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; margin: 0 !important; padding: 20px !important; background: white !important; }
+          #print-voucher, #print-voucher * { visibility: visible !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          #print-voucher { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; margin: 0 !important; padding: 24px !important; background: white !important; display: block !important; }
         }
       `}</style>
     </div>

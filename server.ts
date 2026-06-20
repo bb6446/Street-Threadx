@@ -225,13 +225,16 @@ async function startServer() {
     try {
       const { orderId, customerEmail, newStatus } = req.body;
       const { sendEmailNotification } = await import('./server/emailService');
+      const origin = req.headers.origin || req.headers.referer || (req.protocol + '://' + req.get('host'));
+      const trackingUrl = `${origin}/#track=${orderId}`;
       
       const subject = `Update on your Order #${orderId}`;
-      const text = `Your order status has been updated to: ${newStatus}`;
+      const text = `Your order status has been updated to: ${newStatus}. Track your order here: ${trackingUrl}`;
       const html = `<div style="font-family: sans-serif; padding: 20px;">
         <h2 style="color: #0055ff;">Street Threadx</h2>
         <p>Your order <strong>#${orderId}</strong> status has been updated.</p>
         <p>New Status: <strong style="color: #10B981;">${newStatus}</strong></p>
+        <p><a href="${trackingUrl}" style="display: inline-block; padding: 10px 20px; background-color: #0055ff; color: #ffffff; text-decoration: none; border-radius: 4px; border: none; font-weight: bold; margin-top: 10px;">Track Order</a></p>
         <p>Thank you for shopping with us!</p>
       </div>`;
       
@@ -248,9 +251,11 @@ async function startServer() {
     try {
       const { order } = req.body;
       const { sendEmailNotification } = await import('./server/emailService');
+      const origin = req.headers.origin || req.headers.referer || (req.protocol + '://' + req.get('host'));
+      const trackingUrl = `${origin}/#track=${order.id}`;
       
       const subject = `Order Confirmation #${order.id} - Street Threadx`;
-      const text = `We received your order! Total: BDT ${order.total}`;
+      const text = `We received your order! Total: BDT ${order.total}. Track your order here: ${trackingUrl}`;
       const html = `<div style="font-family: sans-serif; padding: 20px;">
         <h2 style="color: #0055ff;">Street Threadx</h2>
         <p>Hi ${order.customerName},</p>
@@ -261,12 +266,13 @@ async function startServer() {
         </ul>
         <p><strong>Subtotal:</strong> BDT ${order.subtotal}</p>
         <p><strong>Total Paid:</strong> BDT ${order.total}</p>
+        <p><a href="${trackingUrl}" style="display: inline-block; padding: 10px 20px; background-color: #0055ff; color: #ffffff; text-decoration: none; border-radius: 4px; border: none; font-weight: bold; margin-top: 10px;">Track Order</a></p>
         <p>We will notify you once your products are shipped.</p>
       </div>`;
       
-      await sendEmailNotification(order.customerEmail, subject, text, html);
+      const result = await sendEmailNotification(order.customerEmail, subject, text, html);
       
-      res.json({ success: true });
+      res.json({ success: true, previewUrl: result?.previewUrl || '' });
     } catch (error) {
       console.error('Error sending confirmation email:', error);
       res.status(500).json({ error: 'Failed to send confirmation email' });

@@ -58,6 +58,7 @@ export interface Review {
   date: string;
   status: 'PENDING' | 'APPROVED';
   reply?: string;
+  images?: string[];
 }
 
 export interface CartItem extends Product {
@@ -139,6 +140,7 @@ export interface Order {
   advancePaid?: number;
   dueAmount?: number;
   notes?: string;
+  deliveryInstructions?: string;
   isEmailVerified?: boolean;
   isPhoneVerified?: boolean;
 }
@@ -175,7 +177,8 @@ export enum ViewState {
   CUSTOMER_LOGIN = 'CUSTOMER_LOGIN',
   CUSTOMER_PROFILE = 'CUSTOMER_PROFILE',
   WISHLIST = 'WISHLIST',
-  TRACK_ORDER = 'TRACK_ORDER'
+  TRACK_ORDER = 'TRACK_ORDER',
+  ORDER_PREVIEW = 'ORDER_PREVIEW'
 }
 
 export interface SocialSettings {

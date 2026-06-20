@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Customer, Order, Product, ViewState } from '../types';
 import { collection, query, where, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
 import { db, storage } from '../firebase';
 import { OrderTimeline } from './OrderTimeline';
 import { QRCodeSVG } from 'qrcode.react';
@@ -17,7 +17,7 @@ import {
   Tooltip,
   Legend
 } from 'recharts';
-import { TrendingUp, ShoppingBag, CreditCard, DollarSign } from 'lucide-react';
+import { TrendingUp, ShoppingBag, CreditCard, DollarSign, Camera, RefreshCw, Check, X } from 'lucide-react';
 
 interface Props {
   customerInfo: { 
@@ -36,9 +36,19 @@ interface Props {
   isDarkMode: boolean;
   onUpdateCustomerInfo?: (updatedData: any) => void;
   onCancelOrder?: (orderId: string) => Promise<void>;
+  onOpenSmartPreview?: (order: Order) => void;
 }
 
-const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNavigateBack, isDarkMode, onUpdateCustomerInfo, onCancelOrder }) => {
+const CustomerProfile: React.FC<Props> = ({ 
+  customerInfo, 
+  orders, 
+  products, 
+  onNavigateBack, 
+  isDarkMode, 
+  onUpdateCustomerInfo, 
+  onCancelOrder,
+  onOpenSmartPreview
+}) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(customerInfo.name || '');
   const [editEmail, setEditEmail] = useState(customerInfo.email || '');
@@ -53,6 +63,8 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
   const [editingNotesOrderId, setEditingNotesOrderId] = useState<string | null>(null);
@@ -415,6 +427,84 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
     }
   }, [customerInfo, isEditing]);
 
+  const compressImage = (fileOrBlob: Blob | File, maxWidth = 600, maxHeight = 600, quality = 0.75): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(fileOrBlob);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width = Math.round((width * maxHeight) / height);
+              height = maxHeight;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Canvas context not available'));
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                resolve(blob);
+              } else {
+                reject(new Error('Image compression failed'));
+              }
+            },
+            'image/jpeg',
+            quality
+          );
+        };
+        img.onerror = (err) => reject(err);
+      };
+      reader.onerror = (err) => reject(err);
+    });
+  };
+
+  const uploadFileWithProgress = (storageRef: any, fileOrBlob: Blob | File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const uploadTask = uploadBytesResumable(storageRef, fileOrBlob);
+      uploadTask.on(
+        'state_changed',
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(Math.round(progress));
+        },
+        (error) => {
+          setUploadProgress(null);
+          reject(error);
+        },
+        async () => {
+          try {
+            const url = await getDownloadURL(uploadTask.snapshot.ref);
+            setUploadProgress(null);
+            resolve(url);
+          } catch (err) {
+            setUploadProgress(null);
+            reject(err);
+          }
+        }
+      );
+    });
+  };
+
   const handleProfileImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -426,18 +516,23 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
 
     setIsUploadingImage(true);
     setErrorMsg('');
+    setUploadProgress(0);
     try {
+      // Compress image locally before uploading
+      const compressedBlob = await compressImage(file, 600, 600, 0.75);
       const storageRef = ref(storage, `profiles/${customerInfo.email}_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9]/g, '_')}`);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
+      const url = await uploadFileWithProgress(storageRef, compressedBlob);
       setEditProfileImage(url);
     } catch (err: any) {
       console.error('Error uploading profile image:', err);
       setErrorMsg('Failed to upload image. Please try again.');
     } finally {
       setIsUploadingImage(false);
+      setUploadProgress(null);
     }
   };
+
+
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -669,30 +764,53 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
                     </div>
                   )}
 
-                  <div className="flex flex-col items-center justify-center space-y-4 mb-4">
-                    {editProfileImage ? (
-                      <img 
-                        loading="lazy"
-                        src={editProfileImage} 
-                        alt="Profile Preview" 
-                        className="w-24 h-24 rounded-full object-cover border-2 border-zinc-800"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="w-24 h-24 rounded-full bg-zinc-900 border-2 border-zinc-800 flex items-center justify-center text-zinc-500 text-2xl font-bold uppercase">
-                        {editName ? editName.charAt(0) : 'U'}
+                  <div className="flex flex-col items-center justify-center space-y-4 mb-4 pb-4 border-b border-zinc-800/60">
+                    <div className="relative group">
+                      {editProfileImage ? (
+                        <img 
+                          loading="lazy"
+                          src={editProfileImage} 
+                          alt="Profile Preview" 
+                          className="w-24 h-24 rounded-full object-cover border-2 border-zinc-800 transition-all duration-300 group-hover:border-[#0055ff]"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="w-24 h-24 rounded-full bg-zinc-900 border-2 border-zinc-800 flex items-center justify-center text-zinc-500 text-2xl font-bold uppercase transition-all duration-300 group-hover:border-[#0055ff]">
+                          {editName ? editName.charAt(0) : 'U'}
+                        </div>
+                      )}
+                    </div>
+
+                    {uploadProgress !== null && (
+                      <div className="w-full max-w-[200px] my-3 space-y-1.5 align-middle text-center mx-auto">
+                        <div className="flex justify-between items-center text-[9px] font-black tracking-widest text-[#0055ff]">
+                          <span>UPLOADING TO STORAGE</span>
+                          <span>{uploadProgress}%</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-zinc-950 border border-zinc-800 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-[#0055ff] transition-all duration-300 ease-out shadow-[0_0_8px_rgba(0,85,255,0.5)]"
+                            style={{ width: `${uploadProgress}%` }}
+                          />
+                        </div>
                       </div>
                     )}
-                    <label className="cursor-pointer text-[#0055ff] hover:text-white text-[10px] font-black uppercase tracking-widest transition-colors">
-                      {isUploadingImage ? 'Uploading...' : 'Update Image'}
-                      <input 
-                        type="file" 
-                        accept="image/*" 
-                        className="hidden" 
-                        onChange={handleProfileImageUpload}
-                        disabled={isUploadingImage}
-                      />
-                    </label>
+
+                    {/* Interaction Actions */}
+                    <div className="flex flex-col gap-2 w-full text-center">
+                      <div className="flex flex-wrap justify-center gap-2">
+                        <label className="cursor-pointer text-zinc-400 hover:text-white text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 border border-zinc-800/80 hover:border-zinc-700 bg-zinc-900/20 px-3 py-2">
+                          <span>{isUploadingImage ? 'Uploading...' : 'Upload Image'}</span>
+                          <input 
+                            type="file" 
+                            accept="image/*" 
+                            className="hidden" 
+                            onChange={handleProfileImageUpload}
+                            disabled={isUploadingImage}
+                          />
+                        </label>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="space-y-1">
@@ -1157,6 +1275,17 @@ const CustomerProfile: React.FC<Props> = ({ customerInfo, orders, products, onNa
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-5.368m0 5.368l5.662 3.775m-5.662-3.775L13.34 8.66m5.662 3.775a3 3 0 11-5.662-3.775m5.662 3.775a3 3 0 11-5.662 3.775" />
                               </svg>
                               Share
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (onOpenSmartPreview) {
+                                  onOpenSmartPreview(order);
+                                }
+                              }}
+                              className="text-[10px] flex items-center gap-2 font-black uppercase tracking-widest px-4 py-2 bg-[#0055ff] border border-[#0055ff] text-white hover:bg-blue-600 transition-colors"
+                            >
+                              👁️ Smart Preview
                             </button>
                             <button
                               onClick={(e) => {

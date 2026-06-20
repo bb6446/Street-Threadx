@@ -157,12 +157,8 @@ export const chatService = {
   },
 
   async sendMessage(sessionId: string, message: Omit<ChatMessage, 'id' | 'timestamp'>) {
-    const user = await ensureAuth();
-    if (!user && !message.isAdmin) {
-      console.warn("Cannot send message: Not authenticated");
-      return;
-    }
-
+    const user = await ensureAuth().catch(() => null);
+    
     const messagesRef = collection(db, 'chatSessions', sessionId, 'messages');
     const sessionRef = doc(db, 'chatSessions', sessionId);
     
@@ -194,12 +190,12 @@ export const chatService = {
 
   subscribeToSession(sessionId: string, callback: (session: ChatSession | null) => void) {
     let unsubscribe = () => {};
-    ensureAuth().then((user) => {
-      if (!user) {
-        console.warn("Cannot subscribe to session: Not authenticated");
-        return;
-      }
-      const sessionRef = doc(db, 'chatSessions', sessionId);
+    let isSubscribed = false;
+    const sessionRef = doc(db, 'chatSessions', sessionId);
+
+    const setupSnapshot = () => {
+      if (isSubscribed) return;
+      isSubscribed = true;
       unsubscribe = onSnapshot(sessionRef, (docSnap) => {
         if (docSnap.exists()) {
           callback({ id: docSnap.id, ...docSnap.data(), messages: [] } as ChatSession);
@@ -210,20 +206,27 @@ export const chatService = {
         // Don't throw for guests who haven't initialized yet
         console.warn("Session subscription warning:", error.message);
       });
-    });
+    };
+
+    ensureAuth()
+      .then(setupSnapshot)
+      .catch(() => {
+        console.warn("Auth failed, subscribing to session anyway");
+        setupSnapshot();
+      });
+
     return () => unsubscribe();
   },
 
   subscribeToMessages(sessionId: string, callback: (messages: ChatMessage[]) => void) {
     let unsubscribe = () => {};
-    ensureAuth().then((user) => {
-      if (!user) {
-        console.warn("Cannot subscribe to messages: Not authenticated");
-        return;
-      }
-      const messagesRef = collection(db, 'chatSessions', sessionId, 'messages');
-      const q = query(messagesRef, orderBy('timestamp', 'asc'));
+    let isSubscribed = false;
+    const messagesRef = collection(db, 'chatSessions', sessionId, 'messages');
+    const q = query(messagesRef, orderBy('timestamp', 'asc'));
 
+    const setupSnapshot = () => {
+      if (isSubscribed) return;
+      isSubscribed = true;
       unsubscribe = onSnapshot(q, (snapshot) => {
         const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage));
         callback(messages);
@@ -237,16 +240,27 @@ export const chatService = {
         }
         handleFirestoreError(error, OperationType.LIST, `chatSessions/${sessionId}/messages`);
       });
-    });
+    };
+
+    ensureAuth()
+      .then(setupSnapshot)
+      .catch(() => {
+        console.warn("Auth failed, subscribing to messages anyway");
+        setupSnapshot();
+      });
+
     return () => unsubscribe();
   },
 
   subscribeToSessions(callback: (sessions: ChatSession[]) => void) {
     let unsubscribe = () => {};
-    ensureAuth().then(() => {
-      const sessionsRef = collection(db, 'chatSessions');
-      const q = query(sessionsRef, orderBy('lastTimestamp', 'desc'));
+    let isSubscribed = false;
+    const sessionsRef = collection(db, 'chatSessions');
+    const q = query(sessionsRef, orderBy('lastTimestamp', 'desc'));
 
+    const setupSnapshot = () => {
+      if (isSubscribed) return;
+      isSubscribed = true;
       unsubscribe = onSnapshot(q, (snapshot) => {
         const sessions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), messages: [] } as ChatSession));
         callback(sessions);
@@ -258,7 +272,15 @@ export const chatService = {
         }
         handleFirestoreError(error, OperationType.LIST, 'chatSessions');
       });
-    });
+    };
+
+    ensureAuth()
+      .then(setupSnapshot)
+      .catch(() => {
+        console.warn("Auth failed, subscribing to sessions anyway");
+        setupSnapshot();
+      });
+
     return () => unsubscribe();
   },
 

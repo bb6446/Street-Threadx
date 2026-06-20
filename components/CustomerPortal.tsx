@@ -161,6 +161,7 @@ const CustomerPortal: React.FC<{
   };
   
   const handleGoogleLogin = async () => {
+    if (isSocialLoading) return;
     setError('');
     setIsSocialLoading(true);
     try {
@@ -174,8 +175,10 @@ const CustomerPortal: React.FC<{
       
       if (errorCode === 'auth/operation-not-allowed' || errorMessage.includes('operation-not-allowed')) {
         setError('GOOGLE_LOGIN_NOT_ENABLED: Please go to Firebase Console > Authentication > Sign-in method, click "Add new provider", select Google, and enable it.');
-      } else if (errorCode === 'auth/popup-closed-by-user') {
+      } else if (errorCode === 'auth/popup-closed-by-user' || errorCode === 'auth/cancelled-popup-request') {
         setError('GOOGLE_LOGIN_CANCELLED: Authentication window was closed. TIP: If using an iframe preview, please click "Open in New Tab" at the top right.');
+      } else if (errorCode === 'auth/popup-blocked') {
+        setError('GOOGLE_POPUP_BLOCKED: Your browser blocked the login popup. Please allow popups for this site or open in a New Tab.');
       } else {
         setError(errorMessage || 'GOOGLE_AUTH_FAILURE: ACCESS DENIED. TIP: Try opening this app in a New Tab.');
       }
