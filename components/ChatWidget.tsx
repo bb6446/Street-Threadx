@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
-import { Facebook, Instagram, Twitter, HelpCircle, Package, Truck, Paperclip, X, Zap } from 'lucide-react';
+import { Facebook, Instagram, Twitter, HelpCircle, Package, Truck, Paperclip, X, Zap, Star, Smile } from 'lucide-react';
 import { ChatMessage, ChatSession } from '../types';
 
 interface ChatWidgetProps {
@@ -11,15 +11,23 @@ interface ChatWidgetProps {
   session?: ChatSession;
   customerName: string;
   isTyping?: boolean;
+  onSubmitRating?: (rating: number, comment?: string) => void;
 }
 
-export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSendMessage, session, customerName, isTyping }) => {
+export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSendMessage, session, customerName, isTyping, onSubmitRating }) => {
   const [inputValue, setInputValue] = useState('');
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [showRatingBox, setShowRatingBox] = useState(false);
+  const [ratingVal, setRatingVal] = useState<number>(5);
+  const [hoveredStar, setHoveredStar] = useState<number | null>(null);
+  const [csatComment, setCsatComment] = useState('');
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
+
   const quickReplies = [
+    { id: 'rate', text: '⭐ Rate Agent Quality', icon: <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500 animate-pulse" /> },
     { id: 'track', text: 'Track Order', icon: <Truck className="w-4 h-4" /> },
     { id: 'stock', text: 'Check Availability', icon: <Package className="w-4 h-4" /> },
     { id: 'return', text: 'Quick Returns', icon: <HelpCircle className="w-4 h-4" /> },
@@ -193,13 +201,107 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, onToggle, onSend
                 </div>
               )}
 
+              {/* CSAT Satisfaction Rating Box */}
+              {showRatingBox && (
+                <div className="mb-4 p-4 rounded-xl bg-zinc-900 border border-zinc-800 shadow-[0_4px_15px_rgba(0,0,0,0.4)] relative">
+                  <button 
+                    type="button"
+                    onClick={() => setShowRatingBox(false)}
+                    className="absolute top-2.5 right-2.5 text-zinc-500 hover:text-white transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                  
+                  {ratingSubmitted ? (
+                    <div className="text-center py-2">
+                      <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center mx-auto mb-2">
+                        <Smile className="w-6 h-6" />
+                      </div>
+                      <h4 className="text-xs font-black uppercase text-white tracking-widest mb-1">Feedback Logged!</h4>
+                      <p className="text-[10px] text-zinc-400 font-medium">Under 0.2s CSAT agent feedback processed successfully.</p>
+                      <button 
+                        type="button" 
+                        onClick={() => { setShowRatingBox(false); setRatingSubmitted(false); }}
+                        className="mt-3 text-[9px] font-black uppercase text-zinc-400 hover:text-white underline tracking-wider"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <Smile className="w-4 h-4 text-[#0084ff]" />
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-[#0084ff]">Stylist Support Quality CSAT</h4>
+                      </div>
+                      <p className="text-[10px] text-zinc-400 font-medium leading-normal mb-3">
+                        How satisfied were you with your stylist's elite 0.2s speed and service assistance today?
+                      </p>
+                      
+                      {/* Star Picker */}
+                      <div className="flex justify-center gap-2 mb-3">
+                        {[1, 2, 3, 4, 5].map((star) => {
+                          const isLit = (hoveredStar !== null ? star <= hoveredStar : star <= ratingVal);
+                          return (
+                            <button
+                              key={star}
+                              type="button"
+                              onClick={() => setRatingVal(star)}
+                              onMouseEnter={() => setHoveredStar(star)}
+                              onMouseLeave={() => setHoveredStar(null)}
+                              className="focus:outline-none transform active:scale-90 transition-all"
+                            >
+                              <Star 
+                                className={`w-6 h-6 ${
+                                  isLit 
+                                    ? 'text-amber-500 fill-amber-500 drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]' 
+                                    : 'text-zinc-600 hover:text-amber-500/50'
+                                } transition-colors duration-150`} 
+                              />
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Comment */}
+                      <textarea
+                        value={csatComment}
+                        onChange={(e) => setCsatComment(e.target.value)}
+                        placeholder="Tell our luxury support team more (optional)..."
+                        className="w-full bg-zinc-950 border border-zinc-800 text-[11px] font-bold text-white placeholder:text-zinc-600 px-3 py-2 outline-none rounded-lg focus:border-[#0084ff] min-h-[45px] resize-none mb-3 transition-colors"
+                      />
+
+                      {/* Submit */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onSubmitRating) {
+                            onSubmitRating(ratingVal, csatComment);
+                          }
+                          setRatingSubmitted(true);
+                          setCsatComment('');
+                        }}
+                        className="w-full bg-[#0084ff] text-white text-[10px] font-black uppercase tracking-widest py-2.5 rounded-lg hover:bg-[#0070da] transition-colors focus:outline-none"
+                      >
+                        Submit Satisfaction Rating
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Quick Replies */}
               <div className="flex gap-2 mb-3 overflow-x-auto no-scrollbar py-1">
                 {quickReplies.map((reply, idx) => (
                   <button
                     key={idx}
-                    onClick={() => handleQuickReply(reply.text)}
-                    className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800/80 border border-zinc-700/80 text-zinc-300 text-[11px] font-bold rounded-full hover:bg-[#0084ff]/15 hover:border-[#0084ff]/40 hover:text-[#0084ff] hover:shadow-[0_0_10px_rgba(0,132,255,0.15)] transition-all whitespace-nowrap active:scale-95"
+                    onClick={() => {
+                      if (reply.id === 'rate') {
+                        setShowRatingBox(true);
+                      } else {
+                        handleQuickReply(reply.text);
+                      }
+                    }}
+                    className="flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 bg-[#2c2c2c] border border-zinc-700/50 text-zinc-200 text-[11px] font-semibold rounded-full hover:bg-[#3a3b3c] hover:text-white hover:border-zinc-500 transition-all whitespace-nowrap active:scale-[0.97] shadow-sm"
                   >
                     {reply.icon && <span className="opacity-80">{reply.icon}</span>}
                     {reply.text}

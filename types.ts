@@ -31,6 +31,7 @@ export interface Product {
   taxCategory: 'Standard' | 'Reduced' | 'Exempt';
   seoTitle?: string;
   seoDescription?: string;
+  seoKeywords?: string;
   ogImage?: string;
   tags?: string[];
   sales?: number;
@@ -291,6 +292,9 @@ export interface ChatSession {
   status: 'ACTIVE' | 'CLOSED';
   isPresenceActive?: boolean;
   lastPresenceUpdate?: string;
+  rating?: number;
+  feedbackText?: string;
+  ratedAt?: string;
 }
 
 export interface NewsletterSubscription {

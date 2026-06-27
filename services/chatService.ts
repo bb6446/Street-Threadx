@@ -297,6 +297,19 @@ export const chatService = {
     }
   },
 
+  async submitRating(sessionId: string, rating: number, feedbackText: string = '') {
+    const sessionRef = doc(db, 'chatSessions', sessionId);
+    try {
+      await updateDoc(sessionRef, {
+        rating,
+        feedbackText,
+        ratedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `chatSessions/${sessionId}`);
+    }
+  },
+
   async closeSession(sessionId: string) {
     const sessionRef = doc(db, 'chatSessions', sessionId);
     try {

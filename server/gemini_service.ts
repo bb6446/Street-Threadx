@@ -69,7 +69,7 @@ export const generateSEOContent = async (productName: string, description: strin
   try {
     const response = await client.models.generateContent({
       model: 'gemini-3.1-flash-lite',
-      contents: `Write an SEO meta title and meta description for this streetwear product: "${productName}". 
+      contents: `Write an SEO meta title, meta description, and 5-7 comma-separated SEO keywords for this streetwear product: "${productName}". 
 Category: "${category}". 
 Tags: ${tags.join(', ')}. 
 Description: "${description}". 
@@ -82,9 +82,10 @@ The description should be compelling, include a call to action, and be under 160
           type: Type.OBJECT,
           properties: {
             seoTitle: { type: Type.STRING },
-            seoDescription: { type: Type.STRING }
+            seoDescription: { type: Type.STRING },
+            seoKeywords: { type: Type.STRING }
           },
-          required: ["seoTitle", "seoDescription"]
+          required: ["seoTitle", "seoDescription", "seoKeywords"]
         }
       }
     });
@@ -422,7 +423,7 @@ export const generateModelSwapImages = async (base64Image: string, productName: 
           }
         }
       } catch (error: any) {
-        console.error(`Gemini Model Gen Error (Seed ${seed}), falling back to beautiful SVG preset...`, error);
+        console.warn(`Gemini Model Gen Error (Seed ${seed}), falling back to beautiful SVG preset...`);
         return getFallbackModelSwapImage(productName, category, seed);
       }
       return getFallbackModelSwapImage(productName, category, seed);
@@ -459,7 +460,7 @@ export const generatePromotionalImage = async (prompt: string) => {
       }
     }
   } catch (error: any) {
-    console.error("Gemini Image Gen Error, returning beautiful SVG fallback:", error);
+    console.warn("Gemini Image Gen Error, returning beautiful SVG fallback limits.");
     return getFallbackPromotionalImage(prompt);
   }
   return getFallbackPromotionalImage(prompt);
@@ -496,7 +497,7 @@ The style must be an elite streetwear lookbook photography mixed with modern edi
       }
     }
   } catch (error: any) {
-    console.error("Gemini OG Image Gen Error, returning beautiful SVG fallback:", error);
+    console.warn("Gemini OG Image Gen Error, returning beautiful SVG fallback due to API limits.");
     return getFallbackOgImage(productName, category, description);
   }
   return getFallbackOgImage(productName, category, description);
@@ -532,7 +533,7 @@ The style must be a minimalist streetwear industrial/techwear blueprint design:
       }
     }
   } catch (error: any) {
-    console.error("Gemini Size Chart Image Gen Error, returning beautiful SVG fallback:", error);
+    console.warn("Gemini Size Chart Image Gen Error, returning beautiful SVG fallback limits.");
     return getFallbackSizeChartImage(productName, category, extraPrompt);
   }
   return getFallbackSizeChartImage(productName, category, extraPrompt);

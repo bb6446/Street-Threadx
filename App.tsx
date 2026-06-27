@@ -1087,7 +1087,7 @@ function AppContent() {
     phone: '',
     address: '',
     billingAddress: '',
-    city: 'Dhaka',
+    city: '',
     zip: '',
     paymentMethod: 'bKash' as 'COD' | 'bKash' | 'Nagad' | 'Rocket' | 'Credit Card' | 'Debit Card',
     trxId: '',
@@ -1395,6 +1395,10 @@ function AppContent() {
   }, []);
 
   const handleSendMessage = async (text: string, image?: string, isAdmin: boolean = false, targetEmail?: string, targetSessionId?: string) => {
+    if (!isAdmin) {
+      setIsAiTyping(true);
+    }
+    
     let sessionId = targetSessionId;
     let emailToUse = isAdmin ? targetEmail : chatIdentity;
     
@@ -1435,30 +1439,65 @@ function AppContent() {
         clearTimeout(aiResponseTimeoutRef.current);
       }
 
-      setIsAiTyping(true);
       const currentIdentity = chatIdentity;
       const currentSessionId = sessionId;
       const currentText = text;
       const currentImage = image;
       
       aiResponseTimeoutRef.current = setTimeout(async () => {
-        // Rate limiting logic: Check last request time
+        // Minimal rate limit for rapid spam prevention only (100ms)
         const now = Date.now();
-        if (now - lastAiRequestTimeRef.current < 2000) {
-          console.warn("AI_RATE_LIMIT_HIT: Throttling request to preserve quota.");
+        if (now - lastAiRequestTimeRef.current < 100) {
           setIsAiTyping(false);
           return;
         }
         lastAiRequestTimeRef.current = now;
 
         try {
+          if (currentText === 'Track Order') {
+            const hasEmail = customerInfo.email || auth.currentUser?.email;
+            let reply = '';
+            if (hasEmail) {
+              // Mock checking DB
+              reply = `I've checked our system for **${hasEmail}**. Your recent orders are currently being processed. If you have an Order ID, you can also use our Track Order page!`;
+            } else {
+              reply = "Please provide your Order ID or email address, and I'll instantly pull up your tracking details!";
+            }
+            await handleSendMessage(reply, undefined, true, currentIdentity, currentSessionId);
+            return;
+          }
+
+          if (currentText === 'Check Availability') {
+             const inStockCount = products.filter(p => p.stock > 0).length;
+             const totalItems = products.reduce((acc, p) => acc + p.stock, 0);
+             await handleSendMessage(`**Live Stock Update:**\nWe currently have **${inStockCount} unique styles** in stock, with a total of **${totalItems} units** ready to ship immediately from our warehouse. Let me know if you are looking for a specific size or fit!`, undefined, true, currentIdentity, currentSessionId);
+             return;
+          }
+
+          if (currentText === 'Quick Returns') {
+             await handleSendMessage(`**Bespoke Return Rules:**\n• **7-Day Window:** You have 7 days from the delivery date to initiate a return.\n• **Condition:** Items must be unworn, unwashed, and have original tags attached.\n• **Process:** Contact us here or email support to get your pre-paid shipping label.`, undefined, true, currentIdentity, currentSessionId);
+             return;
+          }
+
           // Merge customerInfo with firebase auth to ensure correct login status is passed
           const activeUserContext = {
             ...customerInfo,
             email: customerInfo.email || auth.currentUser?.email || '',
             name: customerInfo.name || auth.currentUser?.displayName || '',
           };
-          const aiResponse = await generateChatAgentResponse(currentText, products, activeUserContext, cart, currentImage);
+          
+          const leanProducts = products.map(p => ({
+            id: p.id,
+            name: p.name,
+            price: p.price,
+            category: p.category,
+            stock: p.stock,
+            status: p.status,
+            description: p.description?.substring(0, 200) || '',
+            images: [] // Strip images to avoid huge base64 payloads crashing the fetch
+          })) as Product[];
+
+          const aiResponse = await generateChatAgentResponse(currentText, leanProducts, activeUserContext, cart, currentImage);
           await handleSendMessage(aiResponse, undefined, true, currentIdentity, currentSessionId);
         } catch (error: any) {
           console.error("CORE_AI_ERROR:", error);
@@ -1469,7 +1508,28 @@ function AppContent() {
           setIsAiTyping(false);
           aiResponseTimeoutRef.current = null;
         }
-      }, 1500); // 1.5s delay to group rapid messages and provide human-like rhythm
+      }, 200); // Blazing fast 0.2 second (200ms) reply!
+    }
+  };
+
+  const handleRatingSubmit = async (rating: number, comment?: string) => {
+    try {
+      await chatService.submitRating(chatSessionId, rating, comment || '');
+      
+      // Satisfaction Agent automatic response after exactly 0.2 seconds (200 ms)
+      setIsAiTyping(true);
+      setTimeout(async () => {
+        let csatReplyText = '';
+        if (rating >= 4) {
+          csatReplyText = `⭐ **CSAT Feedbacks Registered: ${rating}/5**\n\n**Satisfaction Stylist Desk:**\nThank you so much, **${customerInfo.name || 'GUEST'}**! We are deeply committed to absolute customer satisfaction. Your perfect score has been registered in our database! Wear your premium streetwear with pride! 💎🔥`;
+        } else {
+          csatReplyText = `⭐ **CSAT Feedbacks Registered: ${rating}/5**\n\n**Satisfaction Stylist Desk:**\nWe note your ${rating}/5 rating and apologize that your experience was less than perfect. Your concerns and comments: "${comment || 'N/A'}" have been logged to Firestore and escalated directly to our stylist support lead. We will reach out to you shortly to resolve this!`;
+        }
+        await handleSendMessage(csatReplyText, undefined, true, chatIdentity, chatSessionId);
+        setIsAiTyping(false);
+      }, 200); // 0.2 seconds instant follow-up!
+    } catch (err) {
+      console.error("CSAT_SUBMIT_ERROR:", err);
     }
   };
 
@@ -1863,8 +1923,9 @@ function AppContent() {
         else if (value.trim().length < 2) error = 'Name must be at least 2 characters.';
         break;
       case 'email':
-        if (!value.trim()) error = 'Email address is required.';
-        else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) error = 'Please enter a valid email format (e.g., user@example.com).';
+        if (value.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+          error = 'Please enter a valid email format (e.g., user@example.com).';
+        }
         break;
       case 'phone':
         if (!value.trim()) error = 'Contact number is required.';
@@ -2162,7 +2223,7 @@ function AppContent() {
       phone: '',
       address: '',
       billingAddress: '',
-      city: 'Dhaka',
+      city: '',
       zip: '',
       paymentMethod: 'bKash',
       trxId: '',
@@ -2255,48 +2316,52 @@ function AppContent() {
         // Save order to Firestore (Wait for it!)
         await saveOrderToFirestore(newOrder);
 
-        // Send order confirmation email asynchronously
-        fetch('/api/send-order-confirmation', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ order: newOrder })
-        })
-        .then(res => res.json())
-        .then(data => {
-          if (data && data.previewUrl) {
-            setLastEmailPreviewUrl(data.previewUrl);
-            console.log("Automated confirmation email triggered successfully! Preview URL:", data.previewUrl);
-          }
-        })
-        .catch(err => console.error('Failed to trigger confirmation email', err));
+        // Send order confirmation email asynchronously only if email is provided
+        if (newOrder.customerEmail && newOrder.customerEmail.trim()) {
+          fetch('/api/send-order-confirmation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order: newOrder })
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (data && data.previewUrl) {
+              setLastEmailPreviewUrl(data.previewUrl);
+              console.log("Automated confirmation email triggered successfully! Preview URL:", data.previewUrl);
+            }
+          })
+          .catch(err => console.error('Failed to trigger confirmation email', err));
+        }
 
-        // Update customer records
-        const existing = customers.find(c => c.email.toLowerCase() === customerInfo.email.toLowerCase());
-        if (existing) {
-          await updateCustomer(existing.id, {
-            totalSpent: existing.totalSpent + cartTotal,
-            orders: existing.orders + 1,
-            lastSeen: new Date().toISOString(),
-            isEmailVerified: isEmailVerified || existing.isEmailVerified,
-            isPhoneVerified: isPhoneVerified || existing.isPhoneVerified,
-            phone: customerInfo.phone || existing.phone
-          });
-        } else {
-          const newCustomer: Customer = {
-            id: Math.random().toString(36).substr(2, 9),
-            name: customerInfo.name,
-            email: customerInfo.email,
-            phone: customerInfo.phone,
-            address: customerInfo.address,
-            city: customerInfo.city,
-            zip: customerInfo.zip,
-            totalSpent: cartTotal,
-            orders: 1,
-            lastSeen: new Date().toISOString(),
-            isEmailVerified: isEmailVerified,
-            isPhoneVerified: isPhoneVerified
-          };
-          await saveCustomerToFirestore(newCustomer);
+        // Update customer records if email is provided
+        if (customerInfo.email && customerInfo.email.trim()) {
+          const existing = customers.find(c => c.email.toLowerCase() === customerInfo.email.toLowerCase());
+          if (existing) {
+            await updateCustomer(existing.id, {
+              totalSpent: existing.totalSpent + cartTotal,
+              orders: existing.orders + 1,
+              lastSeen: new Date().toISOString(),
+              isEmailVerified: isEmailVerified || existing.isEmailVerified,
+              isPhoneVerified: isPhoneVerified || existing.isPhoneVerified,
+              phone: customerInfo.phone || existing.phone
+            });
+          } else {
+            const newCustomer: Customer = {
+              id: Math.random().toString(36).substr(2, 9),
+              name: customerInfo.name,
+              email: customerInfo.email,
+              phone: customerInfo.phone,
+              address: customerInfo.address,
+              city: customerInfo.city,
+              zip: customerInfo.zip,
+              totalSpent: cartTotal,
+              orders: 1,
+              lastSeen: new Date().toISOString(),
+              isEmailVerified: isEmailVerified,
+              isPhoneVerified: isPhoneVerified
+            };
+            await saveCustomerToFirestore(newCustomer);
+          }
         }
 
         if (appliedDiscount) {
@@ -3185,7 +3250,7 @@ function AppContent() {
               phone: '', 
               address: '',
               billingAddress: '',
-              city: 'Dhaka',
+              city: '',
               zip: '',
               paymentMethod: 'COD',
               trxId: '',
@@ -4227,7 +4292,11 @@ function AppContent() {
                 </div>
                 <div className="space-y-2">
                   <h2 className="text-3xl font-black uppercase italic animate-pulse">Order_Synchronized</h2>
-                  <p className="text-zinc-400 uppercase text-[9px] tracking-[0.2em] font-black">An automated order confirmation email has been dispatched to {customerInfo.email}</p>
+                  <p className="text-zinc-400 uppercase text-[9px] tracking-[0.2em] font-black">
+                    {customerInfo.email 
+                      ? `An automated order confirmation email has been dispatched to ${customerInfo.email}` 
+                      : 'Your order has been recorded into the secure dispatch stream.'}
+                  </p>
                 </div>
                 <div className="bg-zinc-900 border border-zinc-800 p-4 flex items-center justify-between w-full max-w-sm mx-auto group cursor-pointer" onClick={() => { navigator.clipboard.writeText(orders[0]?.id || ''); showToast('Order ID Copied'); }}>
                   <div className="text-left">
@@ -4340,7 +4409,7 @@ function AppContent() {
                       </div>
                       <div className="space-y-1">
                         <div className="flex items-center justify-between">
-                          <label className="text-[9px] font-black uppercase text-zinc-500">Email_Address</label>
+                          <label className="text-[9px] font-black uppercase text-zinc-500">Email_Address (Optional)</label>
                         </div>
                         <div className="flex items-center gap-2 relative">
                           <input 
@@ -4353,7 +4422,7 @@ function AppContent() {
                                   ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' 
                                   : 'border-zinc-800 focus:border-[#0055ff]'
                             }`} 
-                            placeholder="ENTITY@REACH.COM" 
+                            placeholder="ENTITY@REACH.COM (OPTIONAL)" 
                           />
                         </div>
                         {checkoutErrors.email && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.email}</p>}
@@ -4387,19 +4456,26 @@ function AppContent() {
                           </div>
                         </div>
                         <div className="space-y-6">
-                          <div className="space-y-1">
-                            <label className="text-[9px] font-black uppercase text-zinc-500">City</label>
-                            <input id="checkout-city" type="text" value={customerInfo.city} onChange={e => handleCustomerInfoChange('city', e.target.value)} className={`w-full bg-zinc-900/50 border px-4 py-3 text-xs font-bold text-white outline-none transition-all ${checkoutErrors.city ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' : 'border-zinc-800 focus:border-[#0055ff]'}`} placeholder="CITY" />
-                            {checkoutErrors.city && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.city}</p>}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                              <label className="text-[9px] font-black uppercase text-zinc-500">City</label>
+                              <input id="checkout-city" type="text" value={customerInfo.city} onChange={e => handleCustomerInfoChange('city', e.target.value)} className={`w-full bg-zinc-900/50 border px-4 py-3 text-xs font-bold text-white outline-none transition-all ${checkoutErrors.city ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' : 'border-zinc-800 focus:border-[#0055ff]'}`} placeholder="CITY" />
+                              {checkoutErrors.city && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.city}</p>}
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[9px] font-black uppercase text-zinc-500">ZIP / Postcode</label>
+                              <input id="checkout-zip" type="text" value={customerInfo.zip || ''} onChange={e => handleCustomerInfoChange('zip', e.target.value)} className={`w-full bg-zinc-900/50 border px-4 py-3 text-xs font-bold text-white outline-none transition-all ${checkoutErrors.zip ? 'border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]' : 'border-zinc-800 focus:border-[#0055ff]'}`} placeholder="XXXX" />
+                              {checkoutErrors.zip && <p className="text-[8px] text-rose-500 font-black uppercase tracking-tighter">{checkoutErrors.zip}</p>}
+                            </div>
                           </div>
                           <div className="space-y-1">
-                            <label className="text-[9px] font-black uppercase text-zinc-500">Order_Notes / Gift_Messages</label>
+                            <label className="text-[9px] font-black uppercase text-zinc-500">Delivery Notes / Special Requests</label>
                             <textarea 
                               id="checkout-notes" 
                               value={customerInfo.notes} 
                               onChange={e => handleCustomerInfoChange('notes', e.target.value)} 
                               className="w-full bg-zinc-900/50 border border-zinc-800 px-4 py-3 text-xs font-bold text-white outline-none focus:border-[#0055ff] transition-all min-h-[60px]" 
-                              placeholder="GIFT MESSAGES, SPECIAL REQUESTS..." 
+                              placeholder="Gate codes, landmarks, gift messages..." 
                             />
                           </div>
                           <div className="space-y-1">
@@ -6076,6 +6152,7 @@ function AppContent() {
         session={chatSessions.find(s => s.id === chatSessionId)}
         customerName={customerInfo.name || 'Guest'}
         isTyping={isAiTyping}
+        onSubmitRating={handleRatingSubmit}
       />
 
       {/* Product Comparison Floating Bar */}

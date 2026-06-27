@@ -1,6 +1,11 @@
 import nodemailer from 'nodemailer';
 
 export async function sendEmailNotification(to: string, subject: string, text: string, html: string) {
+  if (!to || !to.trim()) {
+    console.log("No recipient defined. Skipping email dispatch gracefully.");
+    return { success: true, messageId: 'skipped_blank_recipient', previewUrl: '' };
+  }
+
   let transporter;
   let isUsingFallback = false;
 

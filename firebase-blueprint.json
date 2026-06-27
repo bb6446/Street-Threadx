@@ -69,7 +69,10 @@
         "lastTimestamp": { "type": "string" },
         "status": { "type": "string", "enum": ["ACTIVE", "CLOSED"] },
         "isPresenceActive": { "type": "boolean" },
-        "lastPresenceUpdate": { "type": "string" }
+        "lastPresenceUpdate": { "type": "string" },
+        "rating": { "type": "number" },
+        "feedbackText": { "type": "string" },
+        "ratedAt": { "type": "string" }
       },
       "required": ["id", "customerName", "customerEmail", "status"]
     },

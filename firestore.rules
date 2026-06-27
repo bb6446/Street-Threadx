@@ -89,5 +89,15 @@ service cloud.firestore {
     match /newsletters/{subscriptionId} {
       allow read, write: if true;
     }
+
+    // --- Custom Forms ---
+    match /custom_forms/{formId} {
+      allow read, write: if true;
+    }
+
+    // --- Custom Form Submissions ---
+    match /custom_form_submissions/{submissionId} {
+      allow read, write: if true;
+    }
   }
 }

@@ -27,6 +27,53 @@ import {
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
+const convertToRgba = (colorStr: string): string => {
+  if (!colorStr) return colorStr;
+  
+  const convertSingleColor = (singleColor: string): string => {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return singleColor;
+      ctx.fillStyle = singleColor;
+      ctx.fillRect(0, 0, 1, 1);
+      const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+      return `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(3)})`;
+    } catch (err) {
+      console.warn('Failed to parse single color:', singleColor, err);
+      return '#0055ff';
+    }
+  };
+
+  if (colorStr.includes('oklch') || colorStr.includes('oklab') || colorStr.includes('color-mix')) {
+    let processed = colorStr;
+    const minPattern = /(oklch|oklab|color-mix)\([^()]*\)/gi;
+    
+    let changed = true;
+    let iterations = 0;
+    while (changed && iterations < 5) {
+      changed = false;
+      processed = processed.replace(minPattern, (match) => {
+        changed = true;
+        return convertSingleColor(match);
+      });
+      iterations++;
+    }
+    
+    if (processed.includes('oklch') || processed.includes('oklab') || processed.includes('color-mix')) {
+      processed = processed.replace(/(oklch|oklab)\([^)]+\)/gi, (match) => {
+        return convertSingleColor(match);
+      });
+    }
+    
+    return processed;
+  }
+  
+  return colorStr;
+};
+
 interface Props {
   order: Order;
   products: Product[];
@@ -63,7 +110,36 @@ export const SmartOrderPreview: React.FC<Props> = ({
   const handleDownloadPDF = async () => {
     if (!previewRef.current) return;
     
+    const originalGetComputedStyle = window.getComputedStyle;
+    
     try {
+      // Monkey patch getComputedStyle to resolve oklch/oklab/color-mix colors to rgba representation for html2canvas compatibility
+      window.getComputedStyle = function (elt: Element, pseudoElt?: string | null): CSSStyleDeclaration {
+        const style = originalGetComputedStyle(elt, pseudoElt);
+        return new Proxy(style, {
+          get(target, prop, receiver) {
+            if (prop === 'getPropertyValue') {
+              return (propertyName: string) => {
+                const val = target.getPropertyValue(propertyName);
+                if (val && (val.includes('oklch') || val.includes('oklab') || val.includes('color-mix'))) {
+                  return convertToRgba(val);
+                }
+                return val;
+              };
+            }
+            
+            const value = (target as any)[prop];
+            if (typeof value === 'function') {
+              return value.bind(target);
+            }
+            if (typeof value === 'string' && (value.includes('oklch') || value.includes('oklab') || value.includes('color-mix'))) {
+              return convertToRgba(value);
+            }
+            return value;
+          }
+        }) as any;
+      };
+
       const element = previewRef.current;
       const canvas = await html2canvas(element, {
         scale: 2,
@@ -97,6 +173,9 @@ export const SmartOrderPreview: React.FC<Props> = ({
       pdf.save(`StreetThreadX-Invoice-${order.id}.pdf`);
     } catch (error) {
       console.error('Error generating PDF:', error);
+    } finally {
+      // Restore original getComputedStyle
+      window.getComputedStyle = originalGetComputedStyle;
     }
   };
 

@@ -1,9 +1,13 @@
 
 import { ChatMessage, Product } from "../types";
 
+const getApiUrl = () => {
+  return import.meta.env.VITE_API_URL || "";
+};
+
 export const generateSEOContent = async (productName: string, description: string, category: string, tags: string[] = []) => {
   try {
-    const response = await fetch("/api/ai/generate-seo", {
+    const response = await fetch(`${getApiUrl()}/api/ai/generate-seo`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ productName, description, category, tags }),
@@ -18,7 +22,7 @@ export const generateSEOContent = async (productName: string, description: strin
 
 export const generateTags = async (productName: string, description: string, category: string) => {
   try {
-    const response = await fetch("/api/ai/generate-tags", {
+    const response = await fetch(`${getApiUrl()}/api/ai/generate-tags`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ productName, description, category }),
@@ -34,7 +38,7 @@ export const generateTags = async (productName: string, description: string, cat
 
 export const generateSizeChart = async (productName: string, category: string, extraPrompt: string = "") => {
   try {
-    const response = await fetch("/api/ai/generate-size-chart", {
+    const response = await fetch(`${getApiUrl()}/api/ai/generate-size-chart`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ productName, category, extraPrompt }),
@@ -50,7 +54,7 @@ export const generateSizeChart = async (productName: string, category: string, e
 
 export const generateOgImage = async (productName: string, category: string, description: string) => {
   try {
-    const response = await fetch("/api/ai/generate-og-image", {
+    const response = await fetch(`${getApiUrl()}/api/ai/generate-og-image`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ productName, category, description }),
@@ -67,7 +71,7 @@ export const generateOgImage = async (productName: string, category: string, des
 
 export const generateProductDescription = async (productName: string, category: string, currentDescription?: string) => {
   try {
-    const response = await fetch("/api/ai/generate-description", {
+    const response = await fetch(`${getApiUrl()}/api/ai/generate-description`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ productName, category, currentDescription }),
@@ -83,7 +87,7 @@ export const generateProductDescription = async (productName: string, category: 
 
 export const generateModelSwapImages = async (image: string | null, imageUrl: string | null, productName: string, category: string, count: number = 4) => {
   try {
-    const response = await fetch("/api/ai/generate-model-images", {
+    const response = await fetch(`${getApiUrl()}/api/ai/generate-model-images`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ image, imageUrl, productName, category, count }),
@@ -99,7 +103,7 @@ export const generateModelSwapImages = async (image: string | null, imageUrl: st
 
 export const generatePromotionalImage = async (prompt: string) => {
   try {
-    const response = await fetch("/api/ai/generate-promo-image", {
+    const response = await fetch(`${getApiUrl()}/api/ai/generate-promo-image`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt }),
@@ -115,7 +119,7 @@ export const generatePromotionalImage = async (prompt: string) => {
 
 export const generateSupportReply = async (inquiry: string, customerContext: string = 'No additional context available.') => {
   try {
-    const response = await fetch("/api/ai/generate-support-reply", {
+    const response = await fetch(`${getApiUrl()}/api/ai/generate-support-reply`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ inquiry, customerContext }),
@@ -131,7 +135,7 @@ export const generateSupportReply = async (inquiry: string, customerContext: str
 
 export const generateChatAgentResponse = async (message: string, products: Product[], customerInfo?: any, cartItems: any[] = [], imageBase64DataUrl?: string) => {
   try {
-    const response = await fetch("/api/ai/generate-chat-response", {
+    const response = await fetch(`${getApiUrl()}/api/ai/generate-chat-response`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, products, customerInfo, cartItems, imageBase64DataUrl }),
@@ -167,15 +171,15 @@ export const generateChatAgentResponse = async (message: string, products: Produ
       return "The STREET THREADX neural link is experiencing extremely high demand. Spikes in traffic are temporary. Please try again in a moment.";
     }
     if (error.message?.includes('Failed to fetch') || error instanceof TypeError) {
-      return "The STREET THREADX neural link is unreachable. This usually means the app is deployed on a static hosting service (like GitHub Pages) without the required Node.js backend server. Please deploy to a full-stack platform like Cloud Run.";
+      return "The STREET THREADX neural link is unreachable. This usually means the app is deployed on a static hosting service without the required Node.js backend server. Please deploy the server separately and set VITE_API_URL or use a full-stack platform.";
     }
-    return "The STREET THREADX neural link is currently under maintenance or the backend server is unreachable. Please ensure you are using a platform that supports Node.js backends (like Cloud Run). Our support agents are still standing by.";
+    return "The STREET THREADX neural link is currently under maintenance or the backend server is unreachable. Please ensure your VITE_API_URL is correctly configured. Our support agents are still standing by.";
   }
 };
 
 export const generateResponseSuggestions = async (messages: ChatMessage[]) => {
   try {
-    const response = await fetch("/api/ai/generate-suggestions", {
+    const response = await fetch(`${getApiUrl()}/api/ai/generate-suggestions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages }),
@@ -191,7 +195,7 @@ export const generateResponseSuggestions = async (messages: ChatMessage[]) => {
 
 export const generateAgentMonitorReply = async (query: string, coreStats: any) => {
   try {
-    const response = await fetch("/api/ai/generate-monitor-reply", {
+    const response = await fetch(`${getApiUrl()}/api/ai/generate-monitor-reply`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query, coreStats }),
@@ -207,7 +211,7 @@ export const generateAgentMonitorReply = async (query: string, coreStats: any) =
 
 export const generateAnalyticsReport = async (stats: any) => {
   try {
-    const response = await fetch("/api/ai/generate-analytics", {
+    const response = await fetch(`${getApiUrl()}/api/ai/generate-analytics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ stats }),

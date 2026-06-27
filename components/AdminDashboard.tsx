@@ -5,7 +5,7 @@ import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   BarChart, Bar, Cell, PieChart, Pie 
 } from 'recharts';
-import { Sun, Moon, Monitor, Shield, Zap, Database, Globe, Share2, MessageSquare, Trash2, Edit3, Plus, Copy, Check, ChevronRight, ChevronLeft, Search, Filter, Download, ArrowUpRight, ArrowDownRight, Layout, List as ListIcon, Maximize2, Trash, ExternalLink, User, Cloud, ShoppingCart, Users, X, Key, Activity, Lock } from 'lucide-react';
+import { Sun, Moon, Monitor, Shield, Zap, Database, Globe, Share2, MessageSquare, Trash2, Edit3, Plus, Copy, Check, ChevronRight, ChevronLeft, Search, Filter, Download, ArrowUpRight, ArrowDownRight, Layout, List as ListIcon, Maximize2, Trash, ExternalLink, User, Cloud, ShoppingCart, Users, X, Key, Activity, Lock, Image as ImageIcon } from 'lucide-react';
 import { generateSEOContent, generateSupportReply, generateAnalyticsReport, generateProductDescription, generateResponseSuggestions, generateAgentMonitorReply, generateModelSwapImages, generatePromotionalImage, generateTags, generateSizeChart, generateOgImage } from '../services/geminiService';
 import { chatService } from '../services/chatService';
 import { updateProductStock, updateProductPrice, saveProductToFirestore, updateProductsBulk } from '../services/productService';
@@ -15,6 +15,7 @@ import { settingsService } from '../services/settingsService';
 import { expenseService } from '../services/expenseService';
 import { adminService } from '../services/adminService';
 import PosSystem from './PosSystem';
+import WPFormsManager from './WPFormsManager';
 import Markdown from 'react-markdown';
 import { ref, uploadBytes, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
 import { storage, signInWithGoogle, auth } from '../firebase';
@@ -216,6 +217,7 @@ const AdminDashboard: React.FC<Props> = ({
   // Plugin Management State
   const [isInstallingPlugin, setIsInstallingPlugin] = useState(false);
   const [pluginMarketOpen, setPluginMarketOpen] = useState(false);
+  const [isFormManagerOpen, setIsFormManagerOpen] = useState(false);
   const [installingPluginStatus, setInstallingPluginStatus] = useState<string | null>(null);
   const [selectedSeoCategory, setSelectedSeoCategory] = useState<string>('T-Shirts');
   const [selectedSeoProduct, setSelectedSeoProduct] = useState<string>(products[0]?.id || '');
@@ -777,7 +779,8 @@ const AdminDashboard: React.FC<Props> = ({
     
     // Trigger automated notification
     if (order && order.customerEmail) {
-      fetch('/api/notify-order-status', {
+      const apiUrl = import.meta.env.VITE_API_URL || "";
+      fetch(`${apiUrl}/api/notify-order-status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderId: id, customerEmail: order.customerEmail, newStatus })
@@ -1873,7 +1876,8 @@ const AdminDashboard: React.FC<Props> = ({
           const formData = new FormData();
           formData.append('file', file);
           
-          const response = await fetch('/api/upload', {
+          const apiUrl = import.meta.env.VITE_API_URL || "";
+          const response = await fetch(`${apiUrl}/api/upload`, {
             method: 'POST',
             body: formData,
           });
@@ -1963,7 +1967,8 @@ const AdminDashboard: React.FC<Props> = ({
           const formData = new FormData();
           formData.append('file', file);
           
-          const response = await fetch('/api/upload', {
+          const apiUrl = import.meta.env.VITE_API_URL || "";
+          const response = await fetch(`${apiUrl}/api/upload`, {
             method: 'POST',
             body: formData,
           });
@@ -6006,110 +6011,125 @@ const AdminDashboard: React.FC<Props> = ({
             )}
 
             {activeTab === 'plugins' && (
-              <div className="space-y-10 animate-in fade-in duration-700">
-                <div className="flex justify-between items-center pb-6 border-b border-zinc-800">
-                  <div>
-                    <h2 className="text-2xl font-black uppercase tracking-tighter">Plugin_Extension_Engine</h2>
-                    <p className="text-[10px] text-zinc-500 uppercase mt-1 tracking-widest">Active WordPress Emulator Framework v4.2.0-STABLE</p>
+              isFormManagerOpen ? (
+                <WPFormsManager onClose={() => setIsFormManagerOpen(false)} isDarkMode={isDarkMode} />
+              ) : (
+                <div className="space-y-10 animate-in fade-in duration-700">
+                  <div className="flex justify-between items-center pb-6 border-b border-zinc-800">
+                    <div>
+                      <h2 className="text-2xl font-black uppercase tracking-tighter">Plugin_Extension_Engine</h2>
+                      <p className="text-[10px] text-zinc-500 uppercase mt-1 tracking-widest">Active WordPress Emulator Framework v4.2.0-STABLE</p>
+                    </div>
+                    <div className="flex gap-4">
+                      <button 
+                        onClick={() => setPluginMarketOpen(true)}
+                        className="px-6 py-4 bg-[#0055ff] text-white text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-transform flex items-center gap-2 shadow-[0_8px_20px_rgba(0,85,255,0.3)]"
+                      >
+                        <Plus className="w-4 h-4" /> Install_New_Extension
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex gap-4">
-                    <button 
-                      onClick={() => setPluginMarketOpen(true)}
-                      className="px-6 py-4 bg-[#0055ff] text-white text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-transform flex items-center gap-2 shadow-[0_8px_20px_rgba(0,85,255,0.3)]"
-                    >
-                      <Plus className="w-4 h-4" /> Install_New_Extension
-                    </button>
+
+                  {/* New Features Before Plugin List */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div className={`p-6 border ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'} space-y-4`}>
+                      <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-[#0055ff]">
+                        <span>System_Memory</span>
+                        <Activity className="w-3 h-3" />
+                      </div>
+                      <div className="text-2xl font-black font-mono">14.2<span className="text-xs opacity-40 ml-1">GB</span></div>
+                      <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="w-1/3 h-full bg-[#0055ff]"></div>
+                      </div>
+                    </div>
+
+                    <div className={`p-6 border ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'} space-y-4`}>
+                      <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-emerald-500">
+                        <span>Plugin_Status</span>
+                        <Shield className="w-3 h-3" />
+                      </div>
+                      <div className="text-2xl font-black font-mono">SECURE</div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                        <span className="text-[8px] font-black opacity-40 uppercase">All systems nominal</span>
+                      </div>
+                    </div>
+
+                    <div className={`p-6 border ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'} space-y-4`}>
+                      <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-amber-500">
+                        <span>Available_Updates</span>
+                        <ArrowUpRight className="w-3 h-3" />
+                      </div>
+                      <div className="text-2xl font-black font-mono">03</div>
+                      <button className="text-[8px] font-black text-amber-500 hover:underline uppercase">Sync Update Hub</button>
+                    </div>
+
+                    <div className={`p-6 border ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'} space-y-4`}>
+                      <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-zinc-400">
+                        <span>Extension_Load</span>
+                        <Zap className="w-3 h-3" />
+                      </div>
+                      <div className="text-2xl font-black font-mono">124<span className="text-xs opacity-40 ml-1">ms</span></div>
+                      <div className="text-[8px] font-black opacity-40 uppercase">Ultra-Low Latency</div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {[{id: 'wp-seo', name: 'WP SEO Optimizer', desc: 'Standard WordPress SEO mechanics emulator', enabled: true}, {id: 'woo-commerce-bridge', name: 'WooCommerce Sync', desc: 'Syncs products to WP instances', enabled: false}, {id: 'wp-forms', name: 'WP Forms Connect', desc: 'Embeds complex dynamic forms', enabled: true}].map(plugin => {
+                          const isEnabled = socialSettings.plugins?.find(p => p.id === plugin.id)?.enabled ?? plugin.enabled;
+                          return (
+                              <div key={plugin.id} className={`p-6 border relative group ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800' : 'bg-white border-zinc-200'}`}>
+                                  <div className="flex justify-between items-start mb-4">
+                                      <div className="w-10 h-10 bg-zinc-800 flex items-center justify-center text-white font-bold rounded-lg">{plugin.name.charAt(0)}</div>
+                                      <div 
+                                          className={`w-10 h-5 rounded-full p-1 cursor-pointer transition-colors ${isEnabled ? 'bg-[#0055ff]' : 'bg-zinc-600'}`}
+                                          onClick={async () => {
+                                              const updatedPlugins = socialSettings.plugins ? [...socialSettings.plugins] : [{id: 'wp-seo', name: 'WP SEO Optimizer', enabled: true}];
+                                              const existing = updatedPlugins.find(p => p.id === plugin.id);
+                                              if (existing) {
+                                                  existing.enabled = !existing.enabled;
+                                              } else {
+                                                  updatedPlugins.push({ ...plugin, enabled: !isEnabled });
+                                              }
+                                              const newSettings = {...socialSettings, plugins: updatedPlugins};
+                                              setSocialSettings(newSettings);
+                                              try {
+                                                  const { doc, setDoc } = await import('firebase/firestore');
+                                                  const { db } = await import('../firebase');
+                                                  const cleanSettings = JSON.parse(JSON.stringify(newSettings));
+                                                  await setDoc(doc(db, 'settings', 'social'), cleanSettings, { merge: true });
+                                              } catch (e: any) {
+                                                  console.error(e);
+                                                  alert('Error saving plugin state: ' + (e.message || String(e)));
+                                              }
+                                          }}
+                                      >
+                                          <div className={`w-3 h-3 bg-white rounded-full transition-transform ${isEnabled ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                                      </div>
+                                  </div>
+                                  <h3 className="font-bold text-sm mb-1">{plugin.name}</h3>
+                                  <p className="text-xs text-zinc-400 mb-4">{plugin.desc}</p>
+                                  <div className="flex justify-between items-center text-[10px] font-black uppercase border-t border-zinc-800 pt-3">
+                                      <span 
+                                          onClick={() => {
+                                              if (plugin.id === 'wp-forms') {
+                                                  setIsFormManagerOpen(true);
+                                              } else {
+                                                  alert('Configuration module for ' + plugin.name + ' is initialized under standard protocols.');
+                                              }
+                                          }} 
+                                          className="text-[#0055ff] cursor-pointer hover:underline"
+                                      >
+                                          Configure
+                                      </span>
+                                      {isEnabled ? <span className="text-emerald-500">Active</span> : <span className="text-zinc-500">Disabled</span>}
+                                  </div>
+                              </div>
+                          )
+                      })}
                   </div>
                 </div>
-
-                {/* New Features Before Plugin List */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                  <div className={`p-6 border ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'} space-y-4`}>
-                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-[#0055ff]">
-                      <span>System_Memory</span>
-                      <Activity className="w-3 h-3" />
-                    </div>
-                    <div className="text-2xl font-black font-mono">14.2<span className="text-xs opacity-40 ml-1">GB</span></div>
-                    <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
-                      <div className="w-1/3 h-full bg-[#0055ff]"></div>
-                    </div>
-                  </div>
-
-                  <div className={`p-6 border ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'} space-y-4`}>
-                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-emerald-500">
-                      <span>Plugin_Status</span>
-                      <Shield className="w-3 h-3" />
-                    </div>
-                    <div className="text-2xl font-black font-mono">SECURE</div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                      <span className="text-[8px] font-black opacity-40 uppercase">All systems nominal</span>
-                    </div>
-                  </div>
-
-                  <div className={`p-6 border ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'} space-y-4`}>
-                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-amber-500">
-                      <span>Available_Updates</span>
-                      <ArrowUpRight className="w-3 h-3" />
-                    </div>
-                    <div className="text-2xl font-black font-mono">03</div>
-                    <button className="text-[8px] font-black text-amber-500 hover:underline uppercase">Sync Update Hub</button>
-                  </div>
-
-                  <div className={`p-6 border ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'} space-y-4`}>
-                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-zinc-400">
-                      <span>Extension_Load</span>
-                      <Zap className="w-3 h-3" />
-                    </div>
-                    <div className="text-2xl font-black font-mono">124<span className="text-xs opacity-40 ml-1">ms</span></div>
-                    <div className="text-[8px] font-black opacity-40 uppercase">Ultra-Low Latency</div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {[{id: 'wp-seo', name: 'WP SEO Optimizer', desc: 'Standard WordPress SEO mechanics emulator', enabled: true}, {id: 'woo-commerce-bridge', name: 'WooCommerce Sync', desc: 'Syncs products to WP instances', enabled: false}, {id: 'wp-forms', name: 'WP Forms Connect', desc: 'Embeds complex dynamic forms', enabled: true}].map(plugin => {
-                        const isEnabled = socialSettings.plugins?.find(p => p.id === plugin.id)?.enabled ?? plugin.enabled;
-                        return (
-                            <div key={plugin.id} className={`p-6 border relative group ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800' : 'bg-white border-zinc-200'}`}>
-                                <div className="flex justify-between items-start mb-4">
-                                    <div className="w-10 h-10 bg-zinc-800 flex items-center justify-center text-white font-bold rounded-lg">{plugin.name.charAt(0)}</div>
-                                    <div 
-                                        className={`w-10 h-5 rounded-full p-1 cursor-pointer transition-colors ${isEnabled ? 'bg-[#0055ff]' : 'bg-zinc-600'}`}
-                                        onClick={async () => {
-                                            const updatedPlugins = socialSettings.plugins ? [...socialSettings.plugins] : [{id: 'wp-seo', name: 'WP SEO Optimizer', enabled: true}];
-                                            const existing = updatedPlugins.find(p => p.id === plugin.id);
-                                            if (existing) {
-                                                existing.enabled = !existing.enabled;
-                                            } else {
-                                                updatedPlugins.push({ ...plugin, enabled: !isEnabled });
-                                            }
-                                            const newSettings = {...socialSettings, plugins: updatedPlugins};
-                                            setSocialSettings(newSettings);
-                                            try {
-                                                const { doc, setDoc } = await import('firebase/firestore');
-                                                const { db } = await import('../firebase');
-                                                const cleanSettings = JSON.parse(JSON.stringify(newSettings));
-                                                await setDoc(doc(db, 'settings', 'social'), cleanSettings, { merge: true });
-                                            } catch (e: any) {
-                                                console.error(e);
-                                                alert('Error saving plugin state: ' + (e.message || String(e)));
-                                            }
-                                        }}
-                                    >
-                                        <div className={`w-3 h-3 bg-white rounded-full transition-transform ${isEnabled ? 'translate-x-5' : 'translate-x-0'}`}></div>
-                                    </div>
-                                </div>
-                                <h3 className="font-bold text-sm mb-1">{plugin.name}</h3>
-                                <p className="text-xs text-zinc-400 mb-4">{plugin.desc}</p>
-                                <div className="flex justify-between items-center text-[10px] font-black uppercase border-t border-zinc-800 pt-3">
-                                    <span className="text-[#0055ff] cursor-pointer">Configure</span>
-                                    {isEnabled ? <span className="text-emerald-500">Active</span> : <span className="text-zinc-500">Disabled</span>}
-                                </div>
-                            </div>
-                        )
-                    })}
-                </div>
-              </div>
+              )
             )}
 
             {activeTab === 'seo' && (
@@ -6227,22 +6247,34 @@ const AdminDashboard: React.FC<Props> = ({
 
                     <div className="space-y-4">
                       <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block">Select Product</label>
-                      <select 
-                        value={selectedSeoProduct}
-                        onChange={(e) => setSelectedSeoProduct(e.target.value)}
-                        className={`w-full p-4 border text-xs font-black uppercase tracking-widest outline-none transition-all ${isDarkMode ? 'bg-black border-zinc-800 focus:border-[#0055ff]' : 'bg-transparent border-zinc-200 focus:border-black'}`}
-                      >
-                        {products.map(p => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
-                      </select>
+                      <div className="flex gap-4 items-center">
+                        {(() => {
+                          const p = products.find(p => p.id === selectedSeoProduct);
+                          return p && p.images && p.images[0] ? (
+                            <img src={p.images[0]} alt={p.name} className="w-12 h-12 object-cover border border-zinc-800" />
+                          ) : (
+                            <div className="w-12 h-12 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+                              <ImageIcon className="w-4 h-4 text-zinc-600" />
+                            </div>
+                          );
+                        })()}
+                        <select 
+                          value={selectedSeoProduct}
+                          onChange={(e) => setSelectedSeoProduct(e.target.value)}
+                          className={`flex-1 p-4 border text-xs font-black uppercase tracking-widest outline-none transition-all ${isDarkMode ? 'bg-black border-zinc-800 focus:border-[#0055ff]' : 'bg-transparent border-zinc-200 focus:border-black'}`}
+                        >
+                          {products.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
 
                     {(() => {
                       const product = products.find(p => p.id === selectedSeoProduct);
                       if (!product) return null;
 
-                      const updateProdSeo = (field: 'seoTitle' | 'seoDescription' | 'ogImage', value: string) => {
+                      const updateProdSeo = (field: 'seoTitle' | 'seoDescription' | 'seoKeywords' | 'ogImage', value: string) => {
                         const updatedProducts = [...products];
                         const index = updatedProducts.findIndex(p => p.id === selectedSeoProduct);
                         if (index > -1) {
@@ -6261,6 +6293,7 @@ const AdminDashboard: React.FC<Props> = ({
                                     const seo = await generateSEOContent(product.name, product.description, product.category, product.tags || []);
                                     updateProdSeo('seoTitle', seo.seoTitle || seo.title);
                                     updateProdSeo('seoDescription', seo.seoDescription || seo.description);
+                                    if (seo.seoKeywords) updateProdSeo('seoKeywords', seo.seoKeywords);
                                   } catch (e) {
                                     console.error(e);
                                   } finally {
@@ -6290,8 +6323,35 @@ const AdminDashboard: React.FC<Props> = ({
                               value={product.seoDescription || ''}
                               onChange={(e) => updateProdSeo('seoDescription', e.target.value)}
                               placeholder={product.description.substring(0, 100) + '...'}
-                              className={`w-full p-4 border text-xs font-bold outline-none transition-all h-32 resize-none ${isDarkMode ? 'bg-black border-zinc-800 focus:border-[#0055ff]' : 'bg-transparent border-zinc-200 focus:border-black'}`}
+                              className={`w-full p-4 border text-xs font-bold outline-none transition-all h-24 resize-none ${isDarkMode ? 'bg-black border-zinc-800 focus:border-[#0055ff]' : 'bg-transparent border-zinc-200 focus:border-black'}`}
                             />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block">SEO Keywords Tag</label>
+                            <input 
+                              type="text"
+                              value={product.seoKeywords || ''}
+                              onChange={(e) => updateProdSeo('seoKeywords', e.target.value)}
+                              placeholder="streetwear, urban, premium hoodie..."
+                              className={`w-full p-4 border text-xs font-bold outline-none transition-all ${isDarkMode ? 'bg-black border-zinc-800 focus:border-[#0055ff]' : 'bg-transparent border-zinc-200 focus:border-black'}`}
+                            />
+                          </div>
+
+                          {/* Google Search Preview Section */}
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block">Google Search Engine Preview</label>
+                            <div className={`p-4 border rounded-sm ${isDarkMode ? 'bg-[#202124] border-[#3c4043]' : 'bg-white border-zinc-200'}`}>
+                              <div className="flex items-center gap-2 mb-1">
+                                <Globe className={`w-3.5 h-3.5 ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}`} />
+                                <span className={`text-xs ${isDarkMode ? 'text-[#bdc1c6]' : 'text-[#4d5156]'}`}>www.streetthreadx.com &gt; product &gt; {product.id}</span>
+                              </div>
+                              <h4 className={`text-lg hover:underline cursor-pointer mb-1 ${isDarkMode ? 'text-[#8ab4f8]' : 'text-[#1a0dab]'}`}>
+                                {product.seoTitle || `${product.name} | STREET THREADX.`}
+                              </h4>
+                              <p className={`text-[13px] leading-snug ${isDarkMode ? 'text-[#bdc1c6]' : 'text-[#4d5156]'}`}>
+                                {product.seoDescription || product.description.substring(0, 150) + '...'}
+                              </p>
+                            </div>
                           </div>
                           <div className="space-y-2">
                             <div className="flex items-center justify-between">
@@ -6616,7 +6676,7 @@ const AdminDashboard: React.FC<Props> = ({
                   {seoAnalyticsSubTab === 'traffic' && (
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                       {/* Interactive Chart Card */}
-                      <div className={`p-8 border col-span-1 lg:col-span-2 space-y-6 ${isDarkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'}`}>
+                      <div className={`p-8 border border-r-0 border-b-4 col-span-1 lg:col-span-2 space-y-6 ${isDarkMode ? 'bg-zinc-950 border-zinc-800 border-b-zinc-800' : 'bg-white border-zinc-200 border-b-zinc-200'}`}>
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                           <div>
                             <h3 className="text-sm font-black uppercase tracking-widest text-[#0055ff]">Organic_Site_Traffic_Telemetry</h3>
