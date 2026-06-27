@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Mail, ArrowRight, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { newsletterService } from '../services/newsletterService';
 
-export const NewsletterSubscription: React.FC = () => {
+export const NewsletterSubscription: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
@@ -33,22 +33,24 @@ export const NewsletterSubscription: React.FC = () => {
 
   return (
     <div id="newsletter-subscription-container" className="w-full">
-      <div className="flex flex-col lg:flex-row gap-8 items-center justify-between pb-12 mb-12 border-b border-zinc-900">
-        <div id="newsletter-subscription-info" className="w-full lg:w-1/2 space-y-2">
-          <span className="text-[10px] uppercase tracking-[0.3em] font-black text-[#0055ff]">
-            Insider Access
-          </span>
-          <h4 className="text-xl sm:text-2xl font-black heading-font italic uppercase text-white leading-tight">
-            JOIN THE UNDERGROUND
+      <div className={`flex ${compact ? 'flex-col gap-4' : 'flex-col lg:flex-row gap-8 items-center justify-between pb-12 mb-12 border-b border-zinc-900'}`}>
+        <div id="newsletter-subscription-info" className={`w-full ${compact ? '' : 'lg:w-1/2'} space-y-2`}>
+          {!compact && (
+            <span className="text-[10px] uppercase tracking-[0.3em] font-black text-[#0055ff]">
+              Insider Access
+            </span>
+          )}
+          <h4 className={`${compact ? 'text-xs font-bold tracking-widest text-[#0055ff] mb-4 text-center sm:text-left' : 'text-xl sm:text-2xl font-black heading-font italic uppercase text-white leading-tight'}`}>
+            {compact ? 'Newsletter' : 'JOIN THE UNDERGROUND'}
           </h4>
-          <p className="text-sm text-zinc-500 max-w-lg">
+          <p className={`text-sm text-zinc-500 ${compact ? 'text-center sm:text-left' : 'max-w-lg'}`}>
             Subscribe to our newsletters to claim early product drops, private keys, archive restocks, and exclusive street reports.
           </p>
         </div>
 
-        <div id="newsletter-subscription-form-container" className="w-full lg:w-1/2">
+        <div id="newsletter-subscription-form-container" className={`w-full ${compact ? '' : 'lg:w-1/2'}`}>
           <form id="newsletter-subscription-form" onSubmit={handleSubmit} className="relative">
-            <div className="flex flex-col sm:flex-row gap-2">
+            <div className={`flex ${compact ? 'flex-col' : 'flex-col sm:flex-row'} gap-2`}>
               <div className="relative flex-1">
                 <span className="absolute inset-y-0 left-4 flex items-center pr-3 pointer-events-none text-zinc-500">
                   <Mail size={16} />
@@ -68,10 +70,12 @@ export const NewsletterSubscription: React.FC = () => {
                 id="newsletter-subscribe-button"
                 type="submit"
                 disabled={status === 'submitting' || status === 'success'}
-                className="bg-[#0055ff] hover:bg-[#0044dd] text-white border-0 py-4 px-8 font-black uppercase text-xs tracking-widest transition-all duration-300 disabled:opacity-50 flex items-center justify-center gap-2 rounded-none cursor-pointer self-stretch min-w-[140px]"
+                className="bg-[#0055ff] hover:bg-[#0044dd] text-white border-0 py-4 px-8 font-black uppercase text-xs tracking-widest transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 rounded-none cursor-pointer self-stretch min-w-[140px]"
               >
                 {status === 'submitting' ? (
-                  <Loader2 size={16} className="animate-spin" />
+                  <>
+                    <Loader2 size={16} className="animate-spin" /> PROCESSING...
+                  </>
                 ) : (
                   <>
                     SUBMIT <ArrowRight size={14} />

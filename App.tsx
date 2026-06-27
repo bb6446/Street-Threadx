@@ -1,7 +1,7 @@
 
 
 import ReactGA from 'react-ga4';
-import { Facebook, Instagram, Linkedin, Twitter, ArrowRightLeft, X, Share2, Link, Ruler, ArrowUp, Heart, Camera, Upload, Trash2, Maximize2, Star, Eye, ShoppingBag, AlertTriangle, CheckCircle2, Tag } from 'lucide-react';
+import { Facebook, Instagram, Linkedin, Twitter, Youtube, ArrowRightLeft, X, Share2, Link, Ruler, ArrowUp, Heart, Camera, Upload, Trash2, Maximize2, Star, Eye, ShoppingBag, AlertTriangle, CheckCircle2, Tag } from 'lucide-react';
 import { motion, AnimatePresence, useMotionValue, useTransform, useSpring } from 'motion/react';
 import { ViewState, Product, CartItem, Review, AdminRole, AdminUser, LogEntry, SocialSettings, SocialReferral, Order, DiscountCode, Customer, ChatSession, ChatMessage, Expense } from './types';
 import { MOCK_PRODUCTS, ACCENT_COLOR } from './constants';
@@ -543,17 +543,14 @@ const Footer: React.FC<{
   return (
     <footer 
         id="app-footer"
-        className={`border-t border-zinc-800 py-16 px-6 mt-20 ${!socialSettings.appearance?.footerColor ? 'bg-zinc-950' : ''}`}
+        className={`border-t border-zinc-800 py-12 px-4 sm:py-16 sm:px-6 mt-20 flex flex-col ${!socialSettings.appearance?.footerColor ? 'bg-zinc-950' : ''}`}
         style={{ ...(socialSettings.appearance?.footerColor ? { backgroundColor: socialSettings.appearance.footerColor } : {}) } as React.CSSProperties}
     >
-      <div className="max-w-7xl mx-auto">
-        <NewsletterSubscription />
+      <div className="max-w-7xl mx-auto w-full">
         
-        <div className="border-t border-zinc-900/60 my-12" id="footer-divider" />
-        
-        <div id="footer-links-grid" className="grid grid-cols-1 md:grid-cols-4 gap-y-10 gap-x-8 md:gap-12 pt-6 md:pt-4 pb-4 md:pb-0 max-w-7xl mx-auto w-full">
-        <div className="col-span-1 md:col-span-2 space-y-6">
-          <div className="flex flex-col items-center justify-center text-center md:items-start md:text-left w-full space-y-6">
+        <div id="footer-links-grid" className="flex flex-col sm:flex-row justify-between items-center sm:items-start w-full max-w-md sm:max-w-7xl mx-auto gap-8 sm:gap-10 md:gap-12 lg:gap-16 pt-6 pb-4">
+        <div className="flex-[2] space-y-6 w-full">
+          <div className="flex flex-col items-center justify-center text-center sm:items-start sm:text-left w-full space-y-6">
             <h3 className="text-3xl font-black heading-font italic uppercase">STREET THREADX.</h3>
             <div 
               onClick={() => {
@@ -602,7 +599,7 @@ const Footer: React.FC<{
               )}
             </div>
             
-            <div className="pt-6 mt-8 border-t border-zinc-900/50 w-full flex flex-col items-center justify-center md:items-start md:justify-start">
+            <div className="pt-6 mt-8 border-t border-zinc-900/50 w-full flex flex-col items-center justify-center sm:items-start sm:justify-start">
               <div className="flex items-center gap-3 mb-4">
                 <Share2 size={14} className="text-[#0055ff]" />
                 <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400">Share_the_Brand</h4>
@@ -647,8 +644,8 @@ const Footer: React.FC<{
             </div>
           </div>
         </div>
-        <div className="space-y-4 pt-6 md:pt-0">
-          <div className="flex flex-col items-center justify-center text-center md:items-start md:text-left w-full space-y-4">
+        <div className="flex-1 w-full space-y-4 pt-8 border-t border-zinc-900/60 sm:border-t-0 sm:pt-0">
+          <div className="flex flex-col items-center justify-center text-center sm:items-start sm:text-left w-full space-y-4">
             <h4 className="text-xs font-bold tracking-widest text-[#0055ff]">Support</h4>
             <ul className="text-sm text-zinc-500 space-y-2 uppercase w-full">
               {['Shipping', 'Returns', 'Sizing', 'Contact'].map(topic => (
@@ -664,8 +661,28 @@ const Footer: React.FC<{
             </ul>
           </div>
         </div>
-        <div className="space-y-4 pt-6 md:pt-0">
-          <div className="flex flex-col items-center justify-center text-center md:items-start md:text-left w-full space-y-4">
+        <div className="flex-1 w-full space-y-4 pt-8 border-t border-zinc-900/60 sm:border-t-0 sm:pt-0">
+          <div className="flex flex-col items-center justify-center text-center sm:items-start sm:text-left w-full space-y-4">
+            <h4 className="text-xs font-bold tracking-widest text-[#0055ff]">Socials</h4>
+            <div className="flex gap-4 items-center mt-2">
+              <a href="#" className="text-zinc-500 hover:text-[#0055ff] transition-colors" aria-label="Visit our TikTok page">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                  <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 2.22-1.15 4.39-2.9 5.75-1.74 1.34-4.14 1.83-6.31 1.25-2.26-.6-4.04-2.28-4.75-4.48-.73-2.22-.19-4.82 1.35-6.61 1.6-1.85 4.2-2.73 6.55-2.25.01 1.4.01 2.79 0 4.19-1.37-.36-2.97-.04-3.95 1.05-.98 1.09-1.07 2.82-.24 4.01.83 1.19 2.5 1.59 3.86 1.01 1.1-.47 1.77-1.66 1.77-2.88V.02z"/>
+                </svg>
+              </a>
+              <a href="#" className="text-zinc-500 hover:text-[#0055ff] transition-colors" aria-label="Visit our YouTube channel">
+                <Youtube size={18} />
+              </a>
+              <a href="#" className="text-zinc-500 hover:text-[#0055ff] transition-colors" aria-label="Join our Discord server">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                  <path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/>
+                </svg>
+              </a>
+            </div>
+          </div>
+        </div>
+        <div className="flex-1 w-full space-y-4 pt-8 border-t border-zinc-900/60 sm:border-t-0 sm:pt-0">
+          <div className="flex flex-col items-center justify-center text-center sm:items-start sm:text-left w-full space-y-4">
             <h4 className="text-xs font-bold tracking-widest text-[#0055ff]">Staff</h4>
             <p className="text-xs text-zinc-500 uppercase tracking-tighter">Authorized access only.</p>
             <button 
@@ -676,6 +693,9 @@ const Footer: React.FC<{
               System Admin
             </button>
           </div>
+        </div>
+        <div className="flex-[2] w-full pt-8 border-t border-zinc-900/60 sm:border-t-0 sm:pt-0">
+          <NewsletterSubscription compact={true} />
         </div>
       </div>
       </div>

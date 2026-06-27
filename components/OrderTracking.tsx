@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { ViewState, Order } from '../types';
 import { fetchOrderById } from '../services/orderService';
 import { OrderTimeline } from './OrderTimeline';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
 
 interface OrderTrackingProps {
   onNavigateBack: () => void;
@@ -9,45 +11,59 @@ interface OrderTrackingProps {
 }
 
 export const OrderTracking: React.FC<OrderTrackingProps> = ({ onNavigateBack, onOpenSmartPreview }) => {
-  const [orderId, setOrderId] = useState('');
+  const [orderIdInput, setOrderIdInput] = useState('');
+  const [activeTrackId, setActiveTrackId] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorParam, setErrorParam] = useState('');
   const [order, setOrder] = useState<Order | null>(null);
 
+  // Read from hash on initialization
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.startsWith('#track=')) {
       const id = hash.split('=')[1];
       if (id) {
-        setOrderId(id);
-        fetchAndSetOrder(id);
+        setOrderIdInput(id);
+        setActiveTrackId(id);
       }
     }
   }, []);
 
-  const fetchAndSetOrder = async (id: string) => {
+  // Subscribe to real-time order updates from Firestore when activeTrackId changes
+  useEffect(() => {
+    if (!activeTrackId) return;
+
     setLoading(true);
     setErrorParam('');
     setOrder(null);
-    try {
-      const fetchedOrder = await fetchOrderById(id.trim());
-      if (fetchedOrder) {
-        setOrder(fetchedOrder);
+
+    const orderRef = doc(db, 'orders', activeTrackId.trim());
+    
+    const unsubscribe = onSnapshot(orderRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setOrder({ id: docSnap.id, ...docSnap.data() } as Order);
+        setErrorParam('');
       } else {
+        setOrder(null);
         setErrorParam('Order not found. Please check your order ID.');
       }
-    } catch (err) {
-      setErrorParam('Failed to track order. Please try again later.');
-    } finally {
       setLoading(false);
-    }
-  };
+    }, (err) => {
+      console.error("Firestore tracking subscription error:", err);
+      setErrorParam('Failed to establish real-time connection with Firestore.');
+      setLoading(false);
+    });
 
-  const handleTrackSubmit = async (e: React.FormEvent) => {
+    return () => {
+      unsubscribe();
+    };
+  }, [activeTrackId]);
+
+  const handleTrackSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!orderId.trim()) return;
-    window.location.hash = `track=${orderId.trim()}`;
-    await fetchAndSetOrder(orderId);
+    if (!orderIdInput.trim()) return;
+    window.location.hash = `track=${orderIdInput.trim()}`;
+    setActiveTrackId(orderIdInput.trim());
   };
 
   return (
@@ -74,14 +90,14 @@ export const OrderTracking: React.FC<OrderTrackingProps> = ({ onNavigateBack, on
             <div className="flex flex-col sm:flex-row gap-4">
               <input 
                 type="text" 
-                value={orderId}
-                onChange={(e) => setOrderId(e.target.value)}
+                value={orderIdInput}
+                onChange={(e) => setOrderIdInput(e.target.value)}
                 placeholder="e.g. ORD-X34B9"
                 className="flex-1 px-4 py-3 bg-zinc-50 border border-zinc-200 text-sm focus:outline-none focus:border-[#0055ff] transition-colors"
               />
               <button 
                 type="submit" 
-                disabled={loading || !orderId.trim()}
+                disabled={loading || !orderIdInput.trim()}
                 className="px-8 py-3 bg-black text-white text-[10px] font-black uppercase tracking-widest hover:bg-[#0055ff] transition-colors disabled:opacity-50"
               >
                 {loading ? 'Tracking...' : 'Track'}
@@ -111,7 +127,7 @@ export const OrderTracking: React.FC<OrderTrackingProps> = ({ onNavigateBack, on
               </div>
             </div>
 
-            <OrderTimeline status={order.status} isDarkMode={false} />
+            <OrderTimeline status={order.status} isDarkMode={false} orderId={order.id} />
 
             <div className="mt-8 pt-6 border-t border-zinc-200 grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
               <div>

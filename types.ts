@@ -247,8 +247,6 @@ export interface SecretValues {
   stripePublishableKey: string;
   geminiApiKey: string;
   adminTwoFactorSecret: string;
-  facebookAppId?: string;
-  facebookAppSecret?: string;
   [key: string]: string | undefined;
 }
 

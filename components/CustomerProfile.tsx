@@ -963,13 +963,7 @@ const CustomerProfile: React.FC<Props> = ({
                   <h3 className="text-[10px] font-black uppercase text-zinc-400 tracking-widest mb-4">Spending Trends</h3>
                   <div className="h-44 w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="colorSpending" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#0055ff" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="#0055ff" stopOpacity={0.0}/>
-                          </linearGradient>
-                        </defs>
+                      <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#1f1f23' : '#e4e4e7'} vertical={false} />
                         <XAxis 
                           dataKey="month" 
@@ -996,8 +990,8 @@ const CustomerProfile: React.FC<Props> = ({
                           formatter={(value: any) => [`৳${Number(value).toLocaleString()}`, 'Spending']}
                           labelStyle={{ fontWeight: 'bold' }}
                         />
-                        <Area type="monotone" dataKey="spending" stroke="#0055ff" strokeWidth={2} fillOpacity={1} fill="url(#colorSpending)" />
-                      </AreaChart>
+                        <Bar dataKey="spending" fill="#0055ff" radius={[1, 1, 0, 0]} maxBarSize={20} />
+                      </BarChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
@@ -1090,7 +1084,7 @@ const CustomerProfile: React.FC<Props> = ({
                     
                     {expandedOrderId === order.id && (
                       <div className="p-4 space-y-4 animate-in slide-in-from-top-2 duration-300">
-                        <OrderTimeline status={order.status} isDarkMode={isDarkMode} />
+                        <OrderTimeline status={order.status} isDarkMode={isDarkMode} orderId={order.id} />
                         
                         <div className="py-2">
                           {order.orderItems.map((item, idx) => {

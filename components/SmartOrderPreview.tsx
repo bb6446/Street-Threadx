@@ -439,7 +439,7 @@ export const SmartOrderPreview: React.FC<Props> = ({
 
           {/* Interactive Order Status Timeline tracker */}
           <div className="mb-10">
-            <OrderTimeline status={order.status} isDarkMode={isDarkMode} />
+            <OrderTimeline status={order.status} isDarkMode={isDarkMode} orderId={order.id} />
           </div>
 
           {/* ADVANCED SHIPMENT TRACKER & ESTIMATED DELIVERY CENTER */}

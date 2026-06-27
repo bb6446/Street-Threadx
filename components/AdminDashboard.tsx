@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  BarChart, Bar, Cell, PieChart, Pie 
+  BarChart, Bar, Cell, PieChart, Pie, ComposedChart, Legend 
 } from 'recharts';
 import { Sun, Moon, Monitor, Shield, Zap, Database, Globe, Share2, MessageSquare, Trash2, Edit3, Plus, Copy, Check, ChevronRight, ChevronLeft, Search, Filter, Download, ArrowUpRight, ArrowDownRight, Layout, List as ListIcon, Maximize2, Trash, ExternalLink, User, Cloud, ShoppingCart, Users, X, Key, Activity, Lock, Image as ImageIcon } from 'lucide-react';
 import { generateSEOContent, generateSupportReply, generateAnalyticsReport, generateProductDescription, generateResponseSuggestions, generateAgentMonitorReply, generateModelSwapImages, generatePromotionalImage, generateTags, generateSizeChart, generateOgImage } from '../services/geminiService';
@@ -104,6 +104,23 @@ const AdminDashboard: React.FC<Props> = ({
   }, []);
   const [isLiveEditorOpen, setIsLiveEditorOpen] = useState(false);
   const [isChatExpanded, setIsChatExpanded] = useState(false);
+
+  // Toast State
+  const [toasts, setToasts] = useState<{id: string, message: React.ReactNode}[]>([]);
+  const prevOrdersLength = useRef(orders.length);
+
+  useEffect(() => {
+    if (orders.length > prevOrdersLength.current) {
+      const newOrder = orders[0];
+      const message = `🔔 New Order Received: ${newOrder?.id || ''} - ৳${newOrder?.total?.toLocaleString() || 0}`;
+      const id = Math.random().toString();
+      setToasts(prev => [...prev, { id, message }]);
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+      }, 5000);
+    }
+    prevOrdersLength.current = orders.length;
+  }, [orders]);
 
   // AI Monitor State
   const [aiMonitorInput, setAiMonitorInput] = useState('');
@@ -344,9 +361,7 @@ const AdminDashboard: React.FC<Props> = ({
     stripeSecretKey: '',
     stripePublishableKey: '',
     geminiApiKey: '',
-    adminTwoFactorSecret: '',
-    facebookAppId: '',
-    facebookAppSecret: ''
+    adminTwoFactorSecret: ''
   });
   const [isSavingSecrets, setIsSavingSecrets] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -1556,13 +1571,13 @@ const AdminDashboard: React.FC<Props> = ({
   };
 
   const salesData = [
-    { name: 'Mon', revenue: 24000 },
-    { name: 'Tue', revenue: 13980 },
-    { name: 'Wed', revenue: 98000 },
-    { name: 'Thu', revenue: 39080 },
-    { name: 'Fri', revenue: 48000 },
-    { name: 'Sat', revenue: 38000 },
-    { name: 'Sun', revenue: 43000 },
+    { name: 'Mon', revenue: 24000, orders: 12 },
+    { name: 'Tue', revenue: 13980, orders: 7 },
+    { name: 'Wed', revenue: 98000, orders: 48 },
+    { name: 'Thu', revenue: 39080, orders: 22 },
+    { name: 'Fri', revenue: 48000, orders: 25 },
+    { name: 'Sat', revenue: 38000, orders: 19 },
+    { name: 'Sun', revenue: 43000, orders: 21 },
   ];
 
   const acquisitionData = [
@@ -2181,6 +2196,18 @@ const AdminDashboard: React.FC<Props> = ({
   return (
     <div className={`min-h-screen flex flex-col font-mono selection:bg-[#0055ff] selection:text-white transition-colors duration-300 ${themeClasses}`}>
       
+      {/* Toast Notifications */}
+      <div className="fixed top-24 right-4 z-[200] flex flex-col gap-2 pointer-events-none">
+        {toasts.map(toast => (
+          <div key={toast.id} className="bg-black text-white px-6 py-4 border border-[#10b981] shadow-[0_0_20px_rgba(16,185,129,0.2)] animate-in slide-in-from-right fade-in pointer-events-auto min-w-[300px]">
+            <div className="flex items-center gap-3">
+              <span className="w-1.5 h-1.5 bg-[#10b981] animate-pulse"></span>
+              <div className="text-[10px] font-black uppercase tracking-widest">{toast.message}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* Backdrop for Mobile Sidebar Drawer */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -2413,9 +2440,9 @@ const AdminDashboard: React.FC<Props> = ({
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   <div className={`border p-8 rounded-none ${cardClasses} h-[400px]`}>
-                    <h3 className="text-zinc-500 text-[9px] font-black uppercase mb-8">Daily Revenue</h3>
+                    <h3 className="text-zinc-500 text-[9px] font-black uppercase mb-8">Sales Overview</h3>
                     <ResponsiveContainer width="100%" height="85%">
-                      <AreaChart data={salesData}>
+                      <ComposedChart data={salesData}>
                         <defs>
                           <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="#0055ff" stopOpacity={0.3}/>
@@ -2424,13 +2451,15 @@ const AdminDashboard: React.FC<Props> = ({
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#222' : '#eee'} vertical={false} />
                         <XAxis dataKey="name" stroke="#888" fontSize={10} tickLine={false} axisLine={false} />
-                        <YAxis stroke="#888" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(value) => `৳${value/1000}k`} />
+                        <YAxis yAxisId="left" stroke="#888" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(value) => `৳${value/1000}k`} />
+                        <YAxis yAxisId="right" orientation="right" stroke="#888" fontSize={10} tickLine={false} axisLine={false} />
                         <Tooltip 
                           contentStyle={{ backgroundColor: isDarkMode ? '#111' : '#fff', border: '1px solid #333', fontSize: '10px' }}
-                          itemStyle={{ color: '#0055ff' }}
                         />
-                        <Area type="monotone" dataKey="revenue" stroke="#0055ff" fillOpacity={1} fill="url(#colorRev)" strokeWidth={2} />
-                      </AreaChart>
+                        <Legend wrapperStyle={{ fontSize: '10px' }} />
+                        <Area yAxisId="left" type="monotone" dataKey="revenue" name="Total Revenue" stroke="#0055ff" fillOpacity={1} fill="url(#colorRev)" strokeWidth={2} />
+                        <Bar yAxisId="right" dataKey="orders" name="Order Volume" barSize={20} fill="#10b981" radius={[2, 2, 0, 0]} />
+                      </ComposedChart>
                     </ResponsiveContainer>
                   </div>
 
@@ -4877,26 +4906,6 @@ const AdminDashboard: React.FC<Props> = ({
                                 onChange={(e) => setSecretValues({ ...secretValues, adminTwoFactorSecret: e.target.value })}
                                 className={`w-full px-4 py-3 text-xs font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
                                 placeholder="SECURE_BASE32_VALUE"
-                              />
-                            </div>
-                            <div className="space-y-3">
-                              <label className="text-[10px] font-black uppercase opacity-40">Facebook_App_ID</label>
-                              <input 
-                                type="text" 
-                                value={secretValues.facebookAppId || ''} 
-                                onChange={(e) => setSecretValues({ ...secretValues, facebookAppId: e.target.value })}
-                                className={`w-full px-4 py-3 text-xs font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
-                                placeholder="FB_APP_ID"
-                              />
-                            </div>
-                            <div className="space-y-3">
-                              <label className="text-[10px] font-black uppercase opacity-40">Facebook_App_Secret</label>
-                              <input 
-                                type="password" 
-                                value={secretValues.facebookAppSecret || ''} 
-                                onChange={(e) => setSecretValues({ ...secretValues, facebookAppSecret: e.target.value })}
-                                className={`w-full px-4 py-3 text-xs font-bold border focus:border-[#0055ff] outline-none transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}
-                                placeholder="FB_APP_SECRET"
                               />
                             </div>
                           </div>
