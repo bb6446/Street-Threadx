@@ -48,3 +48,43 @@ body {
     scrollbar-width: none;
   }
 }
+
+/* Pulsating Blue Dispatched Status Badge CSS Selector */
+#order-status-timeline .dispatched-badge-pulsate {
+  animation: bluePulse 2s infinite ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 0.375rem 0.75rem;
+  background-color: rgba(0, 85, 255, 0.15);
+  color: #0055ff;
+  border: 1px solid rgba(0, 85, 255, 0.4);
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+
+#order-status-timeline .dispatched-badge-pulsate:hover {
+  background-color: rgba(0, 85, 255, 0.25);
+  border-color: rgba(0, 85, 255, 0.6);
+}
+
+@keyframes bluePulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(0, 85, 255, 0.6);
+  }
+  70% {
+    transform: scale(1.04);
+    box-shadow: 0 0 0 8px rgba(0, 85, 255, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(0, 85, 255, 0);
+  }
+}
+

@@ -338,19 +338,18 @@ const Navbar: React.FC<{
             onClick={() => onNavigate('ALL', false)}
             className="text-2xl font-black heading-font tracking-tighter hover:opacity-80 transition-opacity uppercase flex flex-row items-center gap-2"
           >
-            {socialSettings.appearance?.siteLogoUrl ? (
+            {(socialSettings.appearance?.siteLogoUrl || '/logo.jpg') ? (
                 <img 
                   loading="lazy"
-                  src={socialSettings.appearance.siteLogoUrl} 
+                  src={socialSettings.appearance?.siteLogoUrl || '/logo.jpg'} 
                   alt="Logo" 
                   style={{ 
-                    height: socialSettings.appearance.siteLogoHeight ? `${socialSettings.appearance.siteLogoHeight}px` : '32px',
-                    width: socialSettings.appearance.siteLogoWidth ? `${socialSettings.appearance.siteLogoWidth}px` : 'auto'
+                    height: socialSettings.appearance?.siteLogoHeight ? `${socialSettings.appearance.siteLogoHeight}px` : '40px',
+                    width: socialSettings.appearance?.siteLogoWidth ? `${socialSettings.appearance.siteLogoWidth}px` : 'auto'
                   }}
                   className="object-contain" 
                 />
             ) : null}
-            {!socialSettings.appearance?.siteLogoUrl && <>STREET<span className="text-[#0055ff]">THREADX</span></>}
           </button>
           <span onClick={handleSecretClick} className="text-[#0055ff] text-2xl font-black heading-font cursor-default select-none">.</span>
         </div>

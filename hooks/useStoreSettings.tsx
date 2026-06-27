@@ -15,6 +15,18 @@ const deepMerge = (target: any, source: any): any => {
   return result;
 };
 
+const normalizeSettings = (settings: any): any => {
+  if (!settings) return settings;
+  const result = { ...settings };
+  if (result.appearance) {
+    result.appearance = { ...result.appearance };
+    if (result.appearance.middleColor === '#ffffff') {
+      result.appearance.middleColor = '#000000';
+    }
+  }
+  return result;
+};
+
 interface StoreSettingsContextType {
   socialSettings: SocialSettings;
   setSocialSettings: React.Dispatch<React.SetStateAction<SocialSettings>>;
@@ -57,6 +69,15 @@ export const StoreSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
       enabled: false,
       endTime: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
       title: 'FLASH SALE'
+    },
+    appearance: {
+      headerColor: '#000000',
+      footerColor: '#000000',
+      middleColor: '#000000',
+      siteLogoUrl: '/logo.jpg',
+      siteLogoHeight: 40,
+      siteLogoWidth: 160,
+      siteLogoFileSize: 1024
     }
   });
 
@@ -80,7 +101,7 @@ export const StoreSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         const configRef = doc(db, 'config', 'app_settings');
         const configSnap = await getDoc(configRef);
         if (configSnap.exists() && active) {
-          setSocialSettings(prev => deepMerge(prev, configSnap.data()));
+          setSocialSettings(prev => normalizeSettings(deepMerge(prev, configSnap.data())));
           setIsLoading(false);
           return;
         }
@@ -88,7 +109,7 @@ export const StoreSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         const docRef = doc(db, 'settings', 'social');
         const docSnap = await getDoc(docRef);
         if (docSnap.exists() && active) {
-          setSocialSettings(prev => deepMerge(prev, docSnap.data()));
+          setSocialSettings(prev => normalizeSettings(deepMerge(prev, docSnap.data())));
         }
       } catch (e) {
         console.error('Failed to load settings', e);
@@ -106,7 +127,7 @@ export const StoreSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     const unsubscribe = settingsService.subscribeToSettings((updatedSettings) => {
       if (!isLiveEditModeRef.current) {
-        setSocialSettings(prev => deepMerge(prev, updatedSettings));
+        setSocialSettings(prev => normalizeSettings(deepMerge(prev, updatedSettings)));
       }
     });
     return () => {

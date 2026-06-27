@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Clipboard, Shield, Box, Truck, PackageCheck, Check, Info, HelpCircle, PhoneCall, FileText, Compass, RotateCcw } from 'lucide-react';
+import { X, ClipboardList, Settings, Package, Truck, CheckCircle, Check, Info, HelpCircle, PhoneCall, FileText, Compass, RotateCcw } from 'lucide-react';
 import { updateOrderStatus } from '../services/orderService';
-import { motion, Variants } from 'motion/react';
+import { motion, Variants, AnimatePresence } from 'motion/react';
 
 const containerVariants: Variants = {
   hidden: { opacity: 0 },
@@ -77,7 +77,7 @@ export const OrderTimeline: React.FC<Props> = ({ status, isDarkMode, orderId }) 
       statusKey: 'PENDING',
       label: 'Confirmed',
       description: 'Order received & verified',
-      icon: Clipboard,
+      icon: ClipboardList,
       checklist: [
         'Payment authorization verified',
         'Streetwear fit and sizing reviewed',
@@ -93,7 +93,7 @@ export const OrderTimeline: React.FC<Props> = ({ status, isDarkMode, orderId }) 
       statusKey: 'PROCESSING',
       label: 'Processing',
       description: 'Fabric & print production',
-      icon: Shield,
+      icon: Settings,
       checklist: [
         'Premium heavyweight fabric batch matched',
         'Streetwear ink-transfer precision printing',
@@ -109,7 +109,7 @@ export const OrderTimeline: React.FC<Props> = ({ status, isDarkMode, orderId }) 
       statusKey: 'PACKED',
       label: 'Packed',
       description: 'Premium dustbag sealing',
-      icon: Box,
+      icon: Package,
       checklist: [
         'Garment professionally steam-pressed',
         'Premium collection tags attached',
@@ -141,7 +141,7 @@ export const OrderTimeline: React.FC<Props> = ({ status, isDarkMode, orderId }) 
       statusKey: 'DELIVERED',
       label: 'Delivered',
       description: 'Handed over to customer',
-      icon: PackageCheck,
+      icon: CheckCircle,
       checklist: [
         'Geofenced route complete',
         'Sign-off digital authorization collected',
@@ -172,6 +172,7 @@ export const OrderTimeline: React.FC<Props> = ({ status, isDarkMode, orderId }) 
   const [isSimulating, setIsSimulating] = useState(false);
   const [simError, setSimError] = useState('');
   const [showSimPanel, setShowSimPanel] = useState(false);
+  const [showMapModal, setShowMapModal] = useState(false);
 
   // Auto-sync selected step with active step when the order status changes in Firestore
   useEffect(() => {
@@ -229,7 +230,7 @@ export const OrderTimeline: React.FC<Props> = ({ status, isDarkMode, orderId }) 
   const selectedStep = timelineSteps[selectedStepIndex];
 
   return (
-    <div className={`mt-8 py-8 px-4 sm:px-6 border ${isDarkMode ? 'border-zinc-800 bg-zinc-950 text-white' : 'border-zinc-200 bg-white text-black'} w-full transition-all duration-300 relative`}>
+    <div id="order-status-timeline" className={`mt-8 py-8 px-4 sm:px-6 border ${isDarkMode ? 'border-zinc-800 bg-zinc-950 text-white' : 'border-zinc-200 bg-white text-black'} w-full transition-all duration-300 relative`}>
       
       {/* Header and Live Status Indicators */}
       <div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -249,6 +250,17 @@ export const OrderTimeline: React.FC<Props> = ({ status, isDarkMode, orderId }) 
               className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1.5 border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
             >
               ⚙️ Simulator Panel
+            </button>
+          )}
+          {activeIndex === 3 && (
+            <button
+              type="button"
+              onClick={() => setShowMapModal(true)}
+              className="dispatched-badge-pulsate"
+              title="Click to view live shipping map"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-[#0055ff] inline-block animate-ping"></span>
+              Order Dispatched
             </button>
           )}
           <div className="text-[9px] font-black uppercase tracking-widest px-3 py-1.5 bg-[#0055ff]/10 text-[#0055ff] border border-[#0055ff]/20">
@@ -536,7 +548,10 @@ export const OrderTimeline: React.FC<Props> = ({ status, isDarkMode, orderId }) 
               )}
               {selectedStepIndex === 3 && (
                 <>
-                  <button className="flex items-center gap-1.5 px-3 py-2 bg-[#0055ff] text-white hover:bg-blue-600 text-[9px] font-black uppercase tracking-wider transition-colors">
+                  <button 
+                    onClick={() => setShowMapModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-[#0055ff] text-white hover:bg-blue-600 text-[9px] font-black uppercase tracking-wider transition-colors"
+                  >
                     <Compass size={12} /> View Live Shipping Map
                   </button>
                   <button className="flex items-center gap-1.5 px-3 py-2 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-[9px] font-black uppercase tracking-wider transition-colors">
@@ -595,6 +610,229 @@ export const OrderTimeline: React.FC<Props> = ({ status, isDarkMode, orderId }) 
 
         </div>
       </div>
+
+      <AnimatePresence>
+        {showMapModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ type: 'spring', duration: 0.4 }}
+              className="relative w-full max-w-4xl bg-zinc-950 border-2 border-zinc-800 text-white shadow-2xl flex flex-col md:flex-row overflow-hidden"
+              style={{ minHeight: '480px' }}
+            >
+              {/* Tactical Sidebar */}
+              <div className="w-full md:w-80 border-b md:border-b-0 md:border-r border-zinc-800 p-6 flex flex-col justify-between bg-zinc-950/50">
+                <div className="space-y-6">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[#0055ff]">
+                        LOGISTICS_CORE_HUD
+                      </span>
+                      <span className="text-[8px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-none animate-pulse">
+                        LIVE_GPS_FEED
+                      </span>
+                    </div>
+                    <h4 className="text-sm font-black uppercase tracking-widest mt-1 text-white">
+                      Tactical Delivery Router
+                    </h4>
+                  </div>
+
+                  {/* Telemetry Panel */}
+                  <div className="space-y-3 bg-black/40 border border-zinc-900 p-4">
+                    <div className="text-[9px] font-black uppercase tracking-wider text-zinc-500 border-b border-zinc-900 pb-1.5">
+                      System Telemetry
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-[10px] font-mono">
+                      <div>
+                        <div className="text-zinc-600 font-bold uppercase text-[8px]">ACTIVE_COORDS</div>
+                        <div className="text-zinc-300">
+                          {activeIndex === 0 && '23.8103° N, 90.4125° E'}
+                          {activeIndex === 1 && '23.8223° N, 90.4215° E'}
+                          {activeIndex === 2 && '23.7943° N, 90.4043° E'}
+                          {activeIndex === 3 && '23.7561° N, 90.3762° E'}
+                          {activeIndex === 4 && '23.7461° N, 90.3742° E'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-zinc-600 font-bold uppercase text-[8px]">COURIER_SPEED</div>
+                        <div className="text-zinc-300">
+                          {activeIndex === 3 ? '42 km/h' : '0 km/h (Parked)'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-zinc-600 font-bold uppercase text-[8px]">EST_ARRIVAL</div>
+                        <div className="text-zinc-300">
+                          {activeIndex === 0 && 'Awaiting Dispatch'}
+                          {activeIndex === 1 && 'Fabrication Stage'}
+                          {activeIndex === 2 && 'In Packaging Room'}
+                          {activeIndex === 3 && '45 Mins (In Transit)'}
+                          {activeIndex === 4 && 'Delivered'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-zinc-600 font-bold uppercase text-[8px]">ALTITUDE</div>
+                        <div className="text-zinc-300">34m ASL</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Location Context Card */}
+                  <div className="space-y-2">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                      Current Target Node
+                    </span>
+                    <div className="p-3 bg-zinc-900/60 border border-zinc-800 rounded-none">
+                      <div className="text-[10px] font-black uppercase tracking-wider text-white">
+                        {timelineSteps[activeIndex === -1 ? 0 : activeIndex]?.location || 'StreetThreadX Central'}
+                      </div>
+                      <p className="text-[9px] text-zinc-400 mt-1 uppercase font-mono tracking-tight leading-relaxed">
+                        {activeIndex === 0 && 'Order approved. Items are locked into dispatch pipeline at Dhaka Headquarters.'}
+                        {activeIndex === 1 && 'Material selection & digital fit precision print verification on the manufacture floor.'}
+                        {activeIndex === 2 && 'Draped in brand dustbags, premium tags loaded, sealed into specialized moisture-barrier shipping containers.'}
+                        {activeIndex === 3 && 'Carrier dispatch transit link activated. Package is actively navigating public grid nodes.'}
+                        {activeIndex === 4 && 'Geofenced sign-off achieved. Streetwear parcel logged as secured by the buyer.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 pt-4 border-t border-zinc-900 flex flex-col gap-2">
+                  <div className="text-[9px] text-zinc-600 font-mono uppercase tracking-tight">
+                    Order ID: {orderId || 'ST-TEST-9988'}
+                  </div>
+                  <button
+                    onClick={() => setShowMapModal(false)}
+                    className="w-full py-2 bg-zinc-900 hover:bg-zinc-800 text-white font-black uppercase tracking-wider text-[10px] border border-zinc-800 transition-colors"
+                  >
+                    Close GPS Terminal
+                  </button>
+                </div>
+              </div>
+
+              {/* Map Interactive Visualization Area */}
+              <div className="flex-1 bg-black p-6 relative flex flex-col justify-between overflow-hidden">
+                {/* SVG Map Canvas */}
+                <div className="absolute inset-0 opacity-25 pointer-events-none">
+                  {/* Grid Lines Pattern */}
+                  <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                      <pattern id="gridMap" width="40" height="40" patternUnits="userSpaceOnUse">
+                        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#222" strokeWidth="1" />
+                        <circle cx="0" cy="0" r="1.5" fill="#333" />
+                      </pattern>
+                      <pattern id="subgridMap" width="8" height="8" patternUnits="userSpaceOnUse">
+                        <path d="M 8 0 L 0 0 0 8" fill="none" stroke="#111" strokeWidth="0.5" />
+                      </pattern>
+                    </defs>
+                    <rect width="100%" height="100%" fill="url(#subgridMap)" />
+                    <rect width="100%" height="100%" fill="url(#gridMap)" />
+                  </svg>
+                </div>
+
+                {/* Header Hud */}
+                <div className="relative z-10 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 bg-blue-500 rounded-none animate-ping"></div>
+                    <span className="text-[10px] font-mono tracking-widest uppercase text-zinc-400 font-black">
+                      SAT_VIEW: Dhaka_Core_Sector
+                    </span>
+                  </div>
+                  <div className="text-[9px] font-mono text-zinc-500">
+                    SENSORS_OK // PING: 18MS
+                  </div>
+                </div>
+
+                {/* Interactive Map Visual Elements */}
+                <div className="flex-1 relative flex items-center justify-center my-6">
+                  {/* Dhaka map layout (vector lines) */}
+                  <svg className="absolute inset-0 w-full h-full text-zinc-800" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500">
+                    {/* Road Network Lines */}
+                    <path d="M 50 100 Q 200 80 400 120 T 750 150" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="5,5" className="opacity-40" />
+                    <path d="M 100 450 Q 300 380 500 420 T 700 380" fill="none" stroke="currentColor" strokeWidth="1.5" className="opacity-30" />
+                    <path d="M 120 50 L 150 450" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-20" />
+                    <path d="M 400 50 L 450 450" fill="none" stroke="currentColor" strokeWidth="3" className="opacity-30" />
+                    <path d="M 680 50 L 620 450" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="3,3" className="opacity-40" />
+                    
+                    {/* Connecting express bypass */}
+                    <path d="M 150 150 C 300 250, 500 150, 680 350" fill="none" stroke="#0055ff" strokeWidth="1.5" className="opacity-40" />
+
+                    {/* Nodes of Distribution */}
+                    {/* Node 1: Origin Hub */}
+                    <circle cx="150" cy="150" r="6" fill="#111" stroke="#0055ff" strokeWidth="2" />
+                    <text x="162" y="154" fill="#666" className="text-[9px] font-mono font-bold uppercase">Node_HQ</text>
+
+                    {/* Node 2: Transit Center */}
+                    <circle cx="350" cy="210" r="6" fill="#111" stroke="#0055ff" strokeWidth="2" />
+                    <text x="362" y="214" fill="#666" className="text-[9px] font-mono font-bold uppercase">Transit_Gate_Alpha</text>
+
+                    {/* Node 3: Sorting Terminal */}
+                    <circle cx="500" cy="170" r="6" fill="#111" stroke="#0055ff" strokeWidth="2" />
+                    <text x="512" y="174" fill="#666" className="text-[9px] font-mono font-bold uppercase">Sort_Facility</text>
+
+                    {/* Node 4: Customer Destination Drop */}
+                    <circle cx="680" cy="350" r="8" fill="#111" stroke="#22c55e" strokeWidth="2" />
+                    <text x="694" y="354" fill="#22c55e" className="text-[9px] font-mono font-black uppercase">Drop_Coord_04</text>
+
+                    {/* Active Shipment Path Highlighted in Blue */}
+                    {activeIndex >= 1 && (
+                      <path 
+                        d={
+                          activeIndex === 1 ? "M 150 150 L 250 180" :
+                          activeIndex === 2 ? "M 150 150 L 350 210" :
+                          activeIndex === 3 ? "M 150 150 L 350 210 L 500 170" :
+                          "M 150 150 L 350 210 L 500 170 L 680 350"
+                        }
+                        fill="none" 
+                        stroke="#0055ff" 
+                        strokeWidth="3.5" 
+                        strokeLinecap="round"
+                        className="opacity-90 shadow-lg"
+                      />
+                    )}
+
+                    {/* Pulsating target point on active spot */}
+                    <g transform={
+                      activeIndex === 0 ? "translate(150, 150)" :
+                      activeIndex === 1 ? "translate(250, 180)" :
+                      activeIndex === 2 ? "translate(350, 210)" :
+                      activeIndex === 3 ? "translate(500, 170)" :
+                      "translate(680, 350)"
+                    }>
+                      <circle cx="0" cy="0" r="16" fill="rgba(0, 85, 255, 0.15)" className="animate-ping" style={{ animationDuration: '1.8s' }} />
+                      <circle cx="0" cy="0" r="8" fill="rgba(0, 85, 255, 0.3)" />
+                      <circle cx="0" cy="0" r="4.5" fill="#0055ff" />
+                    </g>
+                  </svg>
+
+                  {/* UI HUD overlay absolute elements */}
+                  <div className="absolute top-2 left-2 p-2 bg-black/80 border border-zinc-900/80 font-mono text-[8px] text-zinc-400 space-y-1">
+                    <div>VECTOR_SCALE: 1:25,000</div>
+                    <div>MAP_ID: DH_UT_9901</div>
+                    <div>STATUS: ONLINE_SYNC</div>
+                  </div>
+
+                  <div className="absolute bottom-2 right-2 p-2 bg-black/80 border border-zinc-900/80 font-mono text-[8px] text-zinc-400">
+                    <span className="text-zinc-600">SATELLITE_LINK:</span> <span className="text-emerald-400">100% ENCRYPTED_SSL</span>
+                  </div>
+                </div>
+
+                {/* Footer instructions */}
+                <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between border-t border-zinc-900 pt-3 gap-2">
+                  <div className="text-[10px] text-zinc-400 uppercase font-mono tracking-tight flex items-center gap-1.5">
+                    <Info size={11} className="text-[#0055ff]" /> 
+                    <span>Live GPS dispatch logs are locked & monitored for tamper-proof transit security.</span>
+                  </div>
+                  <div className="text-[9px] font-black uppercase text-[#0055ff] tracking-widest">
+                    STREETTHREADX LOGISTICS CORP
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );
