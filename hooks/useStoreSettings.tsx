@@ -75,8 +75,8 @@ export const StoreSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
       footerColor: '#000000',
       middleColor: '#000000',
       siteLogoUrl: '/logo.jpg',
-      siteLogoHeight: 40,
-      siteLogoWidth: 160,
+      siteLogoHeight: 56,
+      siteLogoWidth: 224,
       siteLogoFileSize: 1024
     }
   });

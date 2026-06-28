@@ -175,6 +175,8 @@ const CustomerPortal: React.FC<{
       
       if (errorCode === 'auth/operation-not-allowed' || errorMessage.includes('operation-not-allowed')) {
         setError('GOOGLE_LOGIN_NOT_ENABLED: Please go to Firebase Console > Authentication > Sign-in method, click "Add new provider", select Google, and enable it.');
+      } else if (errorCode === 'auth/network-request-failed') {
+        setError('GOOGLE_LOGIN_BLOCKED: Authentication failed due to browser privacy settings or iframe restrictions. Please click "Open in New Tab" at the top right of this preview to sign in.');
       } else if (errorCode === 'auth/popup-closed-by-user' || errorCode === 'auth/cancelled-popup-request') {
         setError('GOOGLE_LOGIN_CANCELLED: Authentication window was closed. TIP: If using an iframe preview, please click "Open in New Tab" at the top right.');
       } else if (errorCode === 'auth/popup-blocked') {

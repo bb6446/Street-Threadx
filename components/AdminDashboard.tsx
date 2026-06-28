@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  BarChart, Bar, Cell, PieChart, Pie, ComposedChart, Legend 
+  BarChart, Bar, Cell, PieChart, Pie, ComposedChart, Legend, ReferenceLine
 } from 'recharts';
 import { Sun, Moon, Monitor, Shield, Zap, Database, Globe, Share2, MessageSquare, Trash2, Edit3, Plus, Copy, Check, ChevronRight, ChevronLeft, Search, Filter, Download, ArrowUpRight, ArrowDownRight, Layout, List as ListIcon, Maximize2, Trash, ExternalLink, User, Cloud, ShoppingCart, Users, X, Key, Activity, Lock, Image as ImageIcon } from 'lucide-react';
 import { generateSEOContent, generateSupportReply, generateAnalyticsReport, generateProductDescription, generateResponseSuggestions, generateAgentMonitorReply, generateModelSwapImages, generatePromotionalImage, generateTags, generateSizeChart, generateOgImage } from '../services/geminiService';
@@ -214,6 +214,7 @@ const AdminDashboard: React.FC<Props> = ({
   const [globalSizeChartPrompt, setGlobalSizeChartPrompt] = useState("");
   const [managedExpense, setManagedExpense] = useState<Partial<Expense> | null>(null);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
+  const [isRevenueModalOpen, setIsRevenueModalOpen] = useState(false);
   const [expenseDeleteConfirm, setExpenseDeleteConfirm] = useState<string | null>(null);
   const [isGeneratingModels, setIsGeneratingModels] = useState<string | null>(null);
   const [aiPreviewImages, setAiPreviewImages] = useState<string[]>([]);
@@ -353,6 +354,105 @@ const AdminDashboard: React.FC<Props> = ({
       .sort((a, b) => b.month.localeCompare(a.month));
   }, [orders, expenses, products]);
 
+  const [chartStartDate, setChartStartDate] = useState<string>('');
+  const [chartEndDate, setChartEndDate] = useState<string>('');
+  const [chartGrouping, setChartGrouping] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+  const [revenueMilestone, setRevenueMilestone] = useState<number>(50000);
+  const [targetRevenue, setTargetRevenue] = useState<number>(100000);
+
+  const revenueTrendData = useMemo(() => {
+    let start = new Date();
+    start.setDate(start.getDate() - 30);
+    
+    if (chartStartDate) {
+      start = new Date(chartStartDate);
+    }
+
+    let end = new Date();
+    if (chartEndDate) {
+      end = new Date(chartEndDate);
+    }
+
+    const trendMap: { [key: string]: { total: number; ordersCount: number; cogs: number, rawDate: Date } } = {};
+
+    if (chartGrouping === 'daily') {
+       // initialize all days
+       let current = new Date(start);
+       current.setHours(0,0,0,0);
+       let endDay = new Date(end);
+       endDay.setHours(0,0,0,0);
+       
+       // Limit to max 90 days to avoid performance issues if user selects huge range
+       let daysCount = 0;
+       while (current <= endDay && daysCount < 90) {
+         const dateStr = current.toISOString().split('T')[0];
+         trendMap[dateStr] = { total: 0, ordersCount: 0, cogs: 0, rawDate: new Date(current) };
+         current.setDate(current.getDate() + 1);
+         daysCount++;
+       }
+    }
+    
+    orders
+      .filter(o => o.status !== 'CANCELLED')
+      .forEach(o => {
+        const orderDate = new Date(o.date);
+        orderDate.setHours(0,0,0,0);
+        const startDay = new Date(start); startDay.setHours(0,0,0,0);
+        const endDay = new Date(end); endDay.setHours(23,59,59,999);
+
+        if (orderDate >= startDay && orderDate <= endDay) {
+           let key = '';
+           let rawDate = orderDate;
+           if (chartGrouping === 'daily') {
+             key = o.date;
+           } else if (chartGrouping === 'weekly') {
+             const d = new Date(o.date);
+             const day = d.getDay();
+             const diff = d.getDate() - day + (day === 0 ? -6:1);
+             const weekStart = new Date(d.setDate(diff));
+             key = weekStart.toISOString().split('T')[0];
+             rawDate = weekStart;
+           } else if (chartGrouping === 'monthly') {
+             key = o.date.substring(0, 7);
+             rawDate = new Date(key + '-01');
+           }
+
+           if (!trendMap[key]) {
+             trendMap[key] = { total: 0, ordersCount: 0, cogs: 0, rawDate };
+           }
+           trendMap[key].total += o.total;
+           trendMap[key].ordersCount += 1;
+           trendMap[key].cogs += o.orderItems.reduce((sum, item) => sum + ((products.find(p => p.id === item.productId)?.cost || 0) * item.quantity), 0);
+        }
+      });
+      
+      return Object.entries(trendMap).map(([key, data]) => {
+         let label = key;
+         if (chartGrouping === 'daily') {
+           label = data.rawDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+         } else if (chartGrouping === 'weekly') {
+           label = 'Wk ' + data.rawDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+         } else if (chartGrouping === 'monthly') {
+           label = data.rawDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+         }
+         return {
+           date: label,
+           rawDate: data.rawDate,
+           total: data.total,
+           ordersCount: data.ordersCount,
+           profit: data.total - data.cogs
+         }
+      }).sort((a, b) => a.rawDate.getTime() - b.rawDate.getTime());
+
+  }, [orders, products, chartStartDate, chartEndDate, chartGrouping]);
+
+  const ytdRevenue = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    return orders
+      .filter(o => o.status !== 'CANCELLED' && new Date(o.date).getFullYear() === currentYear)
+      .reduce((sum, o) => sum + o.total, 0);
+  }, [orders]);
+
   // Discount Management State
   const [managedDiscount, setManagedDiscount] = useState<Partial<DiscountCode> | null>(null);
 
@@ -379,7 +479,9 @@ const AdminDashboard: React.FC<Props> = ({
       }
     } catch (err: any) {
       console.error("Verification error:", err);
-      if (err.code === 'auth/popup-closed-by-user') {
+      if (err.code === 'auth/network-request-failed') {
+        setAuthError("Authentication failed due to browser privacy settings or iframe restrictions. Please click 'Open in New Tab' at the top right to sign in.");
+      } else if (err.code === 'auth/popup-closed-by-user') {
         setAuthError("Sign-in window was closed. If you didn't close it, check if your browser blocked the popup.");
       } else if (err.code === 'auth/popup-blocked') {
         setAuthError("Popup blocked. Please allow popups for this site or open in a new tab.");
@@ -4093,54 +4195,166 @@ const AdminDashboard: React.FC<Props> = ({
 
             {activeTab === 'accounting' && (
               <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500" id="accounting-summary-print-area">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b-2 border-[#0055ff]/10 pb-6 mb-8">
-                  <div className="flex flex-wrap items-center gap-4">
+                <div id="revenue-management-section" className="mb-8">
+                  <div className={`mb-6 p-4 border rounded ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800' : 'bg-zinc-50 border-zinc-200'} flex flex-col md:flex-row md:items-center justify-between gap-4`}>
                     <div>
-                      <label className="text-[10px] font-black uppercase tracking-widest block mb-1">Start Date</label>
-                      <input type="date" value={accountingStartDate} onChange={e => setAccountingStartDate(e.target.value)} className={`px-4 py-2 border ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-transparent border-black'} outline-none text-sm focus:border-[#0055ff]`} />
+                      <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">YTD Total Revenue</p>
+                      <p className="text-2xl font-black text-emerald-500">৳{ytdRevenue.toLocaleString()}</p>
                     </div>
-                    <div>
-                      <label className="text-[10px] font-black uppercase tracking-widest block mb-1">End Date</label>
-                      <input type="date" value={accountingEndDate} onChange={e => setAccountingEndDate(e.target.value)} className={`px-4 py-2 border ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-transparent border-black'} outline-none text-sm focus:border-[#0055ff]`} />
+                    <div className="flex flex-col md:flex-row gap-4">
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Alert Milestone:</label>
+                        <div className="flex items-center">
+                          <span className="px-2 py-1.5 border border-r-0 rounded-l text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-500 font-bold border-zinc-200 dark:border-zinc-700">৳</span>
+                          <input 
+                            type="number" 
+                            value={revenueMilestone} 
+                            onChange={e => setRevenueMilestone(Number(e.target.value) || 0)} 
+                            className={`px-2 py-1 border rounded-r w-24 ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'} outline-none text-xs focus:border-[#0055ff] font-bold`} 
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Target Goal:</label>
+                        <div className="flex items-center">
+                          <span className="px-2 py-1.5 border border-r-0 rounded-l text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-500 font-bold border-zinc-200 dark:border-zinc-700">৳</span>
+                          <input 
+                            type="number" 
+                            value={targetRevenue} 
+                            onChange={e => setTargetRevenue(Number(e.target.value) || 0)} 
+                            className={`px-2 py-1 border rounded-r w-24 ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'} outline-none text-xs focus:border-[#0055ff] font-bold`} 
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <button onClick={() => { setAccountingStartDate(''); setAccountingEndDate(''); }} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white text-[10px] font-black uppercase tracking-widest h-10">Clear Filter</button>
-                    
-                    <button 
-                      onClick={() => setIsMonthlyProfitSheetOpen(true)}
-                      className="px-6 py-2 border border-[#0055ff] text-[#0055ff] hover:bg-[#0055ff] hover:text-white text-[10px] font-black uppercase tracking-widest h-10 transition-all flex items-center gap-2"
-                    >
-                      <ListIcon className="w-4 h-4" /> Monthly_Profit_Sheet
+                  </div>
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                    <div className="flex items-center gap-2 bg-zinc-900/50 p-1 rounded border border-zinc-800">
+                      <button onClick={() => setChartGrouping('daily')} className={`px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded transition-colors ${chartGrouping === 'daily' ? 'bg-[#0055ff] text-white' : 'text-zinc-500 hover:text-white'}`}>Daily</button>
+                      <button onClick={() => setChartGrouping('weekly')} className={`px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded transition-colors ${chartGrouping === 'weekly' ? 'bg-[#0055ff] text-white' : 'text-zinc-500 hover:text-white'}`}>Weekly</button>
+                      <button onClick={() => setChartGrouping('monthly')} className={`px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded transition-colors ${chartGrouping === 'monthly' ? 'bg-[#0055ff] text-white' : 'text-zinc-500 hover:text-white'}`}>Monthly</button>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">From:</label>
+                        <input type="date" value={chartStartDate} onChange={e => setChartStartDate(e.target.value)} className={`px-2 py-1 border rounded ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-transparent border-black'} outline-none text-xs focus:border-[#0055ff]`} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">To:</label>
+                        <input type="date" value={chartEndDate} onChange={e => setChartEndDate(e.target.value)} className={`px-2 py-1 border rounded ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-transparent border-black'} outline-none text-xs focus:border-[#0055ff]`} />
+                      </div>
+                      {(chartStartDate || chartEndDate) && (
+                        <button onClick={() => { setChartStartDate(''); setChartEndDate(''); }} className="text-[10px] font-black uppercase tracking-widest text-rose-500 hover:underline">Clear</button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mb-6 h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={revenueTrendData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#27272a' : '#e5e7eb'} vertical={false} />
+                        <XAxis dataKey="date" stroke={isDarkMode ? '#a1a1aa' : '#71717a'} fontSize={10} tickLine={false} axisLine={false} />
+                        <YAxis stroke={isDarkMode ? '#a1a1aa' : '#71717a'} fontSize={10} tickLine={false} axisLine={false} tickFormatter={(value) => `৳${value}`} />
+                        <Tooltip 
+                          content={({ active, payload, label }: any) => {
+                            if (active && payload && payload.length) {
+                              const data = payload[0].payload;
+                              const isMilestoneHit = data.total >= revenueMilestone;
+                              return (
+                                <div className={`p-3 border rounded shadow-lg text-[10px] ${isMilestoneHit ? 'border-amber-500' : isDarkMode ? 'border-zinc-800' : 'border-zinc-200'} ${isDarkMode ? 'bg-zinc-900 text-white' : 'bg-white text-black'}`}>
+                                  <p className="font-black mb-2 border-b pb-1 border-current opacity-70 uppercase tracking-widest flex justify-between items-center">
+                                    {label}
+                                    {isMilestoneHit && <span className="text-amber-500">★ MILESTONE</span>}
+                                  </p>
+                                  {isMilestoneHit && (
+                                    <div className="mb-2 p-1.5 bg-amber-500/10 text-amber-500 rounded border border-amber-500/20">
+                                      <p className="font-bold">Milestone Achieved!</p>
+                                      <p className="opacity-80 mt-0.5 text-[9px]">Date Achieved: {label}</p>
+                                      <p className="opacity-80 mt-0.5 text-[9px]">Threshold Exceeded: ৳{revenueMilestone.toLocaleString()}</p>
+                                    </div>
+                                  )}
+                                  <div className="space-y-1">
+                                    <p className="flex justify-between gap-6 uppercase"><span className="opacity-60">Revenue:</span> <span className={`font-bold ${isMilestoneHit ? 'text-amber-500' : 'text-[#0055ff]'}`}>৳{data.total.toLocaleString()}</span></p>
+                                    <p className="flex justify-between gap-6 uppercase"><span className="opacity-60">Orders:</span> <span className="font-bold">{data.ordersCount}</span></p>
+                                    <p className="flex justify-between gap-6 uppercase"><span className="opacity-60">Est. Profit:</span> <span className="font-bold text-emerald-500">৳{data.profit.toLocaleString()}</span></p>
+                                    {targetRevenue > 0 && (
+                                      <p className="flex justify-between gap-6 uppercase"><span className="opacity-60">Gap to Target:</span> <span className={`font-bold ${data.total >= targetRevenue ? 'text-emerald-500' : 'text-rose-500'}`}>{data.total >= targetRevenue ? '+' : ''}৳{(data.total - targetRevenue).toLocaleString()}</span></p>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        {revenueMilestone > 0 && (
+                          <ReferenceLine y={revenueMilestone} stroke="#f59e0b" strokeDasharray="3 3" opacity={0.5} label={{ position: 'insideTopLeft', value: 'Milestone', fill: '#f59e0b', fontSize: 10, fontWeight: 'bold' }} />
+                        )}
+                        {targetRevenue > 0 && (
+                          <ReferenceLine y={targetRevenue} stroke="#10b981" strokeDasharray="5 5" opacity={0.8} label={{ position: 'insideTopRight', value: 'Target Goal', fill: '#10b981', fontSize: 10, fontWeight: 'bold' }} />
+                        )}
+                        <Bar dataKey="total" radius={[4, 4, 0, 0]}>
+                          {revenueTrendData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.total >= revenueMilestone ? '#f59e0b' : '#0055ff'} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b-2 border-[#0055ff]/10 pb-6">
+                    <div className="flex flex-wrap items-center gap-4">
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-widest block mb-1">Start Date</label>
+                        <input type="date" value={accountingStartDate} onChange={e => setAccountingStartDate(e.target.value)} className={`px-4 py-2 border ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-transparent border-black'} outline-none text-sm focus:border-[#0055ff]`} />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-widest block mb-1">End Date</label>
+                        <input type="date" value={accountingEndDate} onChange={e => setAccountingEndDate(e.target.value)} className={`px-4 py-2 border ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-transparent border-black'} outline-none text-sm focus:border-[#0055ff]`} />
+                      </div>
+                      <button onClick={() => { setAccountingStartDate(''); setAccountingEndDate(''); }} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white text-[10px] font-black uppercase tracking-widest h-10">Clear Filter</button>
+                      
+                      <button 
+                        onClick={() => setIsMonthlyProfitSheetOpen(true)}
+                        className="px-6 py-2 border border-[#0055ff] text-[#0055ff] hover:bg-[#0055ff] hover:text-white text-[10px] font-black uppercase tracking-widest h-10 transition-all flex items-center gap-2"
+                      >
+                        <ListIcon className="w-4 h-4" /> Monthly_Profit_Sheet
+                      </button>
+                      <button 
+                        onClick={() => setIsRevenueModalOpen(true)}
+                        className="px-6 py-2 border border-emerald-500 text-emerald-500 hover:bg-emerald-500 hover:text-white text-[10px] font-black uppercase tracking-widest h-10 transition-all flex items-center gap-2"
+                      >
+                        <ListIcon className="w-4 h-4" /> Revenue_History
+                      </button>
+                      <button onClick={() => {
+                        const printWindow = window.open('', '', 'height=800,width=1000');
+                      const printContents = document.getElementById('accounting-summary-print-area')?.innerHTML;
+                      if(printWindow && printContents) {
+                        printWindow.document.write(`<html><head><title>Profit Summary</title>
+                          <script src="https://cdn.tailwindcss.com"></script>
+                          <style>
+                            body { padding: 40px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; background: white; color: black; }
+                            button, input, select, label { display: none !important; }
+                            * { border-color: #e5e7eb !important; color: black !important; background: transparent !important; }
+                            table { border-collapse: collapse; width: 100%; mt-4; }
+                            th, td { border-bottom: 1px solid #e5e7eb; padding: 12px; text-align: left; }
+                            .text-rose-500 { color: #ef4444 !important; }
+                            .text-emerald-500 { color: #10b981 !important; }
+                            canvas, svg { opacity: 0.5; }
+                          </style>
+                        </head><body>
+                          <h1 class="text-2xl font-black mb-8 border-b pb-4">Profit Summary ${accountingStartDate ? 'from ' + accountingStartDate : ''} ${accountingEndDate ? 'to ' + accountingEndDate : ''}</h1>
+                          ${printContents}
+                        </body></html>`);
+                        printWindow.document.close();
+                        printWindow.focus();
+                        setTimeout(() => {
+                          printWindow.print();
+                          printWindow.close();
+                        }, 1000);
+                      }
+                    }} className="px-6 py-2 bg-[#0055ff] hover:bg-[#0044cc] text-white text-[10px] font-black uppercase tracking-widest gap-2 flex items-center h-10 shadow-lg">
+                      <Download className="w-4 h-4" /> Download / Print Profit
                     </button>
-                    <button onClick={() => {
-                      const printWindow = window.open('', '', 'height=800,width=1000');
-                    const printContents = document.getElementById('accounting-summary-print-area')?.innerHTML;
-                    if(printWindow && printContents) {
-                      printWindow.document.write(`<html><head><title>Profit Summary</title>
-                        <script src="https://cdn.tailwindcss.com"></script>
-                        <style>
-                          body { padding: 40px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; background: white; color: black; }
-                          button, input, select, label { display: none !important; }
-                          * { border-color: #e5e7eb !important; color: black !important; background: transparent !important; }
-                          table { border-collapse: collapse; width: 100%; mt-4; }
-                          th, td { border-bottom: 1px solid #e5e7eb; padding: 12px; text-align: left; }
-                          .text-rose-500 { color: #ef4444 !important; }
-                          .text-emerald-500 { color: #10b981 !important; }
-                          canvas, svg { opacity: 0.5; }
-                        </style>
-                      </head><body>
-                        <h1 class="text-2xl font-black mb-8 border-b pb-4">Profit Summary ${accountingStartDate ? 'from ' + accountingStartDate : ''} ${accountingEndDate ? 'to ' + accountingEndDate : ''}</h1>
-                        ${printContents}
-                      </body></html>`);
-                      printWindow.document.close();
-                      printWindow.focus();
-                      setTimeout(() => {
-                        printWindow.print();
-                        printWindow.close();
-                      }, 1000);
-                    }
-                  }} className="px-6 py-2 bg-[#0055ff] hover:bg-[#0044cc] text-white text-[10px] font-black uppercase tracking-widest gap-2 flex items-center h-10 shadow-lg">
-                    <Download className="w-4 h-4" /> Download / Print Profit
-                  </button>
+                  </div>
                 </div>
               </div>
                 {/* Financial Overview Cards */}
@@ -4167,9 +4381,17 @@ const AdminDashboard: React.FC<Props> = ({
 
                     return (
                       <>
-                        <div className={`p-6 border ${cardClasses} shadow-sm group hover:border-[#0055ff] transition-all`}>
+                        <div className={`p-6 border ${cardClasses} shadow-sm group hover:border-[#0055ff] transition-all relative`}>
                           <div className="flex justify-between items-start mb-4">
-                            <span className="text-[10px] font-black uppercase opacity-50 tracking-widest">Total_Revenue</span>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[10px] font-black uppercase opacity-50 tracking-widest">Total_Revenue</span>
+                              <button 
+                                onClick={() => setIsRevenueModalOpen(true)}
+                                className="text-[9px] font-black uppercase text-[#0055ff] hover:underline flex items-center gap-1"
+                              >
+                                See Breakdown
+                              </button>
+                            </div>
                             <div className="p-2 bg-[#0055ff]/10 text-[#0055ff]">
                               <ArrowUpRight className="w-4 h-4" />
                             </div>
@@ -5729,7 +5951,7 @@ const AdminDashboard: React.FC<Props> = ({
                               loading="lazy"
                               src={socialSettings.appearance.siteLogoUrl} 
                               alt="Logo Render" 
-                              style={{ height: `${socialSettings.appearance.siteLogoHeight || 32}px`, width: socialSettings.appearance.siteLogoWidth ? `${socialSettings.appearance.siteLogoWidth}px` : 'auto' }}
+                              style={{ height: `${socialSettings.appearance.siteLogoHeight || 56}px`, width: socialSettings.appearance.siteLogoWidth ? `${socialSettings.appearance.siteLogoWidth}px` : 'auto' }}
                               className="object-contain max-h-[80px] relative z-10 transition-all filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]"
                             />
                             <div className="text-[8px] uppercase tracking-widest text-zinc-500 mt-2 font-black z-10">Live Preview</div>
@@ -5785,13 +6007,13 @@ const AdminDashboard: React.FC<Props> = ({
                         <div className="space-y-2">
                           <div className="flex justify-between items-center text-[10px] font-black uppercase">
                             <span className="opacity-60">Logo Height</span>
-                            <span className="text-[#0055ff]">{socialSettings.appearance?.siteLogoHeight || 32}px</span>
+                            <span className="text-[#0055ff]">{socialSettings.appearance?.siteLogoHeight || 56}px</span>
                           </div>
                           <input
                             type="range"
                             min="16"
                             max="96"
-                            value={socialSettings.appearance?.siteLogoHeight || 32}
+                            value={socialSettings.appearance?.siteLogoHeight || 56}
                             onChange={(e) => {
                               const val = parseInt(e.target.value);
                               setSocialSettings({
@@ -7682,6 +7904,103 @@ const AdminDashboard: React.FC<Props> = ({
               >
                 {managedExpense.id ? 'Save_Changes' : 'Add_Expense'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isRevenueModalOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setIsRevenueModalOpen(false)}></div>
+          <div className={`relative w-full max-w-5xl shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden flex flex-col max-h-[85vh] ${isDarkMode ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'}`}>
+            <div className="p-6 border-b border-zinc-800 flex items-center justify-between shrink-0">
+              <h3 className="text-xl font-black uppercase italic">Total_Revenue_Breakdown</h3>
+              <button onClick={() => setIsRevenueModalOpen(false)} className="p-2 hover:bg-white/5 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto">
+              <div className={`border rounded-none overflow-x-auto ${isDarkMode ? 'bg-zinc-950/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                <table className="w-full text-left text-[11px] font-black uppercase">
+                  <thead className={`border-b ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                    <tr>
+                      <th className="px-4 py-4 opacity-50">Order ID</th>
+                      <th className="px-4 py-4 opacity-50">Date</th>
+                      <th className="px-4 py-4 opacity-50">Customer</th>
+                      <th className="px-4 py-4 opacity-50">Total</th>
+                      <th className="px-4 py-4 text-right opacity-50">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/30">
+                    {orders
+                      .filter(o => o.status !== 'CANCELLED')
+                      .filter(o => (!accountingStartDate || o.date >= accountingStartDate) && (!accountingEndDate || o.date <= accountingEndDate))
+                      .length > 0 ? (
+                        orders
+                          .filter(o => o.status !== 'CANCELLED')
+                          .filter(o => (!accountingStartDate || o.date >= accountingStartDate) && (!accountingEndDate || o.date <= accountingEndDate))
+                          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                          .map(order => (
+                            <tr key={order.id} className={`transition-colors ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}>
+                              <td className="px-4 py-3 font-mono opacity-60">#{order.id.slice(0, 8)}</td>
+                              <td className="px-4 py-3 opacity-60 font-mono">{new Date(order.date).toLocaleDateString()}</td>
+                              <td className="px-4 py-3">{order.customerName}</td>
+                              <td className="px-4 py-3 text-emerald-500 font-black">৳{order.total.toLocaleString()}</td>
+                              <td className="px-4 py-3 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  {onOpenSmartPreview && (
+                                    <button 
+                                      onClick={() => {
+                                        setIsRevenueModalOpen(false);
+                                        onOpenSmartPreview(order);
+                                      }} 
+                                      className="px-2 py-1 bg-[#0055ff] border border-[#0055ff] text-white hover:bg-blue-600 uppercase text-[8px] font-black transition-all"
+                                      title="Open Smart Invoice Preview"
+                                    >
+                                      👁️ Smart
+                                    </button>
+                                  )}
+                                  <button 
+                                    onClick={() => {
+                                      setIsRevenueModalOpen(false);
+                                      setActiveTab('orders');
+                                      setPreviewOrderId(order.id);
+                                    }} 
+                                    className="px-2 py-1 border border-[#0055ff]/50 hover:border-[#0055ff] text-[#0055ff] uppercase text-[8px] font-black transition-all"
+                                  >
+                                    Preview
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      setIsRevenueModalOpen(false);
+                                      setActiveTab('orders');
+                                      setManagedOrder(order);
+                                    }} 
+                                    className="px-3 py-1 border border-zinc-500/30 hover:border-white uppercase text-[8px] font-black transition-all"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      setIsRevenueModalOpen(false);
+                                      setActiveTab('orders');
+                                      setOrderDeleteConfirm(order.id);
+                                    }} 
+                                    className="px-3 py-1 border border-rose-500/30 text-rose-500 hover:bg-rose-500 hover:text-white uppercase text-[8px] font-black transition-all"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                      ) : (
+                        <tr><td colSpan={5} className="px-6 py-20 text-center text-zinc-500 tracking-widest font-black opacity-30">NO_REVENUE_FOUND</td></tr>
+                      )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>

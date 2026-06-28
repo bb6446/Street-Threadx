@@ -127,6 +127,8 @@ export const signInWithGoogle = async () => {
       console.error("Google Sign-In: Popup closed by user or cancelled. This can happen if the window is closed manually, blocked by a browser extension, or due to iframe restrictions.");
     } else if (error.code === 'auth/popup-blocked') {
       console.error("Google Sign-In: Popup was blocked by the browser. Please allow popups for this site.");
+    } else if (error.code === 'auth/network-request-failed') {
+      console.error("Google Sign-In: Network request failed. This is often caused by iframe cross-origin restrictions in preview environments. Try using 'Open in New Tab'.");
     } else {
       console.error("Google Sign-In Error details:", error);
     }

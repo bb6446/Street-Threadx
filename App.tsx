@@ -344,7 +344,7 @@ const Navbar: React.FC<{
                   src={socialSettings.appearance?.siteLogoUrl || '/logo.jpg'} 
                   alt="Logo" 
                   style={{ 
-                    height: socialSettings.appearance?.siteLogoHeight ? `${socialSettings.appearance.siteLogoHeight}px` : '40px',
+                    height: socialSettings.appearance?.siteLogoHeight ? `${socialSettings.appearance.siteLogoHeight}px` : '56px',
                     width: socialSettings.appearance?.siteLogoWidth ? `${socialSettings.appearance.siteLogoWidth}px` : 'auto'
                   }}
                   className="object-contain" 

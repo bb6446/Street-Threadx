@@ -173,6 +173,7 @@ export const OrderTimeline: React.FC<Props> = ({ status, isDarkMode, orderId }) 
   const [simError, setSimError] = useState('');
   const [showSimPanel, setShowSimPanel] = useState(false);
   const [showMapModal, setShowMapModal] = useState(false);
+  const [showTrackingModal, setShowTrackingModal] = useState(false);
 
   // Auto-sync selected step with active step when the order status changes in Firestore
   useEffect(() => {
@@ -253,15 +254,26 @@ export const OrderTimeline: React.FC<Props> = ({ status, isDarkMode, orderId }) 
             </button>
           )}
           {activeIndex === 3 && (
-            <button
-              type="button"
-              onClick={() => setShowMapModal(true)}
-              className="dispatched-badge-pulsate"
-              title="Click to view live shipping map"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-[#0055ff] inline-block animate-ping"></span>
-              Order Dispatched
-            </button>
+            <div className="relative group">
+              <button
+                type="button"
+                onClick={() => setShowTrackingModal(true)}
+                className="dispatched-badge-pulsate"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-[#0055ff] inline-block animate-ping"></span>
+                Order Dispatched
+              </button>
+              {/* Tooltip with estimated delivery timestamp */}
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-300 transform translate-y-2 group-hover:translate-y-0 z-50">
+                <div className="bg-zinc-950 border-2 border-zinc-800 text-white text-[9px] font-mono p-2.5 shadow-2xl flex flex-col gap-1 text-center">
+                  <div className="font-black text-[#0055ff] uppercase tracking-wider">EST. DELIVERY</div>
+                  <div className="text-zinc-300 font-bold">45 Mins (In Transit)</div>
+                  <div className="text-[7px] text-zinc-500 uppercase">Click for Live GPS Map</div>
+                </div>
+                {/* Tooltip Arrow */}
+                <div className="w-2 h-2 bg-zinc-950 border-r-2 border-b-2 border-zinc-800 rotate-45 mx-auto -mt-1"></div>
+              </div>
+            </div>
           )}
           <div className="text-[9px] font-black uppercase tracking-widest px-3 py-1.5 bg-[#0055ff]/10 text-[#0055ff] border border-[#0055ff]/20">
             Active: {timelineSteps[activeIndex]?.label || 'Pending'}
@@ -829,6 +841,77 @@ export const OrderTimeline: React.FC<Props> = ({ status, isDarkMode, orderId }) 
                   </div>
                 </div>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showTrackingModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ type: 'spring', duration: 0.3 }}
+              className="relative w-full max-w-sm bg-zinc-950 border border-zinc-800 shadow-2xl p-6 text-white"
+            >
+              <button 
+                onClick={() => setShowTrackingModal(false)}
+                className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"
+              >
+                <X size={16} />
+              </button>
+              
+              <div className="flex items-center gap-2 mb-6">
+                <Truck size={18} className="text-[#0055ff]" />
+                <h3 className="text-sm font-black uppercase tracking-widest">Active Dispatch Log</h3>
+              </div>
+
+              <div className="space-y-4 mb-6">
+                <div className="flex justify-between items-center bg-zinc-900/50 p-3 border border-zinc-800">
+                  <div className="text-[10px] font-mono text-zinc-400 uppercase">Carrier Link</div>
+                  <a href="#" className="text-[10px] font-bold text-[#0055ff] hover:underline flex items-center gap-1 uppercase tracking-wider">
+                    Track via PATHFINDER <span className="text-[8px] bg-[#0055ff]/20 px-1 py-0.5 rounded-sm">↗</span>
+                  </a>
+                </div>
+
+                <div className="flex justify-between items-center bg-zinc-900/50 p-3 border border-zinc-800">
+                  <div className="text-[10px] font-mono text-zinc-400 uppercase">Precise ETA</div>
+                  <div className="text-[11px] font-black text-emerald-400 font-mono tracking-widest bg-emerald-500/10 px-2 py-1 border border-emerald-500/20">
+                    23:45:00 UTC
+                  </div>
+                </div>
+              </div>
+
+              <div className="relative pl-6 space-y-6 before:absolute before:inset-0 before:ml-[9px] before:-translate-x-px before:h-full before:w-0.5 before:bg-zinc-800">
+                <div className="relative">
+                  <div className="absolute left-[-24px] top-1 w-2 h-2 rounded-full bg-[#0055ff] ring-4 ring-[#0055ff]/20"></div>
+                  <div className="text-[10px] font-bold text-white uppercase tracking-wider">Package Scanned at Facility</div>
+                  <div className="text-[9px] text-zinc-500 font-mono mt-0.5">Today, 14:32 PM - Sort_Facility</div>
+                </div>
+                <div className="relative">
+                  <div className="absolute left-[-24px] top-1 w-2 h-2 rounded-full bg-zinc-600 ring-4 ring-zinc-900"></div>
+                  <div className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">Departed Local Hub</div>
+                  <div className="text-[9px] text-zinc-500 font-mono mt-0.5">Today, 10:15 AM - Transit_Gate_Alpha</div>
+                </div>
+                <div className="relative">
+                  <div className="absolute left-[-24px] top-1 w-2 h-2 rounded-full bg-zinc-600 ring-4 ring-zinc-900"></div>
+                  <div className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">Origin Scan</div>
+                  <div className="text-[9px] text-zinc-500 font-mono mt-0.5">Today, 08:00 AM - Node_HQ</div>
+                </div>
+              </div>
+              
+              <button
+                onClick={() => {
+                  setShowTrackingModal(false);
+                  setShowMapModal(true);
+                }}
+                className="w-full mt-8 py-3 bg-[#0055ff]/10 text-[#0055ff] hover:bg-[#0055ff] hover:text-white border border-[#0055ff]/30 transition-all text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+              >
+                <Compass size={14} />
+                Open Live Tracker
+              </button>
             </motion.div>
           </div>
         )}
